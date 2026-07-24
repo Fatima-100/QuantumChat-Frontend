@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { QUICK_REACTIONS } from '../utils/emojis.js';
 import client from '../api/client.js';
-import { getToken, findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+  getKeyring,
+} from '../crypto/keyStorage.js';
 import { getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, pickRandom } from '../crypto/keys.js';
 import UserAvatar from './UserAvatar.jsx';
-
+import { motion } from 'framer-motion';
+import { Send, Smile, X } from 'lucide-react';
+import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 const MAX_STORY_SECONDS = 60;
-const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
 function bytesToBase64(bytes) {
   let s = '';
@@ -18,7 +24,12 @@ function bytesToBase64(bytes) {
 }
 
 function base64ToBytes(b64) {
-  const bin = atob(b64);
+  // Multipart form fields sometimes turn '+' into spaces; normalize before atob.
+  const normalized = String(b64 || '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .replace(/\s/g, '');
+  const bin = atob(normalized);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
   return out;
@@ -31,6 +42,7 @@ async function aesGcmEncryptBlob(file) {
   ]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plain = new Uint8Array(await file.arrayBuffer());
+
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain);
   const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
   return {
@@ -75,40 +87,76 @@ function probeMediaDuration(file) {
   });
 }
 
+function envelopeUserId(envelope) {
+  return String(envelope?.user?.id || envelope?.user || '');
+}
+
 function buildStoryEnvelopes(audience, keyB64, ivB64) {
   const secretPayload = JSON.stringify({ keyB64, ivB64 });
   return audience.map((u) => {
     const keys = (u.publicKeys || []).filter(Boolean);
     if (!keys.length) throw new Error(`Missing X5 keys for ${u.username || u.id}`);
     const sealed = sealMessage(secretPayload, pickRandom(keys));
-    return { user: u.id, ...sealed };
+    return { user: String(u.id), ...sealed };
   });
 }
 
-function unlockStoryKey(story, currentUserId) {
-  const envelopes = story.envelopes || [];
-  const mine = envelopes.find((e) => String(e.user) === String(currentUserId));
-  if (!mine?.targetPublicKey) return null;
-  const secret = findSecretKeyForPublicKey(currentUserId, mine.targetPublicKey);
-  if (!secret) return null;
-  const text = unsealMessage(mine, secret);
+function tryParseKeyPayload(text) {
   if (!text) return null;
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    if (parsed?.keyB64 && parsed?.ivB64) return parsed;
   } catch {
-    return null;
+    // ignore
   }
+  return null;
 }
 
-export default function StoriesRail({ currentUser, users = [], onError }) {
+/** Open the AES media key from any of this viewer's story envelopes. */
+function unlockStoryKey(story, currentUserId) {
+  const uid = String(currentUserId?.id || currentUserId || '');
+  if (!uid) return null;
+  const envelopes = (story.envelopes || []).filter((e) => envelopeUserId(e) === uid);
+  if (!envelopes.length) return null;
+
+  const ring = getKeyring(uid);
+
+  for (const envelope of envelopes) {
+    const hinted = envelope.targetPublicKey
+      ? findSecretKeyForPublicKey(uid, envelope.targetPublicKey)
+      : null;
+    if (hinted) {
+      const unlocked = tryParseKeyPayload(unsealMessage(envelope, hinted));
+      if (unlocked) return unlocked;
+    }
+    // Fallback: try every local secret (covers stale targetPublicKey hints).
+    for (const entry of ring) {
+      if (hinted && entry.secretKey === hinted) continue;
+      const unlocked = tryParseKeyPayload(unsealMessage(envelope, entry.secretKey));
+      if (unlocked) return unlocked;
+    }
+  }
+  return null;
+}
+
+function viewerCanSeeStory(story, currentUserId) {
+  if (!story?.sealed) return true;
+  const uid = String(currentUserId?.id || currentUserId || '');
+  return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
+}
+
+import { forwardRef, useImperativeHandle } from 'react';
+
+const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError }, ref) {
   const [stories, setStories] = useState([]);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef(null);
-
+const [unavailable, setUnavailable] = useState(false);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
+      if (!viewerCanSeeStory(story, currentUser?.id)) continue;
       const uid = String(story.user?.id || story.user);
       if (!map.has(uid)) {
         map.set(uid, { user: story.user, items: [] });
@@ -140,6 +188,7 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
     if (!socket) return undefined;
     function onNew(payload) {
       if (!payload?.id) return;
+      if (!viewerCanSeeStory(payload, currentUser?.id)) return;
       setStories((prev) => {
         if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
         return [payload, ...prev];
@@ -155,7 +204,7 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
       socket.off('story:new', onNew);
       socket.off('story:deleted', onDeleted);
     };
-  }, []);
+  }, [currentUser?.id]);
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
@@ -177,31 +226,40 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
 
       if (canSeal) {
         const sealed = await aesGcmEncryptBlob(file);
+        // Seal the author envelope to keys this device actually holds (same
+        // pattern as chat forSender), not a possibly stale session publicKeys list.
+        const localKeySet = getCurrentKeySet(currentUser.id);
+        const authorPublicKeys = localKeySet.map((k) => k.publicKey).filter(Boolean);
+        if (!authorPublicKeys.length) {
+          throw new Error('Import your encryption keys before posting a sealed story');
+        }
+        for (const pk of authorPublicKeys) {
+          if (!findSecretKeyForPublicKey(currentUser.id, pk)) {
+            throw new Error('Local keyring is incomplete — re-import your keys.txt');
+          }
+        }
+
         const audienceMap = new Map();
         audienceMap.set(String(currentUser.id), {
-          id: currentUser.id,
+          id: String(currentUser.id),
           username: currentUser.username,
-          publicKeys: currentUser.publicKeys || [],
+          publicKeys: authorPublicKeys,
         });
         for (const u of users) {
           if (!u?.id || !u.publicKeys?.length) continue;
+          if (String(u.id) === String(currentUser.id)) continue;
           audienceMap.set(String(u.id), {
-            id: u.id,
+            id: String(u.id),
             username: u.username,
             publicKeys: u.publicKeys,
           });
         }
         const audience = [...audienceMap.values()];
-        if (!audience[0].publicKeys?.length) {
-          throw new Error('Your account is missing X5 public keys');
-        }
         const envelopes = buildStoryEnvelopes(audience, sealed.keyB64, sealed.ivB64);
 
         form.append(
           'file',
-          new Blob([sealed.cipherBytes], {
-            type: file.type || 'application/octet-stream',
-          }),
+          new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
           file.name || 'story.bin'
         );
         form.append('sealed', 'true');
@@ -224,7 +282,18 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
       setUploading(false);
     }
   }
-
+useImperativeHandle(ref, () => ({
+    async openStoryById(storyId) {
+      try {
+        const { data } = await client.get(`/stories/${storyId}`);
+        const story = data.data;
+        setUnavailable(false);
+        setViewer({ group: { user: story.user, items: [story] }, index: 0 });
+      } catch {
+        setUnavailable(true);
+      }
+    },
+  }));
   return (
     <div className="stories-rail">
       <p className="stories-privacy-note">
@@ -261,7 +330,10 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
             key={String(g.user?.id)}
             type="button"
             className="story-ring"
-            onClick={() => setViewer({ group: g, index: 0 })}
+            onClick={() => {
+              setUnavailable(false);
+              setViewer({ group: g, index: 0 });
+            }}
           >
             <UserAvatar
               userId={g.user?.id}
@@ -278,6 +350,8 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
           group={viewer.group}
           startIndex={viewer.index}
           currentUserId={currentUser?.id}
+          users={users}
+          onError={onError}
           onClose={() => setViewer(null)}
           onDeleted={async () => {
             setViewer(null);
@@ -285,14 +359,35 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
           }}
         />
       )}
+     {unavailable && (
+        <div className="story-viewer-overlay" onClick={() => setUnavailable(false)}>
+          <div className="story-unavailable-card" onClick={(e) => e.stopPropagation()}>
+            <p>This story is no longer available.</p>
+            <button type="button" onClick={() => setUnavailable(false)}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+});
 
-function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
+export default StoriesRail;
+
+function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
-  const [sealedBlocked, setSealedBlocked] = useState(false);
+  const [blockedReason, setBlockedReason] = useState('');
+const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const replyInputRef = useRef(null);
+  const [reacting, setReacting] = useState(false);
+const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [emojiQuery, setEmojiQuery] = useState('');
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [reactionQuery, setReactionQuery] = useState('');
+  const [burst, setBurst] = useState(null);
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
 
@@ -300,25 +395,20 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
     let cancelled = false;
     let objectUrl;
     setMediaUrl(null);
-    setSealedBlocked(false);
+    setBlockedReason('');
 
     (async () => {
       if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.ivB64 || story.contentIv;
         if (!unlocked?.keyB64 || !ivB64) {
-          setSealedBlocked(true);
+          setBlockedReason('Sealed story — no envelope for your keys');
           return;
         }
-        const token = getToken();
-        const res = await fetch(`${API_BASE}/stories/${story.id}/media`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        const res = await client.get(`/stories/${story.id}/media`, {
+          responseType: 'arraybuffer',
         });
-        if (!res.ok) {
-          setSealedBlocked(true);
-          return;
-        }
-        const cipherBytes = new Uint8Array(await res.arrayBuffer());
+        const cipherBytes = new Uint8Array(res.data);
         const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.keyB64, ivB64);
         if (cancelled) return;
         objectUrl = URL.createObjectURL(
@@ -328,19 +418,23 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
         return;
       }
 
-      const token = getToken();
-      const res = await fetch(`${API_BASE}/stories/${story.id}/media`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error('Failed to load story media');
-      const blob = await res.blob();
+      const res = await client.get(`/stories/${story.id}/media`, { responseType: 'blob' });
       if (cancelled) return;
-      objectUrl = URL.createObjectURL(blob);
+      objectUrl = URL.createObjectURL(res.data);
       setMediaUrl(objectUrl);
-    })().catch(() => {
+    })().catch((err) => {
       if (!cancelled) {
         setMediaUrl(null);
-        if (story.sealed) setSealedBlocked(true);
+        if (story.sealed) {
+          const status = err?.response?.status;
+          if (status === 403) {
+            setBlockedReason('Sealed story — no envelope for your keys');
+          } else if (status === 404) {
+            setBlockedReason('Story media is missing on the server');
+          } else {
+            setBlockedReason('Could not decrypt this sealed story');
+          }
+        }
       }
     });
     return () => {
@@ -349,9 +443,17 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
     };
   }, [story, currentUserId]);
 
-  useEffect(() => {
+ useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') onClose();
+      const tag = document.activeElement?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (typing) return; // let the input handle its own arrow keys
+
       if (e.key === 'ArrowRight') setIndex((i) => Math.min(group.items.length - 1, i + 1));
       if (e.key === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1));
     }
@@ -363,6 +465,117 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
     if (!window.confirm('Delete this story?')) return;
     await client.delete(`/stories/${story.id}`);
     onDeleted?.();
+  }
+async function handleSendReply() {
+    const text = replyText.trim();
+    if (!text || sendingReply) return;
+    try {
+      setSendingReply(true);
+
+      const owner = users.find((u) => String(u.id) === String(group.user?.id));
+      const ownerKeys = (owner?.publicKeys || []).filter(Boolean);
+      if (!ownerKeys.length) {
+        throw new Error("Can't reply — missing this user's encryption keys");
+      }
+
+      const selfKeySet = getCurrentKeySet(currentUserId);
+      const selfKeys = selfKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!selfKeys.length) {
+        throw new Error('Import your encryption keys before replying');
+      }
+
+      const payload = JSON.stringify({
+        type: 'story_reply',
+        storyId: story.id,
+        mediaType: story.mediaType,
+        caption: story.caption || null,
+        text,
+      });
+
+      const forRecipient = sealMessage(payload, pickRandom(ownerKeys));
+      const forSender = sealMessage(payload, pickRandom(selfKeys));
+
+      await client.post('/messages', {
+        to: String(group.user?.id),
+        forRecipient,
+        forSender,
+        replyToStory: story.id,
+      });
+
+      setReplyText('');
+      if (replyInputRef.current) replyInputRef.current.style.height = 'auto';
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to send reply');
+    } finally {
+      setSendingReply(false);
+    }
+  }
+  function autoGrow(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }
+
+  function handleReplyKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendReply();
+    }
+  }
+  async function handleReact(emoji) {
+    if (reacting) return;
+    try {
+      setReacting(true);
+      setReactionPickerOpen(false);
+
+      const owner = users.find((u) => String(u.id) === String(group.user?.id));
+      const ownerKeys = (owner?.publicKeys || []).filter(Boolean);
+      if (!ownerKeys.length) {
+        throw new Error("Can't react — missing this user's encryption keys");
+      }
+
+      const selfKeySet = getCurrentKeySet(currentUserId);
+      const selfKeys = selfKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!selfKeys.length) {
+        throw new Error('Import your encryption keys before reacting');
+      }
+
+      const payload = JSON.stringify({
+        type: 'story_reaction',
+        storyId: story.id,
+        mediaType: story.mediaType,
+        emoji,
+      });
+
+      const forRecipient = sealMessage(payload, pickRandom(ownerKeys));
+      const forSender = sealMessage(payload, pickRandom(selfKeys));
+
+      await client.post('/messages', {
+        to: String(group.user?.id),
+        forRecipient,
+        forSender,
+        replyToStory: story.id,
+      });
+
+      setBurst(emoji);
+      setTimeout(() => setBurst(null), 700);
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to react');
+    } finally {
+      setReacting(false);
+    }
+  }
+ const emojiResults = useMemo(
+    () => (emojiQuery.trim() ? searchEmojis(emojiQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
+    [emojiQuery]
+  );
+  const reactionResults = useMemo(
+    () => (reactionQuery.trim() ? searchEmojis(reactionQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
+    [reactionQuery]
+  );
+
+  function insertEmoji(emoji) {
+    setReplyText((t) => t + emoji);
   }
 
   return (
@@ -388,22 +601,142 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
             <span key={s.id} className={i === index ? 'on' : ''} />
           ))}
         </div>
-        <div className="story-viewer-media">
-          {sealedBlocked && <p className="empty-hint">Sealed story — no envelope for your keys</p>}
-          {!sealedBlocked && !mediaUrl && <p className="empty-hint">Loading…</p>}
+        <div
+          className="story-viewer-media"
+          onDoubleClick={() => !isOwn && handleReact('❤️')}
+        >
+          {blockedReason && <p className="empty-hint">{blockedReason}</p>}
+          {!blockedReason && !mediaUrl && <p className="empty-hint">Loading…</p>}
           {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
           {mediaUrl && story.mediaType === 'video' && <video src={mediaUrl} autoPlay controls />}
           {mediaUrl && story.mediaType === 'audio' && <audio src={mediaUrl} autoPlay controls />}
+          {burst && <span className="story-reaction-burst">{burst}</span>}
         </div>
         {story.caption && <p className="story-caption">{story.caption}</p>}
-        <div className="story-viewer-actions">
+       <div className="story-viewer-actions">
           {isOwn && (
             <button type="button" onClick={handleDelete}>
               Delete
             </button>
           )}
         </div>
-      </div>
+
+     {!isOwn && (
+          <form
+            className="story-reply-bar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendReply();
+            }}
+          >
+            <div className="story-reply-input-wrap">
+              <textarea
+                ref={replyInputRef}
+                rows={1}
+                value={replyText}
+                onChange={(e) => {
+                  setReplyText(e.target.value);
+                  autoGrow(e.target);
+                }}
+                onKeyDown={handleReplyKeyDown}
+                placeholder={`Reply to ${group.user?.username}…`}
+                disabled={sendingReply}
+              />
+              <button
+                type="button"
+                className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
+                aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
+                onClick={() => {
+                  setEmojiPickerOpen((v) => !v);
+                  setReactionPickerOpen(false);
+                }}
+              >
+                {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              disabled={sendingReply || !replyText.trim()}
+              aria-label="Send reply"
+              className={`story-reply-send ${replyText.trim() ? 'ready' : ''}`}
+            >
+              {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
+            </button>
+
+            <button
+              type="button"
+              className={`story-heart-btn ${reactionPickerOpen ? 'open' : ''}`}
+              aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
+              disabled={reacting}
+              onClick={() => {
+                setReactionPickerOpen((v) => !v);
+                setEmojiPickerOpen(false);
+              }}
+            >
+              {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
+            </button>
+
+            {emojiPickerOpen && (
+              <div className="story-emoji-picker anchored-left">
+                <div className="story-reaction-picker-header">
+                  <input
+                    type="text"
+                    value={emojiQuery}
+                    onChange={(e) => setEmojiQuery(e.target.value)}
+                    placeholder="Search emoji"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="story-reaction-picker-close"
+                    aria-label="Close"
+                    onClick={() => setEmojiPickerOpen(false)}
+                  >
+                    <X size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div className="story-reaction-picker-grid">
+                  {emojiResults.map((emoji) => (
+                    <button key={emoji} type="button" onClick={() => insertEmoji(emoji)}>
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {reactionPickerOpen && (
+              <div className="story-reaction-picker anchored-right">
+                <div className="story-reaction-picker-header">
+                  <input
+                    type="text"
+                    value={reactionQuery}
+                    onChange={(e) => setReactionQuery(e.target.value)}
+                    placeholder="Search emoji"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="story-reaction-picker-close"
+                    aria-label="Close"
+                    onClick={() => setReactionPickerOpen(false)}
+                  >
+                    <X size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div className="story-reaction-picker-grid">
+                  {reactionResults.map((emoji) => (
+                    <button key={emoji} type="button" onClick={() => handleReact(emoji)}>
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </form>
+        )}
+        </div>
     </div>
   );
 }
