@@ -1186,16 +1186,9 @@ export default function Chat() {
         .filter((message) => message.text)
         .slice(-20)
         .map((message) => `${String(message.from) === String(user.id) ? 'User' : 'QuantumAI'}: ${message.text}`);
-      const approvedContext =
-        recentContext.length &&
-        window.confirm(
-          `Privacy preview\n\nSend ${recentContext.length} decrypted messages from your QuantumAI thread as context?`
-        )
-          ? recentContext
-          : [];
       await streamQuantumAI({
         message: text,
-        context: approvedContext,
+        context: recentContext,
         link: { quantumChatPeerId: user.id },
         ephemeral: true,
         signal: controller.signal,
@@ -1275,10 +1268,6 @@ export default function Chat() {
       .filter((message) => message.text && message.kind !== 'ai')
       .slice(-maxContext)
       .map((message) => message.text);
-    const approved = window.confirm(
-      `Privacy preview\n\nQuantumAI will receive your mention plus ${context.length} decrypted recent message(s). Continue?`
-    );
-    if (!approved) return;
 
     setAiBusy(true);
     let finalPayload;
