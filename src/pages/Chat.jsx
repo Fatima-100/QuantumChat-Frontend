@@ -747,13 +747,18 @@ export default function Chat() {
 
   loadOlderMessagesRef.current = loadOlderMessages;
 
-  // Keep auto-scroll only when near bottom for new messages — avoid jump on older loads
+  // Keep auto-scroll only when near bottom for new messages — avoid jump on older loads.
+  // Scroll the list container itself. scrollIntoView() on bottomRef defaults to
+  // block:'start', which pins the sentinel to the top and clips the last bubble.
   useEffect(() => {
     if (loadingOlder) return;
     const el = messageListRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!nearBottom) return;
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    });
   }, [messages, loadingOlder]);
 
   const canChat = hasLocalKeyring;
