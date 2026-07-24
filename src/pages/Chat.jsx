@@ -263,7 +263,10 @@ export default function Chat() {
       let text = null;
       let hasEnvelope = false;
 
-      if (raw.group && Array.isArray(raw.envelopes)) {
+      if (raw.group && typeof raw.content === 'string' && raw.content.length > 0) {
+        text = raw.content;
+        hasEnvelope = true;
+      } else if (raw.group && Array.isArray(raw.envelopes)) {
         const mine = raw.envelopes.find((e) => String(e.user) === String(user.id));
         hasEnvelope = Boolean(mine?.targetPublicKey);
         if (mine?.targetPublicKey) {
@@ -307,7 +310,9 @@ export default function Chat() {
               const parent = raw.replyTo;
               const parentMine = String(parent.from) === String(user.id);
               let parentText = null;
-              if (parent.group && Array.isArray(parent.envelopes)) {
+              if (parent.group && typeof parent.content === 'string' && parent.content.length > 0) {
+                parentText = parent.content;
+              } else if (parent.group && Array.isArray(parent.envelopes)) {
                 const mine = parent.envelopes.find((e) => String(e.user) === String(user.id));
                 if (mine?.targetPublicKey) {
                   const sk = resolveMySecretKey(mine.targetPublicKey);
@@ -336,13 +341,21 @@ export default function Chat() {
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
       const from = raw.from;
+      // Store a short preview of the last message for the sidebar
+      const preview = raw.text
+        ? String(raw.text).slice(0, 60) + (raw.text.length > 60 ? '…' : '')
+        : raw.kind === 'file'
+          ? '📎 Attachment'
+          : raw.kind === 'audio'
+            ? '🎵 Voice message'
+            : '';
       if (raw.group) {
         const key = conversationKeyForGroup(raw.group);
-        setConversationActivity(user.id, key, { at, from });
+        setConversationActivity(user.id, key, { at, from, preview });
       } else {
         const otherId = String(raw.from) === String(user.id) ? raw.to : raw.from;
         if (!otherId) return;
-        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from });
+        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from, preview });
       }
       bumpActivity();
     },
@@ -783,7 +796,7 @@ export default function Chat() {
         type: 'dm',
         id: u.id,
         title: u.displayName || u.username || 'Unknown user',
-        subtitle: null,
+        subtitle: activity?.preview || null,
         searchText: `${u.displayName || ''} ${u.username || ''} ${u.email || ''}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
@@ -806,9 +819,9 @@ export default function Chat() {
         type: 'group',
         id: g.id,
         title: g.name,
-        subtitle: desc
+        subtitle: activity?.preview || (desc
           ? desc.slice(0, 48) + (desc.length > 48 ? '…' : '')
-          : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
+          : `${memberCount} member${memberCount === 1 ? '' : 's'}`),
         searchText: `${g.name || ''} ${g.description || ''}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
         unread,
@@ -832,6 +845,7 @@ export default function Chat() {
       } else if (archived.has(String(c.key))) {
         return false;
       }
+      if (filter === 'discover') return false;
       if (filter === 'groups' && c.type !== 'group') return false;
       if (filter === 'unread' && !c.unread) return false;
       if (q && !(c.searchText || '').includes(q)) return false;
@@ -877,8 +891,13 @@ export default function Chat() {
     }
   }
 
-  async function handleCreateGroup({ name, memberIds }) {
-    const { data } = await client.post('/groups', { name, memberIds });
+  async function handleCreateGroup({ name, memberIds, visibility, joinPolicy }) {
+    const { data } = await client.post('/groups', {
+      name,
+      memberIds,
+      visibility,
+      joinPolicy,
+    });
     const group = data.data;
     setGroups((prev) => {
       if (prev.some((g) => String(g.id) === String(group.id))) return prev;
@@ -892,6 +911,39 @@ export default function Chat() {
       subtitle: `${(group.members || []).length} members`,
       group,
     });
+  }
+
+  async function handleDiscoverJoin(item) {
+    if (!item?.id) return;
+    try {
+      if (item.joinPolicy === 'request') {
+        await client.post(`/groups/${item.id}/join-requests`);
+        showToast('Join request sent', 'success');
+        return { pending: true };
+      }
+      const { data } = await client.post(`/groups/${item.id}/join`);
+      const group = data.data;
+      setGroups((prev) => {
+        if (prev.some((g) => String(g.id) === String(group.id))) {
+          return prev.map((g) => (String(g.id) === String(group.id) ? group : g));
+        }
+        return [group, ...prev];
+      });
+      setFilter('all');
+      handleSelectConversation({
+        key: conversationKeyForGroup(group.id),
+        type: 'group',
+        id: group.id,
+        title: group.name,
+        subtitle: `${(group.members || []).length} members`,
+        group,
+      });
+      showToast(`Joined ${group.name}`, 'success');
+      return { joined: true, group };
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message || 'Could not join group', 'error');
+      throw err;
+    }
   }
 
   function sealGroupEnvelopes(plaintext, group) {
@@ -931,8 +983,13 @@ export default function Chat() {
     if (!group) {
       throw new Error('Group not found');
     }
-    const envelopes = sealGroupEnvelopes(plaintext, group);
-    const payload = { envelopes, kind: kind || 'text' };
+    const isPublic = group.visibility === 'public';
+    const payload = { kind: kind || 'text' };
+    if (isPublic) {
+      payload.content = plaintext;
+    } else {
+      payload.envelopes = sealGroupEnvelopes(plaintext, group);
+    }
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
     if (replyTo) payload.replyTo = replyTo.id || replyTo._id;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
@@ -1154,21 +1211,53 @@ export default function Chat() {
           finalPayload = payload;
         },
       });
-      if (!finalPayload?.content || !finalPayload.receipt || !finalPayload.requestId) {
-        throw new Error('QuantumAI did not return a signed response');
+      if (!finalPayload?.content?.trim()) {
+        throw new Error('QuantumAI returned an empty response');
       }
-      const { data: storedAnswer } = await client.post('/messages/quantum-ai-response', {
-        content: finalPayload.content,
-        contentHash: finalPayload.contentHash,
-        requestId: finalPayload.requestId,
-        receipt: finalPayload.receipt,
-        model: finalPayload.model,
-      });
+      if (finalPayload.receipt && finalPayload.requestId && finalPayload.contentHash) {
+        const { data: storedAnswer } = await client.post('/messages/quantum-ai-response', {
+          content: finalPayload.content,
+          contentHash: finalPayload.contentHash,
+          requestId: finalPayload.requestId,
+          receipt: finalPayload.receipt,
+          model: finalPayload.model,
+        });
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessageId ? decorate(storedAnswer.data) : message
+          )
+        );
+      } else {
+        // Stream succeeded but AI backend could not sign a receipt (missing shared secret).
+        // Keep the visible reply so chat is usable; history won't be sealed until secrets match.
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  text: finalPayload.content,
+                  kind: 'ai',
+                }
+              : message
+          )
+        );
+        showToast(
+          'QuantumAI replied, but QUANTUM_AI_SERVICE_SECRET is missing/mismatched — reply was not sealed into chat history',
+          'info'
+        );
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        setMessages((current) => current.filter((message) => message.id !== assistantMessageId));
+        return;
+      }
       setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantMessageId ? decorate(storedAnswer.data) : message
+        current.filter(
+          (message) => message.id !== assistantMessageId || Boolean(String(message.text || '').trim())
         )
       );
+      showToast(err instanceof Error ? err.message : 'QuantumAI failed to respond', 'error');
+      throw err;
     } finally {
       setAiBusy(false);
       aiAbortRef.current = null;
@@ -1206,27 +1295,33 @@ export default function Chat() {
           finalPayload = payload;
         },
       });
-      if (
-        !finalPayload?.content ||
-        !finalPayload.receipt ||
-        !finalPayload.contentHash ||
-        !finalPayload.requestId
-      ) {
-        throw new Error('QuantumAI did not return a signed group response');
+      if (!finalPayload?.content?.trim()) {
+        throw new Error('QuantumAI returned an empty group response');
       }
-      const { data } = await client.post(`/groups/${selected.id}/quantum-ai-response`, {
-        content: finalPayload.content,
-        contentHash: finalPayload.contentHash,
-        requestId: finalPayload.requestId,
-        receipt: finalPayload.receipt,
-        model: finalPayload.model,
-      });
-      setMessages((current) => {
-        const id = String(data.data.id || data.data._id);
-        return current.some((message) => String(message.id || message._id) === id)
-          ? current
-          : [...current, decorate(data.data)];
-      });
+      if (finalPayload.receipt && finalPayload.contentHash && finalPayload.requestId) {
+        const { data } = await client.post(`/groups/${selected.id}/quantum-ai-response`, {
+          content: finalPayload.content,
+          contentHash: finalPayload.contentHash,
+          requestId: finalPayload.requestId,
+          receipt: finalPayload.receipt,
+          model: finalPayload.model,
+        });
+        setMessages((current) => {
+          const id = String(data.data.id || data.data._id);
+          return current.some((message) => String(message.id || message._id) === id)
+            ? current
+            : [...current, decorate(data.data)];
+        });
+      } else {
+        showToast(
+          'QuantumAI replied, but QUANTUM_AI_SERVICE_SECRET is missing/mismatched — group reply was not sealed',
+          'info'
+        );
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        showToast(err instanceof Error ? err.message : 'QuantumAI group reply failed', 'error');
+      }
     } finally {
       setAiBusy(false);
       aiAbortRef.current = null;
@@ -1262,8 +1357,11 @@ export default function Chat() {
             showToast('Group not found', 'error');
             return;
           }
-          const envelopes = sealGroupEnvelopes(draft, group);
-          const { data } = await client.patch(`/messages/${editingMessage.id || editingMessage._id}`, { envelopes });
+          const editBody =
+            group.visibility === 'public'
+              ? { content: draft }
+              : { envelopes: sealGroupEnvelopes(draft, group) };
+          const { data } = await client.patch(`/messages/${editingMessage.id || editingMessage._id}`, editBody);
           setMessages((prev) =>
             prev.map((m) =>
               String(m.id || m._id) === String(editingMessage.id || editingMessage._id) ? decorate(data.data) : m
@@ -1980,9 +2078,14 @@ export default function Chat() {
       }
       const group = selected.group || groups.find((g) => String(g.id) === String(selected.id));
       const desc = (group?.description || '').trim();
-      if (desc) return desc.length > 72 ? `${desc.slice(0, 72)}…` : desc;
+      const publicHint = group?.visibility === 'public' ? 'Public · not encrypted' : null;
+      if (desc) {
+        const short = desc.length > 72 ? `${desc.slice(0, 72)}…` : desc;
+        return publicHint ? `${publicHint} · ${short}` : short;
+      }
       const count = (group?.members || []).length;
-      return count ? `${count} members` : 'Group chat';
+      const base = count ? `${count} members` : 'Group chat';
+      return publicHint ? `${publicHint} · ${base}` : base;
     }
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
     if (peer?.systemRole === 'quantum_ai') return aiBusy ? 'generating…' : 'AI Assistant';
@@ -2170,6 +2273,7 @@ export default function Chat() {
             selectedKey={selected?.key}
             onSelect={handleSelectConversation}
             onCreateGroup={() => setShowCreateGroup(true)}
+            onDiscoverJoin={handleDiscoverJoin}
             onHide={handleHideChat}
             onBlock={handleBlockUser}
             onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}

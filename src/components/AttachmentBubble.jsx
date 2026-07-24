@@ -39,7 +39,8 @@ function kindOf(attachment) {
   if (mime.startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) || /^voice-note/i.test(name)) {
     return 'audio';
   }
-  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return 'image';
+  if (mime === 'image/svg+xml' || name.endsWith('.svg')) return 'file';
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return 'image';
   if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return 'video';
   if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
   if (
@@ -333,7 +334,12 @@ export default function AttachmentBubble({
           {attachment.size ? <span className="attachment-note">({formatFileSize(attachment.size)})</span> : null}
         </div>
         {pdfExpanded ? (
-          <iframe className="attachment-pdf" src={objectUrl} title={attachment.filename} />
+          <iframe
+            className="attachment-pdf"
+            src={objectUrl}
+            title={attachment.filename}
+            sandbox="allow-same-origin"
+          />
         ) : (
           <button type="button" className="attachment-pdf-thumb" onClick={() => setPdfExpanded(true)}>
             <FileIcon className="file-icon" />

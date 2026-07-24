@@ -67,7 +67,7 @@ function GroupFileCard({ payload, resolveSecretKey }) {
     );
   }
 
-  if (mime.startsWith('image/')) {
+  if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !/\.svg$/i.test(payload.filename || '')) {
     return <img className="attachment-preview" src={url} alt={payload.filename || 'Image'} />;
   }
   if (mime.startsWith('video/')) {
@@ -77,7 +77,14 @@ function GroupFileCard({ payload, resolveSecretKey }) {
     return <audio src={url} controls className="attachment-audio" />;
   }
   if (mime === 'application/pdf') {
-    return <iframe className="attachment-pdf" src={url} title={payload.filename || 'PDF'} />;
+    return (
+      <iframe
+        className="attachment-pdf"
+        src={url}
+        title={payload.filename || 'PDF'}
+        sandbox="allow-same-origin"
+      />
+    );
   }
 
   return (

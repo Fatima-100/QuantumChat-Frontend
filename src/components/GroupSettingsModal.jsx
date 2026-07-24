@@ -3,6 +3,8 @@ import { Camera, Copy, Link2, Shield, Trash2, UserMinus, UserPlus, X } from 'luc
 import client from '../api/client.js';
 import { getToken } from '../crypto/keyStorage.js';
 import { isGroupAdmin } from '../utils/groupPayload.js';
+import useFocusTrap from '../hooks/useFocusTrap.js';
+
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -25,6 +27,9 @@ export default function GroupSettingsModal({
   const [quantumAIPolicy, setQuantumAIPolicy] = useState(group?.quantumAI?.invocationPolicy || 'members');
   const [quantumAIContext, setQuantumAIContext] = useState(group?.quantumAI?.maxContextMessages ?? 5);
   const [quantumAIDailyLimit, setQuantumAIDailyLimit] = useState(group?.quantumAI?.dailyLimit ?? 50);
+  const [joinPolicy, setJoinPolicy] = useState(group?.joinPolicy === 'request' ? 'request' : 'open');
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [addSearch, setAddSearch] = useState('');
@@ -32,6 +37,10 @@ export default function GroupSettingsModal({
   const [gallery, setGallery] = useState([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const photoRef = useRef(null);
+  const containerRef = useRef(null);
+
+  useFocusTrap(containerRef, true);
+
 
   const admin = isGroupAdmin(group, currentUserId);
   const isOwner = String(group?.createdBy) === String(currentUserId);
@@ -47,6 +56,41 @@ export default function GroupSettingsModal({
       return (u.username || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
     });
   }, [users, memberIds, addSearch]);
+
+  useEffect(() => {
+    setName(group?.name || '');
+    setDescription(group?.description || '');
+    setOnlyAdminsCanPost(Boolean(group?.onlyAdminsCanPost));
+    setOnlyAdminsCanAddMembers(group?.onlyAdminsCanAddMembers !== false);
+    setQuantumAIEnabled(Boolean(group?.quantumAI?.enabled));
+    setQuantumAIPolicy(group?.quantumAI?.invocationPolicy || 'members');
+    setQuantumAIContext(group?.quantumAI?.maxContextMessages ?? 5);
+    setQuantumAIDailyLimit(group?.quantumAI?.dailyLimit ?? 50);
+    setJoinPolicy(group?.joinPolicy === 'request' ? 'request' : 'open');
+  }, [group]);
+
+  useEffect(() => {
+    if (!admin || group?.visibility !== 'public' || group?.joinPolicy !== 'request' || !group?.id) {
+      setJoinRequests([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setRequestsLoading(true);
+    client
+      .get(`/groups/${group.id}/join-requests`)
+      .then((res) => {
+        if (!cancelled) setJoinRequests(res.data.data || []);
+      })
+      .catch(() => {
+        if (!cancelled) setJoinRequests([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRequestsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [admin, group?.id, group?.visibility, group?.joinPolicy, group?.updatedAt]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -97,7 +141,7 @@ export default function GroupSettingsModal({
     setBusy(true);
     setError('');
     try {
-      const { data } = await client.patch(`/groups/${group.id}`, {
+      const body = {
         name: name.trim(),
         description: description.trim(),
         onlyAdminsCanPost,
@@ -108,10 +152,29 @@ export default function GroupSettingsModal({
           maxContextMessages: Number(quantumAIContext),
           dailyLimit: Number(quantumAIDailyLimit),
         },
-      });
+      };
+      if (group?.visibility === 'public') {
+        body.joinPolicy = joinPolicy;
+      }
+      const { data } = await client.patch(`/groups/${group.id}`, body);
       await refreshAndClosePayload(data.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function respondToJoinRequest(userId, accept) {
+    setBusy(true);
+    setError('');
+    try {
+      const path = accept ? 'accept' : 'reject';
+      const { data } = await client.post(`/groups/${group.id}/join-requests/${userId}/${path}`);
+      if (accept) await refreshAndClosePayload(data.data);
+      setJoinRequests((prev) => prev.filter((r) => String(r.user?.id || r.user?._id) !== String(userId)));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update request');
     } finally {
       setBusy(false);
     }
@@ -246,6 +309,7 @@ export default function GroupSettingsModal({
     <div className="create-group-overlay" role="presentation" onClick={() => !busy && onClose?.()}>
       <div
         className="create-group-modal group-settings-modal"
+        ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="group-settings-title"
@@ -265,7 +329,7 @@ export default function GroupSettingsModal({
           {[
             ['info', 'Info'],
             ['members', 'Members'],
-            ['invite', 'Invite'],
+            ...(group?.visibility === 'public' ? [['requests', 'Requests']] : [['invite', 'Invite']]),
             ['media', 'Files'],
           ].map(([id, label]) => (
             <button
@@ -316,6 +380,27 @@ export default function GroupSettingsModal({
               rows={3}
               placeholder="What is this group about?"
             />
+
+            <label className="create-group-label">Visibility</label>
+            <p className="group-visibility-badge">
+              {group?.visibility === 'public' ? 'Public · not encrypted' : 'Private · end-to-end encrypted'}
+            </p>
+
+            {admin && group?.visibility === 'public' && (
+              <div className="group-settings-toggles">
+                <label>
+                  Who can join
+                  <select
+                    value={joinPolicy}
+                    onChange={(e) => setJoinPolicy(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="open">Anyone can join</option>
+                    <option value="request">Request to join</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             {admin && (
               <div className="group-settings-toggles">
@@ -477,6 +562,42 @@ export default function GroupSettingsModal({
                   Add selected
                 </button>
               </>
+            )}
+          </div>
+        )}
+
+        {tab === 'requests' && (
+          <div className="group-settings-section">
+            {!admin ? (
+              <p className="muted">Only admins can manage join requests.</p>
+            ) : group?.joinPolicy !== 'request' ? (
+              <p className="muted">Switch join policy to “Request to join” to review requests.</p>
+            ) : requestsLoading ? (
+              <p className="muted">Loading requests…</p>
+            ) : joinRequests.length === 0 ? (
+              <p className="muted">No pending join requests.</p>
+            ) : (
+              <ul className="group-member-list">
+                {joinRequests.map((r) => {
+                  const uid = String(r.user?.id || r.user?._id);
+                  return (
+                    <li key={r.id || uid}>
+                      <div>
+                        <strong>{r.user?.username || 'User'}</strong>
+                        <span className="group-member-meta">Requested to join</span>
+                      </div>
+                      <div className="group-member-actions">
+                        <button type="button" className="confirm-btn" disabled={busy} onClick={() => respondToJoinRequest(uid, true)}>
+                          Accept
+                        </button>
+                        <button type="button" className="btn-danger-outline" disabled={busy} onClick={() => respondToJoinRequest(uid, false)}>
+                          Reject
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
         )}

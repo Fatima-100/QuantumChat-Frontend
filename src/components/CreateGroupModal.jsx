@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import useFocusTrap from '../hooks/useFocusTrap.js';
 
 export default function CreateGroupModal({ users, onClose, onCreate }) {
   const [name, setName] = useState('');
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState('');
+  const [visibility, setVisibility] = useState('private');
+  const [joinPolicy, setJoinPolicy] = useState('open');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const containerRef = useRef(null);
+
+  useFocusTrap(containerRef, true);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -47,13 +53,18 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
       setError('Group name must be at least 2 characters');
       return;
     }
-    if (selected.size < 1) {
+    if (visibility === 'private' && selected.size < 1) {
       setError('Pick at least one member');
       return;
     }
     setSubmitting(true);
     try {
-      await onCreate({ name: name.trim(), memberIds: [...selected] });
+      await onCreate({
+        name: name.trim(),
+        memberIds: [...selected],
+        visibility,
+        joinPolicy: visibility === 'public' ? joinPolicy : 'invite',
+      });
       onClose();
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to create group');
@@ -63,6 +74,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
   }
 
   const memberCount = selected.size + 1;
+  const canSubmit = visibility === 'public' || selected.size >= 1;
 
   return (
     <div
@@ -72,6 +84,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
     >
       <form
         className="create-group-modal"
+        ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-group-title"
@@ -89,7 +102,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           </div>
           <div className="create-group-modal-heading">
             <h2 id="create-group-title">Create group</h2>
-            <p>Name your group and pick who to include.</p>
+            <p>Choose private (encrypted) or public (open messages).</p>
           </div>
           <button
             type="button"
@@ -105,6 +118,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           </button>
         </div>
 
+        <div className="create-group-body">
         <div className="create-group-field">
           <label className="create-group-label" htmlFor="group-name">
             Group name
@@ -122,10 +136,72 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           />
         </div>
 
+        <fieldset className="create-group-field create-group-visibility" disabled={submitting}>
+          <legend className="create-group-label">Visibility</legend>
+          <label className={`create-group-choice ${visibility === 'private' ? 'selected' : ''}`}>
+            <input
+              type="radio"
+              name="visibility"
+              value="private"
+              checked={visibility === 'private'}
+              onChange={() => setVisibility('private')}
+            />
+            <span>
+              <strong>Private</strong>
+              <small>End-to-end encrypted. Invite-only.</small>
+            </span>
+          </label>
+          <label className={`create-group-choice ${visibility === 'public' ? 'selected' : ''}`}>
+            <input
+              type="radio"
+              name="visibility"
+              value="public"
+              checked={visibility === 'public'}
+              onChange={() => setVisibility('public')}
+            />
+            <span>
+              <strong>Public</strong>
+              <small>Messages are not encrypted. Discoverable in Discover.</small>
+            </span>
+          </label>
+        </fieldset>
+
+        {visibility === 'public' && (
+          <fieldset className="create-group-field create-group-visibility" disabled={submitting}>
+            <legend className="create-group-label">Who can join</legend>
+            <label className={`create-group-choice ${joinPolicy === 'open' ? 'selected' : ''}`}>
+              <input
+                type="radio"
+                name="joinPolicy"
+                value="open"
+                checked={joinPolicy === 'open'}
+                onChange={() => setJoinPolicy('open')}
+              />
+              <span>
+                <strong>Anyone can join</strong>
+                <small>Open join from Discover.</small>
+              </span>
+            </label>
+            <label className={`create-group-choice ${joinPolicy === 'request' ? 'selected' : ''}`}>
+              <input
+                type="radio"
+                name="joinPolicy"
+                value="request"
+                checked={joinPolicy === 'request'}
+                onChange={() => setJoinPolicy('request')}
+              />
+              <span>
+                <strong>Request to join</strong>
+                <small>Admins accept or reject requests.</small>
+              </span>
+            </label>
+          </fieldset>
+        )}
+
         <div className="create-group-field">
           <div className="create-group-label-row">
             <label className="create-group-label" htmlFor="group-member-search">
-              Members
+              Members {visibility === 'public' ? '(optional)' : ''}
             </label>
             <span className="create-group-count">
               {selected.size === 0 ? 'None selected' : `${selected.size} selected`}
@@ -177,6 +253,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
         </div>
 
         {error && <div className="auth-error create-group-error">{error}</div>}
+        </div>
 
         <div className="create-group-actions">
           <button
@@ -187,7 +264,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           >
             Cancel
           </button>
-          <button type="submit" className="confirm-btn primary" disabled={submitting || selected.size < 1}>
+          <button type="submit" className="confirm-btn primary" disabled={submitting || !canSubmit}>
             {submitting ? 'Creating…' : `Create (${memberCount})`}
           </button>
         </div>

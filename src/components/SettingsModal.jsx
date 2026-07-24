@@ -494,7 +494,13 @@ export default function SettingsModal({
                   >
                     {avatarBusy ? '…' : '✎'}
                   </button>
-                  <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={handleAvatarChange} />
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    hidden
+                    onChange={handleAvatarChange}
+                  />
                 </div>
                 <div className="settings-account-meta">
                   <span className="settings-account-name">{shownName}</span>

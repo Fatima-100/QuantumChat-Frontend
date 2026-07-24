@@ -16,6 +16,6 @@ npm ci
 npm run build
 ```
 
-See [README.md](README.md) for crypto orientation and env vars.
+See [README.md](../README.md) for crypto orientation and env vars.
 
 Maintainers respond as capacity allows; security reports are prioritized.

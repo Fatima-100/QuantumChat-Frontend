@@ -58,8 +58,9 @@ Static Vite build — Vercel's zero-config detection handles this natively, no `
 
 ## Community
 
-- [Contributing](CONTRIBUTING.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Security Policy](SECURITY.md)
-- [Support](SUPPORT.md)
+- [Contributing](docs/CONTRIBUTING.md)
+- [Code of Conduct](docs/CODE_OF_CONDUCT.md)
+- [Security Policy](docs/SECURITY.md)
+- [Support](docs/SUPPORT.md)
 - [License (MIT)](LICENSE)
+- [Docs index](docs/README.md)

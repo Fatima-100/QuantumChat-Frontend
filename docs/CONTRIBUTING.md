@@ -40,4 +40,4 @@ CI also runs CodeQL, `npm audit`, Gitleaks, and crypto static guards. Do not int
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-[MIT License](LICENSE).
+[MIT License](../LICENSE).
