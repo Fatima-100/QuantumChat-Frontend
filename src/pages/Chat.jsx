@@ -304,28 +304,28 @@ export default function Chat() {
         reactions,
         replyTo: raw.replyTo
           ? (() => {
-              const parent = raw.replyTo;
-              const parentMine = String(parent.from) === String(user.id);
-              let parentText = null;
-              if (parent.group && Array.isArray(parent.envelopes)) {
-                const mine = parent.envelopes.find((e) => String(e.user) === String(user.id));
-                if (mine?.targetPublicKey) {
-                  const sk = resolveMySecretKey(mine.targetPublicKey);
-                  parentText = sk ? unsealMessage(mine, sk) : null;
-                }
-              } else {
-                const env = parentMine ? parent.forSender : parent.forRecipient;
-                if (env?.targetPublicKey) {
-                  const sk = resolveMySecretKey(env.targetPublicKey);
-                  parentText = sk ? unsealMessage(env, sk) : null;
-                }
+            const parent = raw.replyTo;
+            const parentMine = String(parent.from) === String(user.id);
+            let parentText = null;
+            if (parent.group && Array.isArray(parent.envelopes)) {
+              const mine = parent.envelopes.find((e) => String(e.user) === String(user.id));
+              if (mine?.targetPublicKey) {
+                const sk = resolveMySecretKey(mine.targetPublicKey);
+                parentText = sk ? unsealMessage(mine, sk) : null;
               }
-              return {
-                id: parent.id || parent._id,
-                from: parent.from,
-                text: parentText,
-              };
-            })()
+            } else {
+              const env = parentMine ? parent.forSender : parent.forRecipient;
+              if (env?.targetPublicKey) {
+                const sk = resolveMySecretKey(env.targetPublicKey);
+                parentText = sk ? unsealMessage(env, sk) : null;
+              }
+            }
+            return {
+              id: parent.id || parent._id,
+              from: parent.from,
+              text: parentText,
+            };
+          })()
           : null,
       };
     },
@@ -336,21 +336,13 @@ export default function Chat() {
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
       const from = raw.from;
-      // Store a short preview of the last message for the sidebar
-      const preview = raw.text
-        ? String(raw.text).slice(0, 60) + (raw.text.length > 60 ? '…' : '')
-        : raw.kind === 'file'
-          ? '📎 Attachment'
-          : raw.kind === 'audio'
-            ? '🎵 Voice message'
-            : '';
       if (raw.group) {
         const key = conversationKeyForGroup(raw.group);
-        setConversationActivity(user.id, key, { at, from, preview });
+        setConversationActivity(user.id, key, { at, from });
       } else {
         const otherId = String(raw.from) === String(user.id) ? raw.to : raw.from;
         if (!otherId) return;
-        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from, preview });
+        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from });
       }
       bumpActivity();
     },
@@ -411,8 +403,8 @@ export default function Chat() {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
-              String(raw.from) === String(user.id) ? raw.to : raw.from
-            );
+            String(raw.from) === String(user.id) ? raw.to : raw.from
+          );
         if (!isChatMuted(user.id, convKey)) {
           playReceiveSound();
         }
@@ -499,13 +491,13 @@ export default function Chat() {
         setSelected((prev) =>
           prev
             ? {
-                ...prev,
-                group: payload,
-                title: payload.name || prev.title,
-                subtitle: desc
-                  ? desc.slice(0, 60) + (desc.length > 60 ? '…' : '')
-                  : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
-              }
+              ...prev,
+              group: payload,
+              title: payload.name || prev.title,
+              subtitle: desc
+                ? desc.slice(0, 60) + (desc.length > 60 ? '…' : '')
+                : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
+            }
             : prev
         );
         setPinnedIds((payload.pinnedMessageIds || []).map(String));
@@ -600,10 +592,10 @@ export default function Chat() {
           prev.map((m) =>
             String(m.to) === peer || String(m.from) === peer
               ? {
-                  ...m,
-                  deliveredAt: m.deliveredAt || payload.readAt,
-                  readAt: String(m.from) === String(user.id) ? payload.readAt || m.readAt : m.readAt,
-                }
+                ...m,
+                deliveredAt: m.deliveredAt || payload.readAt,
+                readAt: String(m.from) === String(user.id) ? payload.readAt || m.readAt : m.readAt,
+              }
               : m
           )
         );
@@ -615,11 +607,11 @@ export default function Chat() {
         prev.map((m) =>
           String(m.id || m._id) === id
             ? {
-                ...m,
-                deliveredAt: payload.deliveredAt || m.deliveredAt,
-                readAt: payload.readAt || m.readAt,
-                _status: undefined,
-              }
+              ...m,
+              deliveredAt: payload.deliveredAt || m.deliveredAt,
+              readAt: payload.readAt || m.readAt,
+              _status: undefined,
+            }
             : m
         )
       );
@@ -693,7 +685,7 @@ export default function Chat() {
         markConversationRead(user.id, selected.key);
         bumpActivity();
         if (selected.type === 'dm') {
-          client.post(`/messages/${selected.id}/read`).catch(() => {});
+          client.post(`/messages/${selected.id}/read`).catch(() => { });
         }
         setTimeout(() => scrollToBottom('auto'), 50);
       })
@@ -756,7 +748,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => {});
+    enablePushNotifications().catch(() => { });
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -791,7 +783,7 @@ export default function Chat() {
         type: 'dm',
         id: u.id,
         title: u.displayName || u.username || 'Unknown user',
-        subtitle: activity?.preview || null,
+        subtitle: null,
         searchText: `${u.displayName || ''} ${u.username || ''} ${u.email || ''}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
@@ -814,9 +806,9 @@ export default function Chat() {
         type: 'group',
         id: g.id,
         title: g.name,
-        subtitle: activity?.preview || (desc
+        subtitle: desc
           ? desc.slice(0, 48) + (desc.length > 48 ? '…' : '')
-          : `${memberCount} member${memberCount === 1 ? '' : 's'}`),
+          : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
         searchText: `${g.name || ''} ${g.description || ''}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
         unread,
@@ -1139,9 +1131,9 @@ export default function Chat() {
         .map((message) => `${String(message.from) === String(user.id) ? 'User' : 'QuantumAI'}: ${message.text}`);
       const approvedContext =
         recentContext.length &&
-        window.confirm(
-          `Privacy preview\n\nSend ${recentContext.length} decrypted messages from your QuantumAI thread as context?`
-        )
+          window.confirm(
+            `Privacy preview\n\nSend ${recentContext.length} decrypted messages from your QuantumAI thread as context?`
+          )
           ? recentContext
           : [];
       await streamQuantumAI({
@@ -1177,6 +1169,31 @@ export default function Chat() {
           message.id === assistantMessageId ? decorate(storedAnswer.data) : message
         )
       );
+    }
+    catch (err) {
+      // The placeholder bubble was added optimistically before we knew the
+      // AI call would succeed — if it fails, don't leave a permanent empty
+      // bubble in the thread. Drop it and let the caller's toast explain why.
+
+      let fallback = 'No reply received.';
+
+      if (err.name === 'AbortError') {
+        fallback = 'Request cancelled.';
+      } else if (err.message.includes('signed response')) {
+        fallback = 'Invalid AI response.';
+      } else {
+        fallback = 'QuantumAI is not responding.';
+      }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId
+            ? { ...message, text: fallback, failed: true }
+            : message
+        )
+      );
+
+      throw err;
     } finally {
       setAiBusy(false);
       aiAbortRef.current = null;
@@ -2285,12 +2302,12 @@ export default function Chat() {
                     onKeyDown={
                       selected.type === 'group' || selected.type === 'dm'
                         ? (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              if (selected.type === 'group') setShowGroupSettings(true);
-                              else setProfileUserId(selected.id);
-                            }
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (selected.type === 'group') setShowGroupSettings(true);
+                            else setProfileUserId(selected.id);
                           }
+                        }
                         : undefined
                     }
                     title={selected.type === 'dm' ? 'View profile' : selected.type === 'group' ? 'Group settings' : undefined}
@@ -2537,9 +2554,9 @@ export default function Chat() {
                               replyPreview={
                                 m.replyTo
                                   ? {
-                                      label: usernameById.get(String(m.replyTo.from)) || 'Message',
-                                      text: m.replyTo.text || '[encrypted]',
-                                    }
+                                    label: usernameById.get(String(m.replyTo.from)) || 'Message',
+                                    text: m.replyTo.text || '[encrypted]',
+                                  }
                                   : null
                               }
                               onDelete={handleDeleteMessage}
@@ -2560,10 +2577,10 @@ export default function Chat() {
                               onEdit={
                                 m.text && !String(m.text).trim().startsWith('{"__qc')
                                   ? (msg) => {
-                                      setReplyTo(null);
-                                      setEditingMessage(msg);
-                                      setDraft(msg.text || '');
-                                    }
+                                    setReplyTo(null);
+                                    setEditingMessage(msg);
+                                    setDraft(msg.text || '');
+                                  }
                                   : undefined
                               }
                             />
@@ -2976,8 +2993,8 @@ export default function Chat() {
         peerLabel={
           webrtc.call
             ? users.find((u) => String(u.id) === String(webrtc.call.peerId))?.displayName ||
-              users.find((u) => String(u.id) === String(webrtc.call.peerId))?.username ||
-              webrtc.call.peerName
+            users.find((u) => String(u.id) === String(webrtc.call.peerId))?.username ||
+            webrtc.call.peerName
             : ''
         }
         onAccept={() => webrtc.acceptCall().catch(() => showToast('Could not access microphone/camera', 'error'))}
@@ -3206,9 +3223,8 @@ export default function Chat() {
                   String(m.from) === String(user.id)
                     ? 'You'
                     : usernameById.get(String(m.from)) || 'User';
-                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${
-                  m.text || (m.attachment ? '[attachment]' : '[encrypted]')
-                }`;
+                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? '[attachment]' : '[encrypted]')
+                  }`;
               })
               .join('\n');
             const blob = new Blob([lines], { type: 'text/plain' });
