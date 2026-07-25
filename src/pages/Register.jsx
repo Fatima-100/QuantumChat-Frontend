@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.jsx';
 import { formatKeyFile, downloadKeyFile } from '../crypto/keyFile.js';
 
@@ -129,9 +130,7 @@ export default function Register() {
       <form className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-brand">
           <div className="auth-brand-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+            <BrandLogo size={48} />
           </div>
           <div className="auth-brand-name">QuantumChat</div>
           <h1>Create your account</h1>

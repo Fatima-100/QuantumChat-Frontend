@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 import client from '../api/client.js';
 import { streamQuantumAI } from '../api/aiClient.js';
 import { connectSocket, getSocket } from '../api/socket.js';
@@ -775,13 +776,18 @@ export default function Chat() {
 
   loadOlderMessagesRef.current = loadOlderMessages;
 
-  // Keep auto-scroll only when near bottom for new messages — avoid jump on older loads
+  // Keep auto-scroll only when near bottom for new messages — avoid jump on older loads.
+  // Scroll the list container itself. scrollIntoView() on bottomRef defaults to
+  // block:'start', which pins the sentinel to the top and clips the last bubble.
   useEffect(() => {
     if (loadingOlder) return;
     const el = messageListRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!nearBottom) return;
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    });
   }, [messages, loadingOlder]);
 
   const canChat = hasLocalKeyring;
@@ -2254,9 +2260,7 @@ export default function Chat() {
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <div className="sidebar-brand-mark">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
+              <BrandLogo size={40} />
             </div>
             <div className="sidebar-user-info">
               <div className="sidebar-username">{user.username}</div>
