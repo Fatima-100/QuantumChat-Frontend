@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 import client from '../api/client.js';
 import { streamQuantumAI } from '../api/aiClient.js';
 import { connectSocket, getSocket } from '../api/socket.js';
@@ -2231,9 +2232,7 @@ export default function Chat() {
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <div className="sidebar-brand-mark">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
+              <BrandLogo size={40} />
             </div>
             <div className="sidebar-user-info">
               <div className="sidebar-username">{user.username}</div>

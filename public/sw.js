@@ -29,6 +29,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'QuantumChat';
   const options = {
     body: data.body || 'New notification',
+    icon: data.icon || '/logo.png',
+    badge: data.badge || '/logo.png',
     data: data.data || { url: data.url || '/' },
     tag: data.tag || 'quantumchat',
     renotify: true,

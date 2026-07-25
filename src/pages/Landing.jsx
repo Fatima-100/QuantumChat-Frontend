@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 import ThemeToggle from '../components/ThemeToggle.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 
 const FEATURES = [
   {
@@ -86,7 +87,7 @@ export default function Landing() {
         <div className="landing-nav-inner">
           <Link to="/" className="landing-brand" aria-label="QuantumChat home">
             <span className="landing-brand-mark">
-              <Shield size={18} strokeWidth={2} aria-hidden="true" />
+              <BrandLogo size={36} />
             </span>
             <span className="landing-brand-text">
               Quantum<span>Chat</span>
@@ -160,6 +161,7 @@ export default function Landing() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
             >
+              <BrandLogo className="landing-brand-hero-logo" size={56} />
               QuantumChat
             </motion.p>
             <motion.h1
@@ -311,7 +313,7 @@ export default function Landing() {
           <div className="landing-footer-brand">
             <Link to="/" className="landing-brand">
               <span className="landing-brand-mark sm">
-                <Shield size={14} aria-hidden="true" />
+                <BrandLogo size={28} />
               </span>
               <span className="landing-brand-text">
                 Quantum<span>Chat</span>

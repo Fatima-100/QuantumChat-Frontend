@@ -529,6 +529,13 @@ input:focus-visible,
   transition: background-color var(--transition-theme), border-color var(--transition-theme), box-shadow var(--transition-theme);
 }
 
+.brand-logo {
+  display: block;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 .auth-brand-name {
   font-size: 12px;
   font-weight: 600;
@@ -548,17 +555,20 @@ input:focus-visible,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: var(--accent-muted);
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: transparent;
   margin-bottom: 16px;
+  overflow: hidden;
 }
 
-.auth-brand-icon svg {
-  width: 24px;
-  height: 24px;
-  color: var(--accent);
+.auth-brand-icon .brand-logo,
+.auth-brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .auth-card h1 {
@@ -1528,19 +1538,22 @@ input:focus-visible,
 .sidebar-brand-mark {
   width: 40px;
   height: 40px;
-  border-radius: 14px;
-  background: var(--accent-gradient);
-  box-shadow: var(--shadow-glow);
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
-.sidebar-brand-mark svg {
-  width: 18px;
-  height: 18px;
-  color: var(--text-inverse);
+.sidebar-brand-mark .brand-logo,
+.sidebar-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .sidebar-username {
@@ -5125,20 +5138,29 @@ body.theme-eyecare .drag-drop-overlay,
 .landing-brand-mark {
   width: 36px;
   height: 36px;
-  border-radius: 12px;
-  background: var(--accent-gradient);
-  color: var(--text-inverse);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-glow);
+  box-shadow: none;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.landing-brand-mark .brand-logo,
+.landing-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .landing-brand-mark.sm {
   width: 28px;
   height: 28px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .landing-brand-text {
@@ -5315,6 +5337,17 @@ body.theme-eyecare .drag-drop-overlay,
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.landing-brand-hero-logo {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
 }
 
 .landing-hero h1 {
