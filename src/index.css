@@ -2551,6 +2551,40 @@ input:focus-visible,
   box-shadow: var(--shadow-glow);
 }
 
+/* Call message card */
+.call-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border: 1px solid var(--border-subtle);
+}
+.call-message .call-message-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.06);
+}
+.call-message .call-message-body {
+  flex: 1;
+}
+.call-message .call-message-title {
+  font-weight: 700;
+}
+.call-message .call-message-sub {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.call-message .call-message-time {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .message-bubble.mine .message-time {
   color: rgba(255, 255, 255, 0.7);
 }

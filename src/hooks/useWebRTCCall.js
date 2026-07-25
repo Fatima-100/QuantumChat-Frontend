@@ -33,7 +33,7 @@ function unsealCallEnvelope(envelope, userId) {
  * DM WebRTC call state machine.
  * Signaling is X5 sealed-box envelopes; media is peer-to-peer.
  */
-export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed } = {}) {
+export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed, onEnd } = {}) {
   const [call, setCall] = useState(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -91,10 +91,32 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed 
     setCameraOff(false);
   }, []);
 
-  const endCallLocal = useCallback(() => {
-    cleanupMedia();
-    setCall(null);
-  }, [cleanupMedia]);
+  const endCallLocal = useCallback((reason) => {
+    const c = callRef.current;
+    try {
+      if (c) {
+        const startedAt = c.startedAt || null;
+        const answered = Boolean(startedAt);
+        const durationSeconds = answered ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+        try {
+          onEnd?.({
+            callId: c.callId,
+            peerId: c.peerId,
+            video: c.video,
+            role: c.role,
+            answered,
+            durationSeconds,
+            reason: reason || null,
+          });
+        } catch (e) {
+          /* swallow callback errors */
+        }
+      }
+    } finally {
+      cleanupMedia();
+      setCall(null);
+    }
+  }, [cleanupMedia, onEnd]);
 
   const ensurePc = useCallback(
     (peerId) => {
@@ -289,7 +311,9 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed 
           callId: c.callId,
           payload: { type: 'offer', callId: c.callId, sdp: offer },
         });
-        setCall((prev) => (prev ? { ...prev, status: 'connecting' } : prev));
+          setCall((prev) =>
+            prev ? { ...prev, status: 'connecting' } : prev
+          );
       } catch {
         hangup();
       }
@@ -310,7 +334,9 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed 
         callId: c.callId,
         payload: { type: 'answer', callId: c.callId, sdp: answer },
       });
-      setCall((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      setCall((prev) =>
+        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+      );
     }
 
     async function onAnswer({ callId, envelope }) {
@@ -320,7 +346,9 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed 
       if (!c || String(c.callId) !== String(callId) || !pcRef.current) return;
       await pcRef.current.setRemoteDescription(body.sdp);
       await flushIce(pcRef.current);
-      setCall((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      setCall((prev) =>
+        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+      );
     }
 
     async function onIce({ callId, envelope }) {
