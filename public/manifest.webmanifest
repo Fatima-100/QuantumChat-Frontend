@@ -8,5 +8,19 @@
   "orientation": "any",
   "background_color": "#07131f",
   "theme_color": "#3b82f6",
-  "lang": "en"
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }
