@@ -342,21 +342,13 @@ export default function Chat() {
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
       const from = raw.from;
-      // Store a short preview of the last message for the sidebar
-      const preview = raw.text
-        ? String(raw.text).slice(0, 60) + (raw.text.length > 60 ? '…' : '')
-        : raw.kind === 'file'
-          ? '📎 Attachment'
-          : raw.kind === 'audio'
-            ? '🎵 Voice message'
-            : '';
       if (raw.group) {
         const key = conversationKeyForGroup(raw.group);
-        setConversationActivity(user.id, key, { at, from, preview });
+        setConversationActivity(user.id, key, { at, from });
       } else {
         const otherId = String(raw.from) === String(user.id) ? raw.to : raw.from;
         if (!otherId) return;
-        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from, preview });
+        setConversationActivity(user.id, conversationKeyForUser(otherId), { at, from });
       }
       bumpActivity();
     },
@@ -417,8 +409,8 @@ export default function Chat() {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
-              String(raw.from) === String(user.id) ? raw.to : raw.from
-            );
+            String(raw.from) === String(user.id) ? raw.to : raw.from
+          );
         if (!isChatMuted(user.id, convKey)) {
           playReceiveSound();
         }
@@ -505,13 +497,13 @@ export default function Chat() {
         setSelected((prev) =>
           prev
             ? {
-                ...prev,
-                group: payload,
-                title: payload.name || prev.title,
-                subtitle: desc
-                  ? desc.slice(0, 60) + (desc.length > 60 ? '…' : '')
-                  : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
-              }
+              ...prev,
+              group: payload,
+              title: payload.name || prev.title,
+              subtitle: desc
+                ? desc.slice(0, 60) + (desc.length > 60 ? '…' : '')
+                : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
+            }
             : prev
         );
         setPinnedIds((payload.pinnedMessageIds || []).map(String));
@@ -606,10 +598,10 @@ export default function Chat() {
           prev.map((m) =>
             String(m.to) === peer || String(m.from) === peer
               ? {
-                  ...m,
-                  deliveredAt: m.deliveredAt || payload.readAt,
-                  readAt: String(m.from) === String(user.id) ? payload.readAt || m.readAt : m.readAt,
-                }
+                ...m,
+                deliveredAt: m.deliveredAt || payload.readAt,
+                readAt: String(m.from) === String(user.id) ? payload.readAt || m.readAt : m.readAt,
+              }
               : m
           )
         );
@@ -621,11 +613,11 @@ export default function Chat() {
         prev.map((m) =>
           String(m.id || m._id) === id
             ? {
-                ...m,
-                deliveredAt: payload.deliveredAt || m.deliveredAt,
-                readAt: payload.readAt || m.readAt,
-                _status: undefined,
-              }
+              ...m,
+              deliveredAt: payload.deliveredAt || m.deliveredAt,
+              readAt: payload.readAt || m.readAt,
+              _status: undefined,
+            }
             : m
         )
       );
@@ -699,7 +691,7 @@ export default function Chat() {
         markConversationRead(user.id, selected.key);
         bumpActivity();
         if (selected.type === 'dm') {
-          client.post(`/messages/${selected.id}/read`).catch(() => {});
+          client.post(`/messages/${selected.id}/read`).catch(() => { });
         }
         setTimeout(() => scrollToBottom('auto'), 50);
       })
@@ -767,7 +759,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => {});
+    enablePushNotifications().catch(() => { });
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -802,7 +794,7 @@ export default function Chat() {
         type: 'dm',
         id: u.id,
         title: u.displayName || u.username || 'Unknown user',
-        subtitle: activity?.preview || null,
+        subtitle: null,
         searchText: `${u.displayName || ''} ${u.username || ''} ${u.email || ''}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
@@ -825,9 +817,9 @@ export default function Chat() {
         type: 'group',
         id: g.id,
         title: g.name,
-        subtitle: activity?.preview || (desc
+        subtitle: desc
           ? desc.slice(0, 48) + (desc.length > 48 ? '…' : '')
-          : `${memberCount} member${memberCount === 1 ? '' : 's'}`),
+          : `${memberCount} member${memberCount === 1 ? '' : 's'}`,
         searchText: `${g.name || ''} ${g.description || ''}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
         unread,
@@ -2374,12 +2366,12 @@ export default function Chat() {
                     onKeyDown={
                       selected.type === 'group' || selected.type === 'dm'
                         ? (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              if (selected.type === 'group') setShowGroupSettings(true);
-                              else setProfileUserId(selected.id);
-                            }
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (selected.type === 'group') setShowGroupSettings(true);
+                            else setProfileUserId(selected.id);
                           }
+                        }
                         : undefined
                     }
                     title={selected.type === 'dm' ? 'View profile' : selected.type === 'group' ? 'Group settings' : undefined}
@@ -2626,9 +2618,9 @@ export default function Chat() {
                               replyPreview={
                                 m.replyTo
                                   ? {
-                                      label: usernameById.get(String(m.replyTo.from)) || 'Message',
-                                      text: m.replyTo.text || '[encrypted]',
-                                    }
+                                    label: usernameById.get(String(m.replyTo.from)) || 'Message',
+                                    text: m.replyTo.text || '[encrypted]',
+                                  }
                                   : null
                               }
                               onDelete={handleDeleteMessage}
@@ -2649,10 +2641,10 @@ export default function Chat() {
                               onEdit={
                                 m.text && !String(m.text).trim().startsWith('{"__qc')
                                   ? (msg) => {
-                                      setReplyTo(null);
-                                      setEditingMessage(msg);
-                                      setDraft(msg.text || '');
-                                    }
+                                    setReplyTo(null);
+                                    setEditingMessage(msg);
+                                    setDraft(msg.text || '');
+                                  }
                                   : undefined
                               }
                             />
@@ -3065,8 +3057,8 @@ export default function Chat() {
         peerLabel={
           webrtc.call
             ? users.find((u) => String(u.id) === String(webrtc.call.peerId))?.displayName ||
-              users.find((u) => String(u.id) === String(webrtc.call.peerId))?.username ||
-              webrtc.call.peerName
+            users.find((u) => String(u.id) === String(webrtc.call.peerId))?.username ||
+            webrtc.call.peerName
             : ''
         }
         onAccept={() => webrtc.acceptCall().catch(() => showToast('Could not access microphone/camera', 'error'))}
@@ -3295,9 +3287,8 @@ export default function Chat() {
                   String(m.from) === String(user.id)
                     ? 'You'
                     : usernameById.get(String(m.from)) || 'User';
-                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${
-                  m.text || (m.attachment ? '[attachment]' : '[encrypted]')
-                }`;
+                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? '[attachment]' : '[encrypted]')
+                  }`;
               })
               .join('\n');
             const blob = new Blob([lines], { type: 'text/plain' });
