@@ -307,30 +307,30 @@ export default function Chat() {
         reactions,
         replyTo: raw.replyTo
           ? (() => {
-              const parent = raw.replyTo;
-              const parentMine = String(parent.from) === String(user.id);
-              let parentText = null;
-              if (parent.group && typeof parent.content === 'string' && parent.content.length > 0) {
-                parentText = parent.content;
-              } else if (parent.group && Array.isArray(parent.envelopes)) {
-                const mine = parent.envelopes.find((e) => String(e.user) === String(user.id));
-                if (mine?.targetPublicKey) {
-                  const sk = resolveMySecretKey(mine.targetPublicKey);
-                  parentText = sk ? unsealMessage(mine, sk) : null;
-                }
-              } else {
-                const env = parentMine ? parent.forSender : parent.forRecipient;
-                if (env?.targetPublicKey) {
-                  const sk = resolveMySecretKey(env.targetPublicKey);
-                  parentText = sk ? unsealMessage(env, sk) : null;
-                }
+            const parent = raw.replyTo;
+            const parentMine = String(parent.from) === String(user.id);
+            let parentText = null;
+            if (parent.group && typeof parent.content === 'string' && parent.content.length > 0) {
+              parentText = parent.content;
+            } else if (parent.group && Array.isArray(parent.envelopes)) {
+              const mine = parent.envelopes.find((e) => String(e.user) === String(user.id));
+              if (mine?.targetPublicKey) {
+                const sk = resolveMySecretKey(mine.targetPublicKey);
+                parentText = sk ? unsealMessage(mine, sk) : null;
               }
-              return {
-                id: parent.id || parent._id,
-                from: parent.from,
-                text: parentText,
-              };
-            })()
+            } else {
+              const env = parentMine ? parent.forSender : parent.forRecipient;
+              if (env?.targetPublicKey) {
+                const sk = resolveMySecretKey(env.targetPublicKey);
+                parentText = sk ? unsealMessage(env, sk) : null;
+              }
+            }
+            return {
+              id: parent.id || parent._id,
+              from: parent.from,
+              text: parentText,
+            };
+          })()
           : null,
       };
     },
@@ -1219,10 +1219,10 @@ export default function Chat() {
           current.map((message) =>
             message.id === assistantMessageId
               ? {
-                  ...message,
-                  text: finalPayload.content,
-                  kind: 'ai',
-                }
+                ...message,
+                text: finalPayload.content,
+                kind: 'ai',
+              }
               : message
           )
         );
@@ -1232,20 +1232,30 @@ export default function Chat() {
         );
       }
     } catch (err) {
+      let fallback = 'QuantumAI failed to respond.';
+
       if (err?.name === 'AbortError') {
-        setMessages((current) => current.filter((message) => message.id !== assistantMessageId));
-        return;
+        fallback = 'Request cancelled.';
+      } else if (err.message?.includes('empty response')) {
+        fallback = 'QuantumAI returned no reply.';
+      } else if (err.message?.includes('signed response')) {
+        fallback = 'Invalid AI response.';
       }
+
       setMessages((current) =>
-        current.filter(
-          (message) => message.id !== assistantMessageId || Boolean(String(message.text || '').trim())
+        current.map((message) =>
+          message.id === assistantMessageId
+            ? {
+              ...message,
+              text: message.text?.trim() || fallback,
+              failed: true,
+            }
+            : message
         )
       );
+
       showToast(err instanceof Error ? err.message : 'QuantumAI failed to respond', 'error');
       throw err;
-    } finally {
-      setAiBusy(false);
-      aiAbortRef.current = null;
     }
   }
 
