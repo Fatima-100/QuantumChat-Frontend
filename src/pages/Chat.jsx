@@ -225,6 +225,42 @@ export default function Chat() {
       return peer?.publicKeys || [];
     },
     onMissed: () => showToast('Call ended or declined', 'info'),
+    onEnd: async (info) => {
+      try {
+        const peerId = String(info.peerId);
+        const peer = usersRef.current.find((u) => String(u.id) === peerId);
+        const myKey = pickRandom(getCurrentKeySet(user.id));
+        const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+        if (!myKey?.publicKey || recipientKeys.length === 0) return;
+        const payload = JSON.stringify({
+          __type: 'call',
+          callId: info.callId,
+          video: info.video,
+          role: info.role,
+          answered: !!info.answered,
+          durationSeconds: Number(info.durationSeconds) || 0,
+          reason: info.reason || null,
+          endedAt: new Date().toISOString(),
+        });
+        const forRecipient = sealMessage(payload, pickRandom(recipientKeys));
+        const forSender = sealMessage(payload, myKey.publicKey);
+        const { data } = await client.post('/messages', {
+          to: peerId,
+          forRecipient,
+          forSender,
+        });
+        recordActivityFromMessage(data.data);
+        setMessages((prev) => {
+          const id = String(data.data.id || data.data._id);
+          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+          return [...prev, decorate(data.data)];
+        });
+        playSendSound();
+        setTimeout(() => scrollToBottom('smooth'), 50);
+      } catch (err) {
+        /* ignore send errors */
+      }
+    },
   });
 
   const bumpActivity = useCallback(() => setActivityTick((n) => n + 1), []);
