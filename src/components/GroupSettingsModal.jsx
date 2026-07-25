@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Copy, Link2, Shield, Trash2, UserMinus, UserPlus, X } from 'lucide-react';
 import client from '../api/client.js';
+import { getApiBaseUrl } from '../api/baseUrl.js';
 import { getToken } from '../crypto/keyStorage.js';
 import { isGroupAdmin } from '../utils/groupPayload.js';
 import useFocusTrap from '../hooks/useFocusTrap.js';
 
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
+const API = getApiBaseUrl();
 export default function GroupSettingsModal({
   group,
   currentUserId,

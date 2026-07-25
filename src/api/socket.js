@@ -1,5 +1,6 @@
 ﻿import { io } from 'socket.io-client';
 import { getToken } from '../crypto/keyStorage.js';
+import { getApiBaseUrl } from './baseUrl.js';
 
 let socket = null;
 let socketDisabled = false;
@@ -10,10 +11,9 @@ let socketDisabled = false;
  * the app already polls REST for messages.
  */
 function shouldSkipSocket() {
-  const api = String(import.meta.env.VITE_API_URL || '');
+  const api = getApiBaseUrl();
   if (/vercel\.app/i.test(api)) return true;
-  if (typeof window !== 'undefined' && /vercel\.app$/i.test(window.location.hostname)) {
-    // Frontend on Vercel talking to serverless API — still allow if API is non-Vercel
+  if (typeof window !== 'undefined' && /\.vercel\.app$/i.test(window.location.hostname)) {
     return /vercel\.app/i.test(api);
   }
   return false;
@@ -26,7 +26,7 @@ export function connectSocket() {
     return null;
   }
 
-  const url = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const url = getApiBaseUrl();
   socket = io(url, {
     auth: { token: getToken() },
     transports: ['websocket', 'polling'],
