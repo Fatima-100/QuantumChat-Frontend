@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { getToken } from '../crypto/keyStorage.js';
+import { getApiUrl } from './baseUrl.js';
 
 const client = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`,
+  baseURL: getApiUrl(),
 });
 
 client.interceptors.request.use((config) => {

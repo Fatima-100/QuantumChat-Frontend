@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Music,
   Pencil,
+  Phone,
   Pin,
   Reply,
   Smile,
@@ -70,6 +71,11 @@ function formatRelativeTime(iso) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatVoiceTimer(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function ReadReceipt({ status }) {
@@ -168,6 +174,17 @@ const storyReplyPayload = useMemo(() => {
   const isStructured = Boolean(message.group) && structured.type && structured.type !== 'text';
   const hasTextContent = !isStructured && !isStoryReply && message.text && message.text.length > 0;
   const isDecryptionFail = message.text === null;
+
+  const callMeta = useMemo(() => {
+    if (!message.text) return null;
+    try {
+      const obj = JSON.parse(message.text);
+      if (obj && obj.__type === 'call') return obj;
+    } catch (e) {
+      return null;
+    }
+    return null;
+  }, [message.text]);
 
   const receiptStatus = useMemo(() => {
     if (!isMine) return null;
@@ -417,7 +434,20 @@ const storyReplyPayload = useMemo(() => {
                 onImageReady={onImageReady}
               />
             )}
-            {message.group && message.text != null ? (
+            {callMeta ? (
+              <div className="call-message">
+                <div className="call-message-icon"><Phone size={20} /></div>
+                <div className="call-message-body">
+                  <div className="call-message-title">Voice call</div>
+                  <div className="call-message-sub">
+                    {callMeta.answered
+                      ? `Duration ${formatVoiceTimer(callMeta.durationSeconds || 0)}`
+                      : 'Missed call'}
+                  </div>
+                </div>
+                <div className="call-message-time">{relativeTime}</div>
+              </div>
+            ) : message.group && message.text != null ? (
               <GroupMessageContent
                 message={message}
                 payload={structured}

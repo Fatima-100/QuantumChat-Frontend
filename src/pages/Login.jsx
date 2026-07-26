@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Shield } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
+import BrandLogo from '../components/BrandLogo.jsx';
 
 function getFriendlyLoginError(serverError, statusCode) {
   const msg = (serverError || '').toLowerCase();
@@ -133,7 +134,7 @@ export default function Login() {
         <div className="auth-brand">
           <Link to="/" className="auth-brand-home" aria-label="QuantumChat home">
             <span className="auth-brand-icon">
-              <Shield size={22} strokeWidth={2} aria-hidden="true" />
+              <BrandLogo size={48} />
             </span>
           </Link>
           <p className="auth-brand-name">QuantumChat</p>

@@ -1,11 +1,24 @@
 {
+  "build": {
+    "env": {
+      "VITE_API_URL": "https://quantum-chat-backend.vercel.app",
+      "VITE_AI_API_URL": "https://ai.quantumlogicslimited.com/api/v1"
+    }
+  },
   "rewrites": [
     {
-      "source": "/((?!assets/).*)",
+      "source": "/((?!assets/|logo\\.png|manifest\\.webmanifest|theme-init\\.js|sw\\.js).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
