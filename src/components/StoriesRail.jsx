@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { QUICK_REACTIONS } from '../utils/emojis.js';
 import client from '../api/client.js';
 import {
   findSecretKeyForPublicKey,
@@ -8,7 +9,9 @@ import {
 import { getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, pickRandom } from '../crypto/keys.js';
 import UserAvatar from './UserAvatar.jsx';
-
+import { motion } from 'framer-motion';
+import { Send, Smile, X } from 'lucide-react';
+import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 const MAX_STORY_SECONDS = 60;
 
 function bytesToBase64(bytes) {
@@ -39,6 +42,7 @@ async function aesGcmEncryptBlob(file) {
   ]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plain = new Uint8Array(await file.arrayBuffer());
+
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain);
   const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
   return {
@@ -141,12 +145,14 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
-export default function StoriesRail({ currentUser, users = [], onError }) {
+import { forwardRef, useImperativeHandle } from 'react';
+
+const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError }, ref) {
   const [stories, setStories] = useState([]);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef(null);
-
+const [unavailable, setUnavailable] = useState(false);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -276,7 +282,18 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
       setUploading(false);
     }
   }
-
+useImperativeHandle(ref, () => ({
+    async openStoryById(storyId) {
+      try {
+        const { data } = await client.get(`/stories/${storyId}`);
+        const story = data.data;
+        setUnavailable(false);
+        setViewer({ group: { user: story.user, items: [story] }, index: 0 });
+      } catch {
+        setUnavailable(true);
+      }
+    },
+  }));
   return (
     <div className="stories-rail">
       <p className="stories-privacy-note">
@@ -313,7 +330,10 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
             key={String(g.user?.id)}
             type="button"
             className="story-ring"
-            onClick={() => setViewer({ group: g, index: 0 })}
+            onClick={() => {
+              setUnavailable(false);
+              setViewer({ group: g, index: 0 });
+            }}
           >
             <UserAvatar
               userId={g.user?.id}
@@ -330,6 +350,8 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
           group={viewer.group}
           startIndex={viewer.index}
           currentUserId={currentUser?.id}
+          users={users}
+          onError={onError}
           onClose={() => setViewer(null)}
           onDeleted={async () => {
             setViewer(null);
@@ -337,14 +359,35 @@ export default function StoriesRail({ currentUser, users = [], onError }) {
           }}
         />
       )}
+     {unavailable && (
+        <div className="story-viewer-overlay" onClick={() => setUnavailable(false)}>
+          <div className="story-unavailable-card" onClick={(e) => e.stopPropagation()}>
+            <p>This story is no longer available.</p>
+            <button type="button" onClick={() => setUnavailable(false)}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+});
 
-function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
+export default StoriesRail;
+
+function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [blockedReason, setBlockedReason] = useState('');
+const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const replyInputRef = useRef(null);
+  const [reacting, setReacting] = useState(false);
+const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [emojiQuery, setEmojiQuery] = useState('');
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [reactionQuery, setReactionQuery] = useState('');
+  const [burst, setBurst] = useState(null);
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
 
@@ -400,9 +443,17 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
     };
   }, [story, currentUserId]);
 
-  useEffect(() => {
+ useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') onClose();
+      const tag = document.activeElement?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (typing) return; // let the input handle its own arrow keys
+
       if (e.key === 'ArrowRight') setIndex((i) => Math.min(group.items.length - 1, i + 1));
       if (e.key === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1));
     }
@@ -414,6 +465,117 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
     if (!window.confirm('Delete this story?')) return;
     await client.delete(`/stories/${story.id}`);
     onDeleted?.();
+  }
+async function handleSendReply() {
+    const text = replyText.trim();
+    if (!text || sendingReply) return;
+    try {
+      setSendingReply(true);
+
+      const owner = users.find((u) => String(u.id) === String(group.user?.id));
+      const ownerKeys = (owner?.publicKeys || []).filter(Boolean);
+      if (!ownerKeys.length) {
+        throw new Error("Can't reply — missing this user's encryption keys");
+      }
+
+      const selfKeySet = getCurrentKeySet(currentUserId);
+      const selfKeys = selfKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!selfKeys.length) {
+        throw new Error('Import your encryption keys before replying');
+      }
+
+      const payload = JSON.stringify({
+        type: 'story_reply',
+        storyId: story.id,
+        mediaType: story.mediaType,
+        caption: story.caption || null,
+        text,
+      });
+
+      const forRecipient = sealMessage(payload, pickRandom(ownerKeys));
+      const forSender = sealMessage(payload, pickRandom(selfKeys));
+
+      await client.post('/messages', {
+        to: String(group.user?.id),
+        forRecipient,
+        forSender,
+        replyToStory: story.id,
+      });
+
+      setReplyText('');
+      if (replyInputRef.current) replyInputRef.current.style.height = 'auto';
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to send reply');
+    } finally {
+      setSendingReply(false);
+    }
+  }
+  function autoGrow(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }
+
+  function handleReplyKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendReply();
+    }
+  }
+  async function handleReact(emoji) {
+    if (reacting) return;
+    try {
+      setReacting(true);
+      setReactionPickerOpen(false);
+
+      const owner = users.find((u) => String(u.id) === String(group.user?.id));
+      const ownerKeys = (owner?.publicKeys || []).filter(Boolean);
+      if (!ownerKeys.length) {
+        throw new Error("Can't react — missing this user's encryption keys");
+      }
+
+      const selfKeySet = getCurrentKeySet(currentUserId);
+      const selfKeys = selfKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!selfKeys.length) {
+        throw new Error('Import your encryption keys before reacting');
+      }
+
+      const payload = JSON.stringify({
+        type: 'story_reaction',
+        storyId: story.id,
+        mediaType: story.mediaType,
+        emoji,
+      });
+
+      const forRecipient = sealMessage(payload, pickRandom(ownerKeys));
+      const forSender = sealMessage(payload, pickRandom(selfKeys));
+
+      await client.post('/messages', {
+        to: String(group.user?.id),
+        forRecipient,
+        forSender,
+        replyToStory: story.id,
+      });
+
+      setBurst(emoji);
+      setTimeout(() => setBurst(null), 700);
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to react');
+    } finally {
+      setReacting(false);
+    }
+  }
+ const emojiResults = useMemo(
+    () => (emojiQuery.trim() ? searchEmojis(emojiQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
+    [emojiQuery]
+  );
+  const reactionResults = useMemo(
+    () => (reactionQuery.trim() ? searchEmojis(reactionQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
+    [reactionQuery]
+  );
+
+  function insertEmoji(emoji) {
+    setReplyText((t) => t + emoji);
   }
 
   return (
@@ -439,22 +601,142 @@ function StoryViewer({ group, startIndex, currentUserId, onClose, onDeleted }) {
             <span key={s.id} className={i === index ? 'on' : ''} />
           ))}
         </div>
-        <div className="story-viewer-media">
+        <div
+          className="story-viewer-media"
+          onDoubleClick={() => !isOwn && handleReact('❤️')}
+        >
           {blockedReason && <p className="empty-hint">{blockedReason}</p>}
           {!blockedReason && !mediaUrl && <p className="empty-hint">Loading…</p>}
           {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
           {mediaUrl && story.mediaType === 'video' && <video src={mediaUrl} autoPlay controls />}
           {mediaUrl && story.mediaType === 'audio' && <audio src={mediaUrl} autoPlay controls />}
+          {burst && <span className="story-reaction-burst">{burst}</span>}
         </div>
         {story.caption && <p className="story-caption">{story.caption}</p>}
-        <div className="story-viewer-actions">
+       <div className="story-viewer-actions">
           {isOwn && (
             <button type="button" onClick={handleDelete}>
               Delete
             </button>
           )}
         </div>
-      </div>
+
+     {!isOwn && (
+          <form
+            className="story-reply-bar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendReply();
+            }}
+          >
+            <div className="story-reply-input-wrap">
+              <textarea
+                ref={replyInputRef}
+                rows={1}
+                value={replyText}
+                onChange={(e) => {
+                  setReplyText(e.target.value);
+                  autoGrow(e.target);
+                }}
+                onKeyDown={handleReplyKeyDown}
+                placeholder={`Reply to ${group.user?.username}…`}
+                disabled={sendingReply}
+              />
+              <button
+                type="button"
+                className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
+                aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
+                onClick={() => {
+                  setEmojiPickerOpen((v) => !v);
+                  setReactionPickerOpen(false);
+                }}
+              >
+                {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              disabled={sendingReply || !replyText.trim()}
+              aria-label="Send reply"
+              className={`story-reply-send ${replyText.trim() ? 'ready' : ''}`}
+            >
+              {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
+            </button>
+
+            <button
+              type="button"
+              className={`story-heart-btn ${reactionPickerOpen ? 'open' : ''}`}
+              aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
+              disabled={reacting}
+              onClick={() => {
+                setReactionPickerOpen((v) => !v);
+                setEmojiPickerOpen(false);
+              }}
+            >
+              {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
+            </button>
+
+            {emojiPickerOpen && (
+              <div className="story-emoji-picker anchored-left">
+                <div className="story-reaction-picker-header">
+                  <input
+                    type="text"
+                    value={emojiQuery}
+                    onChange={(e) => setEmojiQuery(e.target.value)}
+                    placeholder="Search emoji"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="story-reaction-picker-close"
+                    aria-label="Close"
+                    onClick={() => setEmojiPickerOpen(false)}
+                  >
+                    <X size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div className="story-reaction-picker-grid">
+                  {emojiResults.map((emoji) => (
+                    <button key={emoji} type="button" onClick={() => insertEmoji(emoji)}>
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {reactionPickerOpen && (
+              <div className="story-reaction-picker anchored-right">
+                <div className="story-reaction-picker-header">
+                  <input
+                    type="text"
+                    value={reactionQuery}
+                    onChange={(e) => setReactionQuery(e.target.value)}
+                    placeholder="Search emoji"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="story-reaction-picker-close"
+                    aria-label="Close"
+                    onClick={() => setReactionPickerOpen(false)}
+                  >
+                    <X size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div className="story-reaction-picker-grid">
+                  {reactionResults.map((emoji) => (
+                    <button key={emoji} type="button" onClick={() => handleReact(emoji)}>
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </form>
+        )}
+        </div>
     </div>
   );
 }

@@ -4,15 +4,18 @@ import { motion } from 'framer-motion';
 import {
   Copy,
   Forward,
+  Image as ImageIcon,
   MoreHorizontal,
+  Music,
   Pencil,
+  Phone,
   Pin,
   Reply,
   Smile,
   Star,
   Trash2,
   Clock,
-  Phone,
+  Video,
 } from 'lucide-react';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
@@ -132,6 +135,7 @@ export default function MessageBubble({
   onJumpToReply,
   onImagePreview,
   onImageReady,
+  onOpenStory,
   onVotePoll,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -155,9 +159,20 @@ export default function MessageBubble({
   );
 
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
-  const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
+ const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
+const storyReplyPayload = useMemo(() => {
+    if (!message.text) return null;
+    try {
+      const parsed = JSON.parse(message.text);
+      return parsed?.type === 'story_reply' || parsed?.type === 'story_reaction' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [message.text]);
+  const isStoryReply = Boolean(storyReplyPayload);
+  const isStoryReaction = storyReplyPayload?.type === 'story_reaction';
   const isStructured = Boolean(message.group) && structured.type && structured.type !== 'text';
-  const hasTextContent = !isStructured && message.text && message.text.length > 0;
+  const hasTextContent = !isStructured && !isStoryReply && message.text && message.text.length > 0;
   const isDecryptionFail = message.text === null;
 
   const callMeta = useMemo(() => {
@@ -375,7 +390,7 @@ export default function MessageBubble({
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
-          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}`}>
+          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}`}>
             {senderLabel && !isMine && !grouped && (
               <div className="message-sender-label">
                 {senderLabel}
@@ -444,12 +459,50 @@ export default function MessageBubble({
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
               />
+              ) : isStoryReaction ? (
+              <button
+                type="button"
+                className="story-reaction-bubble story-reaction-bubble-clickable"
+                onClick={() => onOpenStory?.(storyReplyPayload.storyId)}
+              >
+                <span className="story-reaction-emoji">{storyReplyPayload.emoji}</span>
+                <span className="story-reaction-label">
+                  {isMine ? 'You reacted to their story' : 'Reacted to your story'}
+                </span>
+              </button>
+            ) : isStoryReply ? (
+              <div>
+                <button
+                  type="button"
+                  className="story-reply-quote story-reply-quote-clickable"
+                  onClick={() => onOpenStory?.(storyReplyPayload.storyId)}
+                >
+                  <div className="story-reply-thumb">
+                    {storyReplyPayload.mediaType === 'video' ? (
+                      <Video size={16} strokeWidth={2} />
+                    ) : storyReplyPayload.mediaType === 'audio' ? (
+                      <Music size={16} strokeWidth={2} />
+                    ) : (
+                      <ImageIcon size={16} strokeWidth={2} />
+                    )}
+                  </div>
+                  <div className="story-reply-quote-meta">
+                    <span className="story-reply-quote-label">
+                      {isMine ? 'You replied to their story' : 'Replied to your story'}
+                    </span>
+                    {storyReplyPayload.caption ? (
+                      <span className="story-reply-quote-caption">{storyReplyPayload.caption}</span>
+                    ) : null}
+                  </div>
+                </button>
+                <div>{storyReplyPayload.text}</div>
+              </div>
             ) : hasTextContent ? (
               message.text
             ) : isDecryptionFail ? (
               <em>[Unable to decrypt message]</em>
             ) : null}
-            <div className="message-time" title={fullTime}>
+            <div className={`message-time ${isStoryReaction ? 'story-reaction-time' : ''}`} title={fullTime}>
               {message.expiresAt ? (
                 <span
                   className="message-expiry-badge"

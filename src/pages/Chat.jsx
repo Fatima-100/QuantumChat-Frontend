@@ -212,6 +212,7 @@ export default function Chat() {
   const imageSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
+  const storiesRailRef = useRef(null);
   selectedRef.current = selected;
   usersRef.current = users;
 
@@ -2285,7 +2286,7 @@ export default function Chat() {
         </div>
         {canChat && (
           <>
-            <StoriesRail currentUser={user} users={users} onError={setError} />
+            <StoriesRail ref={storiesRailRef} currentUser={user} users={users} onError={setError} />
             <div className="sidebar-search">
               <input
                 placeholder="Search conversations…"
@@ -2680,6 +2681,7 @@ export default function Chat() {
                               onJumpToReply={handleJumpToReply}
                               onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
+                              onOpenStory={(storyId) => storiesRailRef.current?.openStoryById(storyId)}
                               onReply={(msg) => {
                                 setEditingMessage(null);
                                 setReplyTo(msg);
