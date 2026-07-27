@@ -125,7 +125,7 @@ function isSameDay(d1, d2) {
 }
 
 export default function Chat() {
-  const { user, logout, regenerateKeys, importKeys, hasLocalKeyring, updateSessionUser } = useAuth();
+  const { user, logout, regenerateKeys, importKeys, hasLocalKeyring, keyringNeedsResync, keyringSync, updateSessionUser } = useAuth();
   const { showToast } = useToast();
 
   const [users, setUsers] = useState([]);
@@ -1881,6 +1881,10 @@ export default function Chat() {
     }
     if (confirmDialog.type === 'delete') {
       await executeDeleteMessage(confirmDialog.messageId);
+      return;
+    }
+    if (confirmDialog.type === 'regenerate-keys') {
+      await handleGenerateKeys();
     }
   }
 
@@ -1948,6 +1952,19 @@ export default function Chat() {
     }
   }
 
+  function requestGenerateKeys() {
+    const isResync = keyringNeedsResync;
+    setConfirmDialog({
+      type: 'regenerate-keys',
+      title: isResync ? 'Regenerate & resync encryption keys?' : 'Generate new encryption keys?',
+      message: isResync
+        ? 'Your local keyring does not match the public keys stored on the server. Regenerating publishes a fresh 5-key pool to the server and saves matching secrets on this device. Sealed stories and messages encrypted with the old pool will stay unreadable.'
+        : 'This creates a new 5-key pool on this device and publishes it to the server. Save the downloaded keys.txt backup. Messages and sealed stories encrypted with any previous keys will stay unreadable.',
+      confirmLabel: isResync ? 'Regenerate & resync' : 'Generate new keys',
+      danger: true,
+    });
+  }
+
   async function handleImportKeyFile(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -1955,7 +1972,7 @@ export default function Chat() {
     try {
       const text = await file.text();
       const secretKeys = parseKeyFile(text);
-      importKeys(secretKeys);
+      await importKeys(secretKeys);
       setImportError('');
       showToast('Encryption key file imported successfully', 'success');
     } catch (err) {
@@ -2220,7 +2237,7 @@ export default function Chat() {
                   Import keys.txt for this account
                 </button>
                 <input ref={keyFileInputRef} type="file" accept=".txt,text/plain" hidden onChange={handleImportKeyFile} />
-                <button type="button" className="key-unlock-secondary" onClick={handleGenerateKeys}>
+                <button type="button" className="key-unlock-secondary" onClick={requestGenerateKeys}>
                   Lost your keys? Generate new set
                 </button>
               </div>
@@ -2233,6 +2250,20 @@ export default function Chat() {
 
         {canChat && (
           <>
+            {keyringNeedsResync && (
+              <div className="email-verify-banner key-sync-banner">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <span>
+                    Your local encryption keys do not match the public keys stored on the server
+                    ({keyringSync?.localMatchCount ?? 0}/{keyringSync?.serverKeys?.length ?? 5} matched).
+                    Sealed stories and new messages may fail to decrypt until you resync.
+                  </span>
+                  <button type="button" className="email-verify-banner-btn" onClick={requestGenerateKeys}>
+                    Regenerate &amp; resync keys
+                  </button>
+                </div>
+              </div>
+            )}
             {user && !user.emailVerified && !emailBannerDismissed && (
               <div className="email-verify-banner email-verify-banner-dismissible">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3189,7 +3220,7 @@ export default function Chat() {
           user={user}
           onClose={() => setShowSettings(false)}
           onImportKeys={handleImportKeyFile}
-          onGenerateKeys={handleGenerateKeys}
+          onGenerateKeys={requestGenerateKeys}
           onUserUpdated={updateSessionUser}
           onLogout={() => {
             setShowSettings(false);

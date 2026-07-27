@@ -38,7 +38,7 @@ export default function SettingsModal({
   onExportChat,
 }) {
   const { theme, setTheme } = useTheme();
-  const { importKeys } = useAuth();
+  const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
@@ -347,7 +347,7 @@ export default function SettingsModal({
       if (!Array.isArray(secretKeys)) {
         throw new Error('Vault contents are invalid');
       }
-      importKeys(secretKeys);
+      await importKeys(secretKeys);
       setVaultPassphrase('');
       setVaultPassphraseConfirm('');
       setOk('Keys restored from vault');
@@ -841,13 +841,27 @@ export default function SettingsModal({
                 <p className="settings-section-copy">
                   Keys stay on this device. Import a backup to recover old messages, or generate a new set if keys are gone.
                 </p>
+                {keyringSync?.status === 'synced' && (
+                  <p className="settings-section-copy settings-key-sync-ok">
+                    Local keyring matches server public keys ({keyringSync.localMatchCount}/{keyringSync.serverKeys.length}).
+                  </p>
+                )}
+                {keyringNeedsResync && (
+                  <p className="settings-section-copy settings-key-sync-warn">
+                    Local keyring is out of sync with the server ({keyringSync?.localMatchCount ?? 0}/
+                    {keyringSync?.serverKeys?.length ?? 5} public keys matched). Regenerate keys to fix sealed stories and new encryption.
+                  </p>
+                )}
                 <div className="settings-key-actions">
+                  <button type="button" className="settings-btn ghost" onClick={() => verifyKeySync().catch(() => {})}>
+                    Verify key sync
+                  </button>
                   <button type="button" className="settings-btn ghost" onClick={() => keyInputRef.current?.click()}>
                     Import keys.txt
                   </button>
                   <input ref={keyInputRef} type="file" accept=".txt" hidden onChange={onImportKeys} />
                   <button type="button" className="settings-btn primary" onClick={onGenerateKeys}>
-                    Generate new keys
+                    {keyringNeedsResync ? 'Regenerate & resync keys' : 'Generate new keys'}
                   </button>
                 </div>
               </div>

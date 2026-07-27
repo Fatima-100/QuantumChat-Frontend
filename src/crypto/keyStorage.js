@@ -5,10 +5,9 @@ const SESSION_ID_KEY = 'qc_session_id';
 
 // Each user's keyring is an append-only list of every X25519 keypair this
 // device has ever held for them: [{ publicKey, secretKey, createdAt }, ...].
-// Keys rotate every 30 minutes, but a message can only ever be decrypted
-// with the exact keypair version that was current when it was sent — so old
-// keys must be kept, not discarded, for history to stay readable. Nothing
-// here ever leaves localStorage.
+// The server advertises one fixed 5-key pool per account (set at register or
+// via regenerateKeys); older pools stay in the ring so history sealed to
+// prior keys remains decryptable. Nothing here ever leaves localStorage.
 function keyringKey(userId) {
   return KEYRING_PREFIX + userId;
 }
@@ -58,6 +57,23 @@ export function findSecretKeyForPublicKey(userId, publicKeyHex) {
 
 export function hasKeyring(userId) {
   return getKeyring(userId).length > 0;
+}
+
+/** Compare server-advertised public keys with secrets held locally. */
+export function getKeyringSyncStatus(userId, serverPublicKeys) {
+  const serverKeys = (serverPublicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);
+  if (!serverKeys.length) {
+    return { status: 'unknown', missingOnLocal: [], serverKeys: [], localMatchCount: 0 };
+  }
+  const missingOnLocal = serverKeys.filter((pub) => !findSecretKeyForPublicKey(userId, pub));
+  const localMatchCount = serverKeys.length - missingOnLocal.length;
+  if (localMatchCount === 0) {
+    return { status: 'mismatch', missingOnLocal, serverKeys, localMatchCount };
+  }
+  if (missingOnLocal.length > 0) {
+    return { status: 'partial', missingOnLocal, serverKeys, localMatchCount };
+  }
+  return { status: 'synced', missingOnLocal: [], serverKeys, localMatchCount };
 }
 
 // Wipes this device's copy of the user's private keys. Used on logout so
