@@ -230,6 +230,7 @@ export default function Chat() {
     onMissed: () => showToast('Call ended or declined', 'info'),
     onEnd: async (info) => {
       try {
+        if (info.role !== 'caller') return;
         const peerId = String(info.peerId);
         const peer = usersRef.current.find((u) => String(u.id) === peerId);
         const myKey = pickRandom(getCurrentKeySet(user.id));
