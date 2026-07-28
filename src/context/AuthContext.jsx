@@ -4,6 +4,7 @@ import { generateKeySet, derivePublicKey, KEY_SET_SIZE } from '../crypto/keys.js
 import {
   addKeySetToRing,
   hasKeyring,
+  keyringMatchesPublishedKeys,
   saveSession,
   getStoredUser,
   clearSession,
@@ -13,6 +14,13 @@ import {
 import { connectSocket, disconnectSocket } from '../api/socket.js';
 
 const AuthContext = createContext(null);
+
+function clearOtherAccountKeyring(loggedInUserId) {
+  const previous = getStoredUser();
+  if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
+    clearKeyring(previous.id);
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(getStoredUser());
@@ -32,10 +40,9 @@ export function AuthProvider({ children }) {
     return { user: newUser, keySet };
   }, []);
 
-  // Private keys never leave the client. Each successful login clears any
-  // cached keyring for this account (and the previous session's user if
-  // different) so Chat always requires importing the keys.txt that belongs
-  // to this specific account — wrong-file imports are rejected by importKeys.
+  // Private keys stay on this device across logins. We only clear another
+  // account's keyring when switching users, so the same account does not
+  // re-prompt for keys.txt every session.
   const login = useCallback(async ({ email, password }) => {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
     const { data } = await client.post('/auth/login', { email, password, deviceLabel });
@@ -43,11 +50,7 @@ export function AuthProvider({ children }) {
       return { requires2fa: true, tempToken: data.data.tempToken };
     }
     const { token, user: loggedInUser, sessionId } = data.data;
-    const previous = getStoredUser();
-    if (previous?.id && String(previous.id) !== String(loggedInUser.id)) {
-      clearKeyring(previous.id);
-    }
-    clearKeyring(loggedInUser.id);
+    clearOtherAccountKeyring(loggedInUser.id);
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -58,11 +61,7 @@ export function AuthProvider({ children }) {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
     const { data } = await client.post('/auth/2fa/verify', { tempToken, token, deviceLabel });
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
-    const previous = getStoredUser();
-    if (previous?.id && String(previous.id) !== String(loggedInUser.id)) {
-      clearKeyring(previous.id);
-    }
-    clearKeyring(loggedInUser.id);
+    clearOtherAccountKeyring(loggedInUser.id);
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -108,16 +107,13 @@ export function AuthProvider({ children }) {
     [user]
   );
 
-  // Wipes this device's private keys along with the session — the next
-  // login lands with an empty keyring, so the "no local keyring" gate in
-  // Chat.jsx always requires re-importing keys.txt (or generating a fresh
-  // pool) rather than the old keys silently persisting in localStorage.
+  // Clears the auth session only. Encryption keys stay in localStorage so
+  // the next login on this browser can chat without re-importing keys.txt.
   const logout = useCallback(() => {
-    if (user) clearKeyring(user.id);
     clearSession();
     disconnectSocket();
     setUser(null);
-  }, [user]);
+  }, []);
 
   const updateSessionUser = useCallback((nextUser) => {
     if (!nextUser) return;
@@ -125,7 +121,11 @@ export function AuthProvider({ children }) {
     setUser(nextUser);
   }, []);
 
-  const hasLocalKeyring = user ? hasKeyring(user.id) : false;
+  const hasLocalKeyring = user
+    ? user.publicKeys?.length
+      ? keyringMatchesPublishedKeys(user.id, user.publicKeys)
+      : hasKeyring(user.id)
+    : false;
 
   return (
     <AuthContext.Provider
