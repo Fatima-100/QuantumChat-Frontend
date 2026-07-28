@@ -71,12 +71,9 @@ export function AuthProvider({ children }) {
     const publicKeys = keySet.map((k) => k.publicKey);
     // Validate localStorage works before creating a server account whose keys we must store here.
     try {
-      const testRing = keySet.map(({ publicKey, secretKey }) => ({
-        publicKey: publicKey.toLowerCase(),
-        secretKey,
-        createdAt: Date.now(),
-      }));
-      localStorage.setItem('qc_keyring_test_' + Date.now(), JSON.stringify(testRing));
+      const probeKey = 'qc_keyring_probe_' + Date.now();
+      localStorage.setItem(probeKey, '1');
+      localStorage.removeItem(probeKey);
     } catch (err) {
       throw new Error('Cannot save keys to localStorage: ' + err.message);
     }
