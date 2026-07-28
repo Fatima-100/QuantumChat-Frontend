@@ -13,7 +13,16 @@ import { motion } from 'framer-motion';
 import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 const MAX_STORY_SECONDS = 60;
-
+const TTL_PRESETS = [
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '6 hours', ms: 6 * 60 * 60 * 1000 },
+  { label: '24 hours', ms: 24 * 60 * 60 * 1000 },
+  { label: '3 days', ms: 3 * 24 * 60 * 60 * 1000 },
+  { label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+];
+const DEFAULT_TTL_MS = TTL_PRESETS[2].ms; // 24h
+const MIN_TTL_MS = 15 * 60 * 1000;
+const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 function bytesToBase64(bytes) {
   let s = '';
   const chunk = 0x8000;
@@ -151,6 +160,8 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [stories, setStories] = useState([]);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
+const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const inputRef = useRef(null);
 const [unavailable, setUnavailable] = useState(false);
   const grouped = useMemo(() => {
@@ -206,82 +217,99 @@ const [unavailable, setUnavailable] = useState(false);
     };
   }, [currentUser?.id]);
 
-  async function handleFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      setUploading(true);
-      let durationMs = 0;
-      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        durationMs = await probeMediaDuration(file);
-        if (durationMs > MAX_STORY_SECONDS * 1000) {
-          onError?.(`Stories must be ${MAX_STORY_SECONDS} seconds or shorter`);
-          return;
-        }
+  function handleFileSelected(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+  setPendingFile(file);
+  setPendingPreviewUrl(URL.createObjectURL(file));
+}
+async function uploadStory(file, ttlMs) {
+  try {
+    setUploading(true);
+    let durationMs = 0;
+    if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
+      durationMs = await probeMediaDuration(file);
+      if (durationMs > MAX_STORY_SECONDS * 1000) {
+        onError?.(`Stories must be ${MAX_STORY_SECONDS} seconds or shorter`);
+        return;
       }
-
-      const form = new FormData();
-      const canSeal = typeof crypto !== 'undefined' && crypto.subtle;
-
-      if (canSeal) {
-        const sealed = await aesGcmEncryptBlob(file);
-        // Seal the author envelope to keys this device actually holds (same
-        // pattern as chat forSender), not a possibly stale session publicKeys list.
-        const localKeySet = getCurrentKeySet(currentUser.id);
-        const authorPublicKeys = localKeySet.map((k) => k.publicKey).filter(Boolean);
-        if (!authorPublicKeys.length) {
-          throw new Error('Import your encryption keys before posting a sealed story');
-        }
-        for (const pk of authorPublicKeys) {
-          if (!findSecretKeyForPublicKey(currentUser.id, pk)) {
-            throw new Error('Local keyring is incomplete — re-import your keys.txt');
-          }
-        }
-
-        const audienceMap = new Map();
-        audienceMap.set(String(currentUser.id), {
-          id: String(currentUser.id),
-          username: currentUser.username,
-          publicKeys: authorPublicKeys,
-        });
-        for (const u of users) {
-          if (!u?.id || !u.publicKeys?.length) continue;
-          if (String(u.id) === String(currentUser.id)) continue;
-          audienceMap.set(String(u.id), {
-            id: String(u.id),
-            username: u.username,
-            publicKeys: u.publicKeys,
-          });
-        }
-        const audience = [...audienceMap.values()];
-        const envelopes = buildStoryEnvelopes(audience, sealed.keyB64, sealed.ivB64);
-
-        form.append(
-          'file',
-          new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          file.name || 'story.bin'
-        );
-        form.append('sealed', 'true');
-        form.append('mimetype', file.type || 'application/octet-stream');
-        if (file.type.startsWith('image/')) form.append('mediaType', 'image');
-        else if (file.type.startsWith('video/')) form.append('mediaType', 'video');
-        else if (file.type.startsWith('audio/')) form.append('mediaType', 'audio');
-        form.append('contentIv', sealed.ivB64);
-        form.append('envelopes', JSON.stringify(envelopes));
-      } else {
-        form.append('file', file);
-      }
-      form.append('durationMs', String(durationMs));
-
-      await client.post('/stories', form);
-      await loadStories();
-    } catch (err) {
-      onError?.(err.response?.data?.error || err.message || 'Failed to upload story');
-    } finally {
-      setUploading(false);
     }
+
+    const form = new FormData();
+    const canSeal = typeof crypto !== 'undefined' && crypto.subtle;
+
+    if (canSeal) {
+      const sealed = await aesGcmEncryptBlob(file);
+      const localKeySet = getCurrentKeySet(currentUser.id);
+      const authorPublicKeys = localKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!authorPublicKeys.length) {
+        throw new Error('Import your encryption keys before posting a sealed story');
+      }
+      for (const pk of authorPublicKeys) {
+        if (!findSecretKeyForPublicKey(currentUser.id, pk)) {
+          throw new Error('Local keyring is incomplete — re-import your keys.txt');
+        }
+      }
+
+      const audienceMap = new Map();
+      audienceMap.set(String(currentUser.id), {
+        id: String(currentUser.id),
+        username: currentUser.username,
+        publicKeys: authorPublicKeys,
+      });
+      for (const u of users) {
+        if (!u?.id || !u.publicKeys?.length) continue;
+        if (String(u.id) === String(currentUser.id)) continue;
+        audienceMap.set(String(u.id), {
+          id: String(u.id),
+          username: u.username,
+          publicKeys: u.publicKeys,
+        });
+      }
+      const audience = [...audienceMap.values()];
+      const envelopes = buildStoryEnvelopes(audience, sealed.keyB64, sealed.ivB64);
+
+      form.append(
+        'file',
+        new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
+        file.name || 'story.bin'
+      );
+      form.append('sealed', 'true');
+      form.append('mimetype', file.type || 'application/octet-stream');
+      if (file.type.startsWith('image/')) form.append('mediaType', 'image');
+      else if (file.type.startsWith('video/')) form.append('mediaType', 'video');
+      else if (file.type.startsWith('audio/')) form.append('mediaType', 'audio');
+      form.append('contentIv', sealed.ivB64);
+      form.append('envelopes', JSON.stringify(envelopes));
+    } else {
+      form.append('file', file);
+    }
+    form.append('durationMs', String(durationMs));
+   form.append('ttlMs', String(ttlMs));
+
+    await client.post('/stories', form);
+    await loadStories();
+  } catch (err) {
+    onError?.(err.response?.data?.error || err.message || 'Failed to upload story');
+  } finally {
+    setUploading(false);
   }
+}
+
+function closeComposer() {
+  if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+  setPendingFile(null);
+  setPendingPreviewUrl(null);
+}
+
+async function confirmPostStory(ttlMs) {
+  const file = pendingFile;
+  closeComposer();
+  if (file) await uploadStory(file, ttlMs);
+}
+
 useImperativeHandle(ref, () => ({
     async openStoryById(storyId) {
       try {
@@ -316,12 +344,12 @@ useImperativeHandle(ref, () => ({
         <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
       </button>
       <input
-        ref={inputRef}
-        type="file"
-        accept="image/*,video/*,audio/*"
-        hidden
-        onChange={handleFile}
-      />
+  ref={inputRef}
+  type="file"
+  accept="image/*,video/*,audio/*"
+  hidden
+  onChange={handleFileSelected}
+/>
 
       {grouped
         .filter((g) => String(g.user?.id) !== String(currentUser?.id) || g.items.length > 0)
@@ -369,6 +397,15 @@ useImperativeHandle(ref, () => ({
           </div>
         </div>
       )}
+      {pendingFile && (
+  <StoryComposer
+    file={pendingFile}
+    previewUrl={pendingPreviewUrl}
+    onCancel={closeComposer}
+    onConfirm={confirmPostStory}
+    uploading={uploading}
+  />
+)}
     </div>
   );
 });
@@ -737,6 +774,103 @@ async function handleSendReply() {
           </form>
         )}
         </div>
+    </div>
+  );
+}
+function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
+  const [preset, setPreset] = useState(DEFAULT_TTL_MS);
+  const [customMode, setCustomMode] = useState(false);
+  const [customValue, setCustomValue] = useState(24);
+  const [customUnit, setCustomUnit] = useState('hours');
+
+  const unitMultiplier = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000 };
+
+  function computeTtlMs() {
+    if (customMode) {
+      const raw = Number(customValue) || 0;
+      const ms = raw * (unitMultiplier[customUnit] || unitMultiplier.hours);
+      return Math.min(Math.max(ms, MIN_TTL_MS), MAX_TTL_MS);
+    }
+    return preset;
+  }
+
+  return (
+    <div className="story-composer-overlay" onClick={onCancel}>
+      <div className="story-composer" onClick={(e) => e.stopPropagation()}>
+        <div className="story-composer-top">
+          <span>New story</span>
+          <button type="button" onClick={onCancel} aria-label="Cancel">
+            ×
+          </button>
+        </div>
+
+        <div className="story-composer-preview">
+          {file.type.startsWith('image/') && <img src={previewUrl} alt="" />}
+          {file.type.startsWith('video/') && <video src={previewUrl} controls />}
+          {file.type.startsWith('audio/') && <audio src={previewUrl} controls />}
+        </div>
+
+        <div className="story-composer-ttl">
+          <p className="story-composer-ttl-label">How long should this story last?</p>
+          <div className="story-composer-ttl-presets">
+            {TTL_PRESETS.map((p) => (
+              <button
+                key={p.ms}
+                type="button"
+                className={`story-ttl-preset ${!customMode && preset === p.ms ? 'active' : ''}`}
+                onClick={() => {
+                  setCustomMode(false);
+                  setPreset(p.ms);
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`story-ttl-preset ${customMode ? 'active' : ''}`}
+              onClick={() => setCustomMode(true)}
+            >
+              Custom…
+            </button>
+          </div>
+
+          {customMode && (
+            <div className="story-composer-custom-row">
+              <input
+                type="number"
+                min="1"
+                value={customValue}
+                onChange={(e) => setCustomValue(e.target.value)}
+                aria-label="Custom duration value"
+              />
+              <select
+                value={customUnit}
+                onChange={(e) => setCustomUnit(e.target.value)}
+                aria-label="Custom duration unit"
+              >
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="story-composer-actions">
+          <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={uploading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="story-composer-post"
+            disabled={uploading}
+            onClick={() => onConfirm(computeTtlMs())}
+          >
+            {uploading ? 'Posting…' : 'Post story'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

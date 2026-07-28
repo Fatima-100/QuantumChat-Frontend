@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Archive, BadgeCheck, Ban, Clock, Lock, Sparkles, VolumeX, X } from 'lucide-react';
+import { Archive, BadgeCheck, Ban, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 
@@ -37,10 +37,12 @@ export default function UserProfileModal({
   online = false,
   muted = false,
   archived = false,
+  isFriend = false,
   onMute,
   onArchive,
   onHide,
   onBlock,
+  onRemoveFriend,
   onClose,
   onLoaded,
 }) {
@@ -100,7 +102,7 @@ export default function UserProfileModal({
   const presence = formatPresence(profile, online);
   const keyRotated = formatKeyRotated(profile?.keyRotatedAt);
   const isAi = profile?.systemRole === 'quantum_ai' || profile?.isSystemUser;
-  const showActions = Boolean(profile && (onMute || onArchive || onHide || onBlock) && !isAi);
+ const showActions = Boolean(profile && (onMute || onArchive || onHide || onBlock || onRemoveFriend) && !isAi);
 
   return (
     <div className="create-group-overlay" role="presentation" onClick={() => onClose?.()}>
@@ -217,17 +219,30 @@ export default function UserProfileModal({
                     </button>
                   )}
                   {onBlock && (
-                    <button
-                      type="button"
-                      className="user-profile-action-btn danger"
-                      title="Block user"
-                      aria-label={`Block ${displayName}`}
-                      onClick={() => onBlock(profile)}
-                    >
-                      <Ban size={18} strokeWidth={2} aria-hidden="true" />
-                      <span>Block</span>
-                    </button>
-                  )}
+  <button
+    type="button"
+    className="user-profile-action-btn danger"
+    title="Block user"
+    aria-label={`Block ${displayName}`}
+    onClick={() => onBlock(profile)}
+  >
+    <Ban size={18} strokeWidth={2} aria-hidden="true" />
+    <span>Block</span>
+  </button>
+)}
+{onRemoveFriend && isFriend && (
+  <button
+    type="button"
+    className="user-profile-action-btn danger"
+    title="Remove friend"
+    aria-label={`Remove ${displayName} as a friend`}
+    onClick={() => onRemoveFriend(profile)}
+  >
+    <UserMinus size={18} strokeWidth={2} aria-hidden="true" />
+    <span>Remove Friend</span>
+  </button>
+)}
+                  
                 </div>
               </section>
             )}

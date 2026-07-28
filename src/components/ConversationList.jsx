@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, MoreVertical, Users, UserPlus, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Check, MoreVertical, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 
@@ -25,6 +25,7 @@ const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
   { id: 'groups', label: 'Groups' },
+  { id: 'friends', label: 'Friends' },
   { id: 'discover', label: 'Discover' },
   { id: 'archived', label: 'Archived' },
 ];
@@ -43,6 +44,13 @@ export default function ConversationList({
   onArchive,
   loading,
   searchQuery = '',
+  friendCandidates = [],
+  friendCandidatesLoading = false,
+  incomingRequests = [],
+  onSendFriendRequest,
+  onCancelFriendRequest,
+  onAcceptFriendRequest,
+  onDeclineFriendRequest,
 }) {
   const [discoverItems, setDiscoverItems] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
@@ -175,6 +183,110 @@ export default function ConversationList({
                         ? 'Request'
                         : 'Join'}
                 </button>
+              </motion.div>
+            ))
+          )}
+        </div>
+      ) : filter === 'friends' ? (
+        <div className="user-list friends-list">
+          {incomingRequests.length > 0 && (
+            <div className="friend-requests-incoming">
+              <p className="friend-requests-heading">Requests</p>
+              {incomingRequests.map((r) => (
+                <div key={r.id} className="user-list-item friend-request-item">
+                  <UserAvatar
+                    userId={r.user.id}
+                    name={r.user.displayName || r.user.username}
+                    hasAvatar={Boolean(r.user.hasAvatar)}
+                  />
+                  <span className="user-list-meta">
+                    <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                    <span className="user-list-lastseen">@{r.user.username}</span>
+                  </span>
+                  <div className="friend-request-actions">
+                    <button
+                      type="button"
+                      className="friend-action-btn accept"
+                      aria-label="Accept"
+                      onClick={() => onAcceptFriendRequest?.(r.id)}
+                    >
+                      <Check size={15} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      className="friend-action-btn decline"
+                      aria-label="Decline"
+                      onClick={() => onDeclineFriendRequest?.(r.id)}
+                    >
+                      <X size={15} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="friend-requests-heading">People</p>
+          {friendCandidatesLoading ? (
+            [1, 2, 3].map((i) => (
+              <div key={i} className="user-list-item" style={{ pointerEvents: 'none' }}>
+                <div className="skeleton skeleton-avatar" />
+                <div className="skeleton-user-info">
+                  <div className="skeleton skeleton-line short" />
+                  <div className="skeleton skeleton-line medium" style={{ marginTop: '4px' }} />
+                </div>
+              </div>
+            ))
+          ) : friendCandidates.length === 0 ? (
+            <p className="empty-hint">
+              {searchQuery.trim() ? 'No one matches your search.' : 'No new people to add right now.'}
+            </p>
+          ) : (
+            friendCandidates.map((u, index) => (
+              <motion.div
+                key={u.id}
+                className="user-list-item"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
+              >
+                <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                <span className="user-list-meta">
+                  <span className="user-list-name">{u.displayName || u.username}</span>
+                  <span className="user-list-lastseen">@{u.username}</span>
+                </span>
+                {u.requestStatus === 'pending_sent' ? (
+                  <button
+                    type="button"
+                    className="discover-join-btn pending"
+                    onClick={() => onCancelFriendRequest?.(u.requestId)}
+                  >
+                    Cancel
+                  </button>
+                ) : u.requestStatus === 'pending_received' ? (
+                  <div className="friend-request-actions">
+                    <button
+                      type="button"
+                      className="friend-action-btn accept"
+                      aria-label="Accept"
+                      onClick={() => onAcceptFriendRequest?.(u.requestId)}
+                    >
+                      <Check size={15} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      className="friend-action-btn decline"
+                      aria-label="Decline"
+                      onClick={() => onDeclineFriendRequest?.(u.requestId)}
+                    >
+                      <UserX size={15} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="discover-join-btn" onClick={() => onSendFriendRequest?.(u.id)}>
+                    Add
+                  </button>
+                )}
               </motion.div>
             ))
           )}

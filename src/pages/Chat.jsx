@@ -156,7 +156,9 @@ export default function Chat() {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [activityTick, setActivityTick] = useState(0);
-
+const [friendCandidates, setFriendCandidates] = useState([]);
+const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
+const [incomingRequests, setIncomingRequests] = useState([]);
   // Custom UI feature states
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -408,11 +410,36 @@ export default function Chat() {
 
     Promise.allSettled([usersReq, groupsReq]).finally(() => setLoadingUsers(false));
   }, [hasLocalKeyring]);
+const loadFriendDiscover = useCallback(async (q) => {
+  setFriendCandidatesLoading(true);
+  try {
+    const { data } = await client.get('/users/discover', {
+      params: q?.trim() ? { q: q.trim() } : undefined,
+    });
+    setFriendCandidates(data.data || []);
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to load people', 'error');
+  } finally {
+    setFriendCandidatesLoading(false);
+  }
+}, [showToast]);
 
+const loadFriendRequests = useCallback(async () => {
+  try {
+    const { data } = await client.get('/users/friend-requests');
+    setIncomingRequests(data.data?.incoming || []);
+  } catch {
+    // non-fatal
+  }
+}, []);
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
-
+useEffect(() => {
+  if (filter !== 'friends') return;
+  loadFriendDiscover(search);
+  loadFriendRequests();
+}, [filter, search, loadFriendDiscover, loadFriendRequests]);
   // Socket routing and listener hooks
   useEffect(() => {
     if (!hasLocalKeyring) return;
@@ -518,6 +545,30 @@ export default function Chat() {
         return [group, ...prev];
       });
     }
+    async function handleFriendRequestNew() {
+  loadFriendRequests();
+  showToast('New friend request', 'info');
+}
+async function handleFriendRequestAccepted() {
+  try {
+    const { data } = await client.get('/users/me');
+    if (data?.data) updateSessionUser(data.data);
+  } catch {
+    // non-fatal
+  }
+
+  loadDirectory();
+  loadFriendRequests();
+}
+async function handleFriendRemoved() {
+  try {
+    const { data } = await client.get('/users/me');
+    if (data?.data) updateSessionUser(data.data);
+  } catch {
+    // non-fatal
+  }
+  loadDirectory();
+}
 
     function handleGroupUpdated(payload) {
       if (!payload?.id) return;
@@ -675,6 +726,9 @@ export default function Chat() {
     socket.on('presence:snapshot', handlePresenceSnapshot);
     socket.on('presence:update', handlePresenceUpdate);
     socket.on('message:status', handleMessageStatus);
+    socket.on('friend:request:new', handleFriendRequestNew);
+socket.on('friend:request:accepted', handleFriendRequestAccepted);
+socket.on('friend:removed', handleFriendRemoved);
     return () => {
       socket.off('message:new', handleIncoming);
       socket.off('message:deleted', handleDeleted);
@@ -691,6 +745,9 @@ export default function Chat() {
       socket.off('presence:snapshot', handlePresenceSnapshot);
       socket.off('presence:update', handlePresenceUpdate);
       socket.off('message:status', handleMessageStatus);
+      socket.off('friend:request:new', handleFriendRequestNew);
+socket.off('friend:request:accepted', handleFriendRequestAccepted);
+socket.off('friend:removed', handleFriendRemoved);
       clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [hasLocalKeyring, user, users, decorate, scrollToBottom, recordActivityFromMessage, bumpActivity, showToast]);
@@ -980,7 +1037,52 @@ export default function Chat() {
       throw err;
     }
   }
+async function handleSendFriendRequest(userId) {
+  try {
+    await client.post('/users/friend-requests', { to: userId });
+    showToast('Friend request sent', 'success');
+    loadFriendDiscover(search);
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to send request', 'error');
+  }
+}
 
+async function handleCancelFriendRequest(requestId) {
+  try {
+    await client.delete(`/users/friend-requests/${requestId}`);
+    loadFriendDiscover(search);
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to cancel request', 'error');
+  }
+}
+
+async function handleAcceptFriendRequest(requestId) {
+  try {
+    await client.post(`/users/friend-requests/${requestId}/accept`);
+    try {
+      const { data } = await client.get('/users/me');
+      if (data?.data) updateSessionUser(data.data);
+    } catch {
+      // non-fatal
+    }
+    showToast('Friend request accepted', 'success');
+    setIncomingRequests((prev) => prev.filter((r) => String(r.id) !== String(requestId)));
+    loadDirectory();
+    loadFriendDiscover(search);
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to accept request', 'error');
+  }
+}
+
+async function handleDeclineFriendRequest(requestId) {
+  try {
+    await client.post(`/users/friend-requests/${requestId}/decline`);
+    setIncomingRequests((prev) => prev.filter((r) => String(r.id) !== String(requestId)));
+    loadFriendDiscover(search);
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to decline request', 'error');
+  }
+}
   function sealGroupEnvelopes(plaintext, group) {
     const members = group.members || [];
     const envelopes = [];
@@ -2299,22 +2401,29 @@ export default function Chat() {
         )}
         {canChat ? (
           <ConversationList
-            conversations={conversations}
-            filter={filter}
-            onFilterChange={setFilter}
-            selectedKey={selected?.key}
-            onSelect={handleSelectConversation}
-            onCreateGroup={() => setShowCreateGroup(true)}
-            onDiscoverJoin={handleDiscoverJoin}
-            onHide={handleHideChat}
-            onBlock={handleBlockUser}
-            onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
-            onArchive={(c) => {
-              setArchivedKeys(toggleArchiveChat(user.id, c.key));
-            }}
-            loading={loadingUsers}
-            searchQuery={search}
-          />
+  conversations={conversations}
+  filter={filter}
+  onFilterChange={setFilter}
+  selectedKey={selected?.key}
+  onSelect={handleSelectConversation}
+  onCreateGroup={() => setShowCreateGroup(true)}
+  onDiscoverJoin={handleDiscoverJoin}
+  onHide={handleHideChat}
+  onBlock={handleBlockUser}
+  onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
+  onArchive={(c) => {
+    setArchivedKeys(toggleArchiveChat(user.id, c.key));
+  }}
+  loading={loadingUsers}
+  searchQuery={search}
+  friendCandidates={friendCandidates}
+  friendCandidatesLoading={friendCandidatesLoading}
+  incomingRequests={incomingRequests}
+  onSendFriendRequest={handleSendFriendRequest}
+  onCancelFriendRequest={handleCancelFriendRequest}
+  onAcceptFriendRequest={handleAcceptFriendRequest}
+  onDeclineFriendRequest={handleDeclineFriendRequest}
+/>
         ) : (
           <p className="empty-hint">Set up your device key to see people.</p>
         )}
@@ -3150,6 +3259,23 @@ export default function Chat() {
           }
           muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
           archived={archivedKeys.map(String).includes(String(conversationKeyForUser(profileUserId)))}
+          isFriend={(user.friends || []).map(String).includes(String(profileUserId))}
+onRemoveFriend={async (peer) => {
+  try {
+    await client.delete(`/users/friends/${peer.id}`);
+    try {
+      const { data } = await client.get('/users/me');
+      if (data?.data) updateSessionUser(data.data);
+    } catch {
+      // non-fatal
+    }
+    showToast('Friend removed', 'success');
+    setProfileUserId(null);
+    loadDirectory();
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to remove friend', 'error');
+  }
+}}
           onMute={() => {
             const key = conversationKeyForUser(profileUserId);
             setMutedKeys(toggleMuteChat(user.id, key));
