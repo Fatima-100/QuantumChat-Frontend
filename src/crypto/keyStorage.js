@@ -59,6 +59,12 @@ export function hasKeyring(userId) {
   return getKeyring(userId).length > 0;
 }
 
+export function keyringMatchesPublishedKeys(userId, serverPublicKeys) {
+  const serverKeys = (serverPublicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);
+  if (!serverKeys.length) return false;
+  return serverKeys.every((pub) => Boolean(findSecretKeyForPublicKey(userId, pub)));
+}
+
 /** Compare server-advertised public keys with secrets held locally. */
 export function getKeyringSyncStatus(userId, serverPublicKeys) {
   const serverKeys = (serverPublicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);

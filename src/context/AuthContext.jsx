@@ -177,6 +177,8 @@ export function AuthProvider({ children }) {
   );
 
   const logout = useCallback(() => {
+    // Clear the session state and reset the sync banner, while leaving the
+    // device's local keyring in place so existing local history remains decryptable.
     if (user) clearKeyring(user.id);
     clearSession();
     disconnectSocket();
