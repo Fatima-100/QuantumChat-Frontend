@@ -84,7 +84,8 @@ export function getKeyringSyncStatus(userId, serverPublicKeys) {
 
 // Wipes this device's copy of the user's private keys. Used on logout so
 // each new session requires re-importing keys.txt rather than the keyring
-// silently persisting in localStorage across log-outs.
+// silently persisting in localStorage across log-outs, and when switching
+// accounts on the same browser.
 export function clearKeyring(userId) {
   localStorage.removeItem(keyringKey(userId));
 }
