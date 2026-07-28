@@ -60,9 +60,20 @@ export function hasKeyring(userId) {
   return getKeyring(userId).length > 0;
 }
 
-// Wipes this device's copy of the user's private keys. Used on logout so
-// each new session requires re-importing keys.txt rather than the keyring
-// silently persisting in localStorage across log-outs.
+/**
+ * True when this device already holds secret keys for every currently
+ * published public key — i.e. chat can unlock without re-importing keys.txt.
+ */
+export function keyringMatchesPublishedKeys(userId, publicKeys) {
+  const needed = (publicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);
+  if (!needed.length) return false;
+  const ringPubs = new Set(getKeyring(userId).map((k) => String(k.publicKey).toLowerCase()));
+  return needed.every((pk) => ringPubs.has(pk));
+}
+
+// Wipes this device's copy of the user's private keys. Used when switching
+// accounts on the same browser, or when local keys no longer match the
+// account's published pool (e.g. regenerated on another device).
 export function clearKeyring(userId) {
   localStorage.removeItem(keyringKey(userId));
 }

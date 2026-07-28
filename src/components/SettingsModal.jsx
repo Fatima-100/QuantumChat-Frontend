@@ -515,6 +515,16 @@ export default function SettingsModal({
                 </div>
               </div>
 
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Session</h3>
+                <p className="settings-section-copy">
+                  Sign out on this browser. Your encryption keys stay on this device for the next login.
+                </p>
+                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
+                  Log out
+                </button>
+              </div>
+
               <div className="settings-photo-actions">
                 <button
                   type="button"

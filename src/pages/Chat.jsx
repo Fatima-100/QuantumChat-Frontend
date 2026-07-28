@@ -53,6 +53,7 @@ import {
 import ConversationList from '../components/ConversationList.jsx';
 import CreateGroupModal from '../components/CreateGroupModal.jsx';
 import GroupSettingsModal from '../components/GroupSettingsModal.jsx';
+import SidebarMenu from '../components/SidebarMenu.jsx';
 import UserProfileModal from '../components/UserProfileModal.jsx';
 import UserAvatar from '../components/UserAvatar.jsx';
 import MessageBubble from '../components/MessageBubble.jsx';
@@ -2279,9 +2280,7 @@ export default function Chat() {
             </div>
           </div>
           <div className="sidebar-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button type="button" className="icon-btn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
-              <Settings size={20} strokeWidth={2} aria-hidden="true" />
-            </button>
+            <SidebarMenu onSettings={() => setShowSettings(true)} onLogout={handleLogout} />
           </div>
         </div>
         {canChat && (
@@ -2338,9 +2337,9 @@ export default function Chat() {
               </div>
               <h2 className="key-unlock-title">Unlock your encryption keys</h2>
               <p className="key-unlock-copy">
-                Sign-in alone is not enough. Import the <strong>keys.txt</strong> file that was generated
-                for <strong>{user?.username || user?.email || 'this account'}</strong> so messages can be
-                decrypted. Keys from another account will be rejected.
+                This browser does not have keys for <strong>{user?.username || user?.email || 'this account'}</strong> yet.
+                Import your <strong>keys.txt</strong> once — they stay on this device, so you will not be asked again on the next login.
+                Keys from another account will be rejected.
               </p>
               {importError && <div className="auth-error">{importError}</div>}
               <div className="key-unlock-actions">
@@ -3322,7 +3321,7 @@ export default function Chat() {
           onUserUpdated={updateSessionUser}
           onLogout={() => {
             setShowSettings(false);
-            logout();
+            handleLogout();
           }}
           onExportChat={() => {
             if (!selected || !messages.length) {
@@ -3362,7 +3361,7 @@ export default function Chat() {
         <ConfirmDialog
           open={logoutConfirmOpen}
           title="Log out of QuantumChat?"
-          message="Your encryption keys are stored in this browser's local storage. If you clear your browser data after logging out, you won't be able to decrypt your message history."
+          message="You will be signed out on this browser. Your encryption keys stay saved here, so you can log back in without importing keys.txt again."
           confirmLabel="Log out"
           cancelLabel="Stay"
           danger={true}
