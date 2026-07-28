@@ -59,13 +59,22 @@ export function hasKeyring(userId) {
   return getKeyring(userId).length > 0;
 }
 
+/**
+ * True when this device already holds secret keys for every currently
+ * published public key — i.e. chat/stories can unlock without re-importing
+ * keys.txt or regenerating.
+ */
 export function keyringMatchesPublishedKeys(userId, serverPublicKeys) {
   const serverKeys = (serverPublicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);
   if (!serverKeys.length) return false;
   return serverKeys.every((pub) => Boolean(findSecretKeyForPublicKey(userId, pub)));
 }
 
-/** Compare server-advertised public keys with secrets held locally. */
+/**
+ * Compare server-advertised public keys with secrets held locally, returning
+ * a detailed status ('synced' | 'partial' | 'mismatch' | 'unknown') plus
+ * which server keys are missing locally — used to drive the sync banner/UI.
+ */
 export function getKeyringSyncStatus(userId, serverPublicKeys) {
   const serverKeys = (serverPublicKeys || []).map((k) => String(k).toLowerCase()).filter(Boolean);
   if (!serverKeys.length) {
@@ -82,10 +91,11 @@ export function getKeyringSyncStatus(userId, serverPublicKeys) {
   return { status: 'synced', missingOnLocal: [], serverKeys, localMatchCount };
 }
 
-// Wipes this device's copy of the user's private keys. Used on logout so
-// each new session requires re-importing keys.txt rather than the keyring
-// silently persisting in localStorage across log-outs, and when switching
-// accounts on the same browser.
+// Wipes this device's copy of the user's private keys. Used when switching
+// accounts on the same browser, or when local keys no longer match the
+// account's published pool (e.g. regenerated on another device). Not called
+// on logout — encryption keys stay in localStorage so the next login on this
+// browser can chat without re-importing keys.txt.
 export function clearKeyring(userId) {
   localStorage.removeItem(keyringKey(userId));
 }

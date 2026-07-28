@@ -74,36 +74,39 @@ export function AuthProvider({ children }) {
     }
   }, [user?.id, recomputeKeyringSync, refreshUserFromServer]);
 
-  const register = useCallback(async ({ username, email, password }) => {
-    const keySet = generateKeySet();
-    const publicKeys = keySet.map((k) => k.publicKey);
-    // Validate localStorage works before creating a server account whose keys we must store here.
-    try {
-      const probeKey = 'qc_keyring_probe_' + Date.now();
-      localStorage.setItem(probeKey, '1');
-      localStorage.removeItem(probeKey);
-    } catch (err) {
-      throw new Error('Cannot save keys to localStorage: ' + err.message);
-    }
+  const register = useCallback(
+    async ({ username, email, password }) => {
+      const keySet = generateKeySet();
+      const publicKeys = keySet.map((k) => k.publicKey);
+      // Validate localStorage works before creating a server account whose keys we must store here.
+      try {
+        const probeKey = 'qc_keyring_probe_' + Date.now();
+        localStorage.setItem(probeKey, '1');
+        localStorage.removeItem(probeKey);
+      } catch (err) {
+        throw new Error('Cannot save keys to localStorage: ' + err.message);
+      }
 
-    const { data } = await client.post('/auth/register', { username, email, password, publicKeys });
-    const { token, user: newUser } = data.data;
+      const { data } = await client.post('/auth/register', { username, email, password, publicKeys });
+      const { token, user: newUser } = data.data;
 
-    // CRITICAL: persist private keys before anything else that could navigate away.
-    try {
-      addKeySetToRing(newUser.id, keySet);
-    } catch (err) {
-      throw new Error(
-        'Account was created but encryption keys could not be saved on this device. Log in and use "Generate new keys" to resync.'
-      );
-    }
+      // CRITICAL: persist private keys before anything else that could navigate away.
+      try {
+        addKeySetToRing(newUser.id, keySet);
+      } catch (err) {
+        throw new Error(
+          'Account was created but encryption keys could not be saved on this device. Log in and use "Generate new keys" to resync.'
+        );
+      }
 
-    saveSession(token, newUser);
-    setUser(newUser);
-    recomputeKeyringSync(newUser);
-    connectSocket();
-    return { user: newUser, keySet };
-  }, [recomputeKeyringSync]);
+      saveSession(token, newUser);
+      setUser(newUser);
+      recomputeKeyringSync(newUser);
+      connectSocket();
+      return { user: newUser, keySet };
+    },
+    [recomputeKeyringSync]
+  );
 
   // Private keys stay on this device across logins. We only clear another
   // account's keyring when switching users, so the same account does not
@@ -141,15 +144,11 @@ export function AuthProvider({ children }) {
     const publicKeys = keySet.map((k) => k.publicKey);
     // CRITICAL: Save keys to localStorage FIRST, before publishing to server.
     addKeySetToRing(user.id, keySet);
-    try {
-      const { data } = await client.patch('/users/me/public-keys', { publicKeys });
-      saveSession(getToken(), data.data);
-      setUser(data.data);
-      recomputeKeyringSync(data.data);
-      return { user: data.data, keySet };
-    } catch (err) {
-      throw err;
-    }
+    const { data } = await client.patch('/users/me/public-keys', { publicKeys });
+    saveSession(getToken(), data.data);
+    setUser(data.data);
+    recomputeKeyringSync(data.data);
+    return { user: data.data, keySet };
   }, [user, recomputeKeyringSync]);
 
   const importKeys = useCallback(
@@ -175,8 +174,9 @@ export function AuthProvider({ children }) {
     [user, refreshUserFromServer, recomputeKeyringSync]
   );
 
-  // Clears the session state and resets the sync banner, while leaving the
-  // device's local keyring in place so existing local history remains decryptable.
+  // Clears the auth session only. Encryption keys stay in localStorage so the
+  // next login on this browser can chat without re-importing keys.txt; we
+  // still reset the in-memory sync banner state since there's no user to show it for.
   const logout = useCallback(() => {
     clearSession();
     disconnectSocket();
@@ -194,7 +194,16 @@ export function AuthProvider({ children }) {
     [recomputeKeyringSync]
   );
 
-  const hasLocalKeyring = user ? hasKeyring(user.id) : false;
+  // True when this device holds secret keys for every currently published
+  // public key (the strict check); falls back to "has any local keyring at
+  // all" before the server's publicKeys have loaded, so the UI doesn't flash
+  // "no keys" during the first render.
+  const hasLocalKeyring = user
+    ? user.publicKeys?.length
+      ? keyringMatchesPublishedKeys(user.id, user.publicKeys)
+      : hasKeyring(user.id)
+    : false;
+
   const keyringInSync = keyringSync?.status === 'synced';
   const keyringNeedsResync = Boolean(
     user && hasLocalKeyring && keyringSync && keyringSync.status !== 'synced' && keyringSync.status !== 'unknown'
