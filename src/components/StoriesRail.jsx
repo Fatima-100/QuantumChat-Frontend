@@ -847,8 +847,36 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
   const [customMode, setCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState(24);
   const [customUnit, setCustomUnit] = useState('hours');
+  const imagePreviewRef = useRef(null);
+  const videoPreviewRef = useRef(null);
+  const audioPreviewRef = useRef(null);
 
   const unitMultiplier = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000 };
+
+  useEffect(() => {
+    let safePreviewUrl = '';
+    try {
+      const parsed = new URL(previewUrl);
+      if (parsed.protocol === 'blob:') safePreviewUrl = parsed.href;
+    } catch {
+      // Leave media sources unset for malformed preview URLs.
+    }
+
+    const previewElements = [
+      imagePreviewRef.current,
+      videoPreviewRef.current,
+      audioPreviewRef.current,
+    ].filter(Boolean);
+
+    for (const element of previewElements) {
+      if (safePreviewUrl) element.src = safePreviewUrl;
+      else element.removeAttribute('src');
+    }
+
+    return () => {
+      for (const element of previewElements) element.removeAttribute('src');
+    };
+  }, [previewUrl]);
 
   function computeTtlMs() {
     if (customMode) {
@@ -870,9 +898,9 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
         </div>
 
         <div className="story-composer-preview">
-          {file.type.startsWith('image/') && <img src={previewUrl} alt="" />}
-          {file.type.startsWith('video/') && <video src={previewUrl} controls />}
-          {file.type.startsWith('audio/') && <audio src={previewUrl} controls />}
+          {file.type.startsWith('image/') && <img ref={imagePreviewRef} alt="" />}
+          {file.type.startsWith('video/') && <video ref={videoPreviewRef} controls />}
+          {file.type.startsWith('audio/') && <audio ref={audioPreviewRef} controls />}
         </div>
 
         <div className="story-composer-ttl">
