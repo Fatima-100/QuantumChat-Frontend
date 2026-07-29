@@ -203,6 +203,7 @@ export default function Chat() {
   const keyFileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const selectedRef = useRef(null);
+  const messagesRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const recordChunksRef = useRef([]);
@@ -215,6 +216,7 @@ export default function Chat() {
   const usersRef = useRef([]);
   const storiesRailRef = useRef(null);
   selectedRef.current = selected;
+  messagesRef.current = messages;
   usersRef.current = users;
 
   const webrtc = useWebRTCCall({
@@ -743,6 +745,102 @@ export default function Chat() {
       cancelled = true;
     };
   }, [selected, hasLocalKeyring, decorate, scrollToBottom, user.id, recordActivityFromMessage, bumpActivity, showToast]);
+
+  // Vercel's serverless API cannot keep a Socket.IO connection alive.
+  // When no socket is connected, sync the open conversation frequently so
+  // both participants see new messages without manually reloading the page.
+  useEffect(() => {
+    if (!selected || !hasLocalKeyring) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+    const endpoint =
+      selected.type === 'group' ? `/groups/${selected.id}/messages` : `/messages/${selected.id}`;
+
+    async function syncOpenConversation() {
+      if (
+        cancelled ||
+        inFlight ||
+        document.visibilityState === 'hidden' ||
+        getSocket()?.connected
+      ) {
+        return;
+      }
+
+      inFlight = true;
+      try {
+        const { data } = await client.get(endpoint, {
+          params: { limit: 80, markRead: 1 },
+        });
+        if (cancelled) return;
+
+        const latest = (data.data || []).map(decorate);
+        const currentIds = new Set(
+          messagesRef.current.map((message) => String(message.id || message._id))
+        );
+        const receivedNewMessage = latest.some(
+          (message) =>
+            !currentIds.has(String(message.id || message._id)) &&
+            String(message.from) !== String(user.id)
+        );
+
+        setMessages((current) => {
+          const existingIds = new Set(
+            current.map((message) => String(message.id || message._id))
+          );
+          const latestById = new Map(
+            latest.map((message) => [String(message.id || message._id), message])
+          );
+
+          const merged = current.map((message) => {
+            const id = String(message.id || message._id);
+            return latestById.get(id) || message;
+          });
+          for (const message of latest) {
+            const id = String(message.id || message._id);
+            if (!existingIds.has(id)) merged.push(message);
+          }
+          merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          return merged;
+        });
+
+        const last = latest.at(-1);
+        if (last) {
+          recordActivityFromMessage(last);
+          markConversationRead(user.id, selected.key);
+        }
+        if (receivedNewMessage) {
+          if (!isChatMuted(user.id, selected.key)) playReceiveSound();
+          setTimeout(() => scrollToBottom('smooth'), 50);
+        }
+      } catch {
+        // Keep retrying; a temporary network failure should not require reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const timer = window.setInterval(syncOpenConversation, 1200);
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') syncOpenConversation();
+    };
+    window.addEventListener('focus', syncOpenConversation);
+    document.addEventListener('visibilitychange', syncWhenVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', syncOpenConversation);
+      document.removeEventListener('visibilitychange', syncWhenVisible);
+    };
+  }, [
+    selected,
+    hasLocalKeyring,
+    decorate,
+    recordActivityFromMessage,
+    scrollToBottom,
+    user.id,
+  ]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!selected || !hasMoreMessages || loadingOlderRef.current || !oldestCreatedAtRef.current) return;
@@ -2116,6 +2214,24 @@ export default function Chat() {
     logout();
   }
 
+  async function handleStartCall(video) {
+    if (!selected || selected.type !== 'dm') return;
+    try {
+      await webrtc.startCall({
+        peerId: selected.id,
+        peerName: title,
+        video,
+      });
+    } catch (err) {
+      showToast(
+        err.response?.data?.error ||
+          err.message ||
+          'Could not start the call. Check your connection and try again.',
+        'error'
+      );
+    }
+  }
+
   const title = useMemo(() => {
     if (!selected) return 'Select a conversation';
     return selected.title || (selected.type === 'group' ? 'Group' : 'Chat');
@@ -2492,13 +2608,7 @@ export default function Chat() {
                       type="button"
                       title="Voice call"
                       aria-label="Voice call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: false,
-                        })
-                      }
+                      onClick={() => handleStartCall(false)}
                     >
                       <Phone size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
@@ -2507,13 +2617,7 @@ export default function Chat() {
                       type="button"
                       title="Video call"
                       aria-label="Video call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: true,
-                        })
-                      }
+                      onClick={() => handleStartCall(true)}
                     >
                       <Video size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
