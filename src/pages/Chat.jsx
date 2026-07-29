@@ -2214,6 +2214,24 @@ export default function Chat() {
     logout();
   }
 
+  async function handleStartCall(video) {
+    if (!selected || selected.type !== 'dm') return;
+    try {
+      await webrtc.startCall({
+        peerId: selected.id,
+        peerName: title,
+        video,
+      });
+    } catch (err) {
+      showToast(
+        err.response?.data?.error ||
+          err.message ||
+          'Could not start the call. Check your connection and try again.',
+        'error'
+      );
+    }
+  }
+
   const title = useMemo(() => {
     if (!selected) return 'Select a conversation';
     return selected.title || (selected.type === 'group' ? 'Group' : 'Chat');
@@ -2590,13 +2608,7 @@ export default function Chat() {
                       type="button"
                       title="Voice call"
                       aria-label="Voice call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: false,
-                        })
-                      }
+                      onClick={() => handleStartCall(false)}
                     >
                       <Phone size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
@@ -2605,13 +2617,7 @@ export default function Chat() {
                       type="button"
                       title="Video call"
                       aria-label="Video call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: true,
-                        })
-                      }
+                      onClick={() => handleStartCall(true)}
                     >
                       <Video size={18} strokeWidth={2} aria-hidden="true" />
                     </button>

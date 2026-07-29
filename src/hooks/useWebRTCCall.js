@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '../api/socket.js';
+import client from '../api/client.js';
 import { sealMessage, unsealMessage, pickRandom } from '../crypto/keys.js';
 import { findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
+import { startDialingSound } from '../utils/sounds.js';
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const ICE_SERVERS = [
+  {
+    urls: [
+      'stun:stun.l.google.com:19302',
+      'stun:stun.cloudflare.com:3478',
+    ],
+  },
+  ...(import.meta.env.VITE_TURN_URL
+    ? [
+        {
+          urls: import.meta.env.VITE_TURN_URL,
+          username: import.meta.env.VITE_TURN_USERNAME || '',
+          credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
+        },
+      ]
+    : []),
+];
 
 function newCallId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -45,6 +63,14 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
   const callRef = useRef(null);
   const pendingIceRef = useRef([]);
   const peerKeysCacheRef = useRef(new Map());
+  const seenRestSignalsRef = useRef(new Set());
+  const resolvePeerPublicKeysRef = useRef(resolvePeerPublicKeys);
+  const onMissedRef = useRef(onMissed);
+  const onEndRef = useRef(onEnd);
+  const stopDialingSoundRef = useRef(null);
+  resolvePeerPublicKeysRef.current = resolvePeerPublicKeys;
+  onMissedRef.current = onMissed;
+  onEndRef.current = onEnd;
 
   useEffect(() => {
     callRef.current = call;
@@ -54,23 +80,35 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
     async (peerId) => {
       const id = String(peerId);
       if (peerKeysCacheRef.current.has(id)) return peerKeysCacheRef.current.get(id);
-      const keys = (await resolvePeerPublicKeys?.(id)) || [];
+      const keys = (await resolvePeerPublicKeysRef.current?.(id)) || [];
       peerKeysCacheRef.current.set(id, keys);
       return keys;
     },
-    [resolvePeerPublicKeys]
+    []
   );
 
   const emitSealed = useCallback(
     async (eventName, { to, callId, payload }) => {
       const keys = await getPeerKeys(to);
       const envelope = sealForPeer(keys, payload);
-      getSocket()?.emit(eventName, { to, callId, envelope });
+      const socket = getSocket();
+      if (socket?.connected) {
+        socket.emit(eventName, { to, callId, envelope });
+        return;
+      }
+      await client.post('/call-signals', {
+        to,
+        callId,
+        event: eventName,
+        envelope,
+      });
     },
     [getPeerKeys]
   );
 
   const cleanupMedia = useCallback(() => {
+    stopDialingSoundRef.current?.();
+    stopDialingSoundRef.current = null;
     pendingIceRef.current = [];
     if (pcRef.current) {
       try {
@@ -99,7 +137,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
         const answered = Boolean(startedAt);
         const durationSeconds = answered ? Math.floor((Date.now() - startedAt) / 1000) : 0;
         try {
-          onEnd?.({
+          onEndRef.current?.({
             callId: c.callId,
             peerId: c.peerId,
             video: c.video,
@@ -114,9 +152,10 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       }
     } finally {
       cleanupMedia();
+      callRef.current = null;
       setCall(null);
     }
-  }, [cleanupMedia, onEnd]);
+  }, [cleanupMedia]);
 
   const ensurePc = useCallback(
     (peerId) => {
@@ -176,13 +215,20 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       };
       setCall(next);
       callRef.current = next;
-      await emitSealed('call:invite', {
-        to: peerId,
-        callId,
-        payload: { type: 'invite', callId, video: Boolean(video) },
-      });
+      stopDialingSoundRef.current?.();
+      stopDialingSoundRef.current = startDialingSound();
+      try {
+        await emitSealed('call:invite', {
+          to: peerId,
+          callId,
+          payload: { type: 'invite', callId, video: Boolean(video) },
+        });
+      } catch (err) {
+        endCallLocal('signaling_failed');
+        throw err;
+      }
     },
-    [emitSealed]
+    [emitSealed, endCallLocal]
   );
 
   const acceptCall = useCallback(async () => {
@@ -254,7 +300,10 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
 
   useEffect(() => {
     const socket = getSocket();
-    if (!socket || !userId) return undefined;
+    if (!userId) return undefined;
+    let cancelled = false;
+    let restCursor = new Date(Date.now() - 45_000).toISOString();
+    let pollInFlight = false;
 
     async function flushIce(pc) {
       const queued = pendingIceRef.current.splice(0);
@@ -300,6 +349,8 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       if (!body || body.type !== 'accept') return;
       const c = callRef.current;
       if (!c || c.role !== 'caller' || String(c.callId) !== String(callId)) return;
+      stopDialingSoundRef.current?.();
+      stopDialingSoundRef.current = null;
       try {
         const stream = await attachLocalMedia(c.video);
         const pc = ensurePc(c.peerId);
@@ -372,7 +423,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       if (!body || body.type !== 'reject') return;
       const c = callRef.current;
       if (!c || String(c.callId) !== String(callId)) return;
-      onMissed?.(c);
+      onMissedRef.current?.(c);
       endCallLocal();
     }
 
@@ -384,24 +435,89 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       endCallLocal();
     }
 
-    socket.on('call:invite', onInvite);
-    socket.on('call:accept', onAccept);
-    socket.on('call:reject', onReject);
-    socket.on('call:hangup', onHangup);
-    socket.on('call:offer', onOffer);
-    socket.on('call:answer', onAnswer);
-    socket.on('call:ice', onIce);
+    const handlers = {
+      'call:invite': onInvite,
+      'call:accept': onAccept,
+      'call:reject': onReject,
+      'call:hangup': onHangup,
+      'call:offer': onOffer,
+      'call:answer': onAnswer,
+      'call:ice': onIce,
+    };
+
+    for (const [eventName, handler] of Object.entries(handlers)) {
+      socket?.on(eventName, handler);
+    }
+
+    async function pollRestSignals() {
+      if (cancelled || pollInFlight || getSocket()?.connected) return;
+      pollInFlight = true;
+      try {
+        const { data } = await client.get('/call-signals', {
+          params: { after: restCursor },
+        });
+        if (cancelled) return;
+        const payload = data.data || {};
+        if (payload.cursor) restCursor = payload.cursor;
+        for (const signal of payload.signals || []) {
+          const signalId = String(signal.id || '');
+          if (!signalId || seenRestSignalsRef.current.has(signalId)) continue;
+          seenRestSignalsRef.current.add(signalId);
+          if (
+            signal.createdAt &&
+            Date.now() - new Date(signal.createdAt).getTime() > 45_000
+          ) {
+            continue;
+          }
+          handlers[signal.event]?.(signal);
+        }
+        // Signals expire quickly; cap the local de-duplication set as well.
+        if (seenRestSignalsRef.current.size > 500) {
+          seenRestSignalsRef.current = new Set(
+            [...seenRestSignalsRef.current].slice(-250)
+          );
+        }
+      } catch {
+        // A temporary network failure is retried on the next interval.
+      } finally {
+        pollInFlight = false;
+      }
+    }
+
+    const pollTimer = window.setInterval(pollRestSignals, 900);
+    pollRestSignals();
 
     return () => {
-      socket.off('call:invite', onInvite);
-      socket.off('call:accept', onAccept);
-      socket.off('call:reject', onReject);
-      socket.off('call:hangup', onHangup);
-      socket.off('call:offer', onOffer);
-      socket.off('call:answer', onAnswer);
-      socket.off('call:ice', onIce);
+      cancelled = true;
+      window.clearInterval(pollTimer);
+      for (const [eventName, handler] of Object.entries(handlers)) {
+        socket?.off(eventName, handler);
+      }
     };
-  }, [userId, attachLocalMedia, ensurePc, endCallLocal, hangup, onMissed, emitSealed]);
+  }, [userId, attachLocalMedia, ensurePc, endCallLocal, hangup, emitSealed]);
+
+  useEffect(() => {
+    if (!call || (call.status !== 'ringing' && call.status !== 'incoming')) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      const current = callRef.current;
+      if (!current || current.callId !== call.callId) return;
+      const eventName = current.role === 'caller' ? 'call:hangup' : 'call:reject';
+      emitSealed(eventName, {
+        to: current.peerId,
+        callId: current.callId,
+        payload: {
+          type: current.role === 'caller' ? 'hangup' : 'reject',
+          callId: current.callId,
+          reason: 'no_answer',
+        },
+      }).catch(() => {});
+      onMissedRef.current?.(current);
+      endCallLocal('no_answer');
+    }, 45_000);
+    return () => window.clearTimeout(timer);
+  }, [call, emitSealed, endCallLocal]);
 
   useEffect(() => () => cleanupMedia(), [cleanupMedia]);
 
