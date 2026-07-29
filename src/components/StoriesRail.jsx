@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { QUICK_REACTIONS } from '../utils/emojis.js';
 import client from '../api/client.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import {
+  getToken,
   findSecretKeyForPublicKey,
   getCurrentKeySet,
+  getKeyringSyncStatus,
+  getStoredUser,
   getKeyring,
 } from '../crypto/keyStorage.js';
 import { getSocket } from '../api/socket.js';
-import { sealMessage, unsealMessage, pickRandom } from '../crypto/keys.js';
+import { sealMessage, unsealMessage, pickRandom, KEY_SET_SIZE } from '../crypto/keys.js';
 import UserAvatar from './UserAvatar.jsx';
 import { motion } from 'framer-motion';
 import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
+
 const MAX_STORY_SECONDS = 60;
 
 function bytesToBase64(bytes) {
@@ -112,12 +117,17 @@ function tryParseKeyPayload(text) {
   return null;
 }
 
-/** Open the AES media key from any of this viewer's story envelopes. */
+/**
+ * Open the AES media key from any of this viewer's story envelopes.
+ * Returns { ok: true, payload } on success, or { ok: false, reason, targetPublicKey? }
+ * so the UI can show a precise message (no envelope vs. no matching secret vs. decrypt failure).
+ */
 function unlockStoryKey(story, currentUserId) {
   const uid = String(currentUserId?.id || currentUserId || '');
-  if (!uid) return null;
+  if (!uid) return { ok: false, reason: 'no-envelope' };
+
   const envelopes = (story.envelopes || []).filter((e) => envelopeUserId(e) === uid);
-  if (!envelopes.length) return null;
+  if (!envelopes.length) return { ok: false, reason: 'no-envelope' };
 
   const ring = getKeyring(uid);
 
@@ -125,18 +135,25 @@ function unlockStoryKey(story, currentUserId) {
     const hinted = envelope.targetPublicKey
       ? findSecretKeyForPublicKey(uid, envelope.targetPublicKey)
       : null;
+
     if (hinted) {
-      const unlocked = tryParseKeyPayload(unsealMessage(envelope, hinted));
-      if (unlocked) return unlocked;
+      const payload = tryParseKeyPayload(unsealMessage(envelope, hinted));
+      if (payload) return { ok: true, payload };
     }
-    // Fallback: try every local secret (covers stale targetPublicKey hints).
+
+    // Fallback: try every local secret (covers a stale/mismatched targetPublicKey hint).
     for (const entry of ring) {
       if (hinted && entry.secretKey === hinted) continue;
-      const unlocked = tryParseKeyPayload(unsealMessage(envelope, entry.secretKey));
-      if (unlocked) return unlocked;
+      const payload = tryParseKeyPayload(unsealMessage(envelope, entry.secretKey));
+      if (payload) return { ok: true, payload };
     }
   }
-  return null;
+
+  return {
+    ok: false,
+    reason: 'no-secret',
+    targetPublicKey: envelopes[0]?.targetPublicKey,
+  };
 }
 
 function viewerCanSeeStory(story, currentUserId) {
@@ -145,14 +162,14 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
-import { forwardRef, useImperativeHandle } from 'react';
-
 const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError }, ref) {
+  const { keyringInSync, keyringNeedsResync, refreshUserFromServer, verifyKeySync } = useAuth();
   const [stories, setStories] = useState([]);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const inputRef = useRef(null);
-const [unavailable, setUnavailable] = useState(false);
+
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -212,6 +229,21 @@ const [unavailable, setUnavailable] = useState(false);
     if (!file) return;
     try {
       setUploading(true);
+
+      // Make sure our local keyring is actually in sync with the server before
+      // sealing anything to it — this is the fix for stories being undecryptable.
+      if (keyringNeedsResync || !keyringInSync) {
+        await verifyKeySync().catch(() => refreshUserFromServer().catch(() => null));
+      }
+      const ownerUser = getStoredUser() || currentUser;
+      const sync = getKeyringSyncStatus(ownerUser.id, ownerUser.publicKeys || []);
+      if (sync.status !== 'synced') {
+        onError?.(
+          'Encryption keys are out of sync with the server. Use Settings → Regenerate & resync keys before posting stories.'
+        );
+        return;
+      }
+
       let durationMs = 0;
       if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
         durationMs = await probeMediaDuration(file);
@@ -226,28 +258,29 @@ const [unavailable, setUnavailable] = useState(false);
 
       if (canSeal) {
         const sealed = await aesGcmEncryptBlob(file);
+
         // Seal the author envelope to keys this device actually holds (same
         // pattern as chat forSender), not a possibly stale session publicKeys list.
-        const localKeySet = getCurrentKeySet(currentUser.id);
-        const authorPublicKeys = localKeySet.map((k) => k.publicKey).filter(Boolean);
-        if (!authorPublicKeys.length) {
-          throw new Error('Import your encryption keys before posting a sealed story');
+        const ownerKeySet = getCurrentKeySet(ownerUser.id, KEY_SET_SIZE);
+        const ownerPublicKeys = ownerKeySet.map((k) => k.publicKey).filter(Boolean);
+        if (ownerPublicKeys.length !== KEY_SET_SIZE) {
+          throw new Error('Your local keyring is incomplete — import keys.txt or regenerate keys');
         }
-        for (const pk of authorPublicKeys) {
-          if (!findSecretKeyForPublicKey(currentUser.id, pk)) {
+        for (const pk of ownerPublicKeys) {
+          if (!findSecretKeyForPublicKey(ownerUser.id, pk)) {
             throw new Error('Local keyring is incomplete — re-import your keys.txt');
           }
         }
 
         const audienceMap = new Map();
-        audienceMap.set(String(currentUser.id), {
-          id: String(currentUser.id),
-          username: currentUser.username,
-          publicKeys: authorPublicKeys,
+        audienceMap.set(String(ownerUser.id), {
+          id: String(ownerUser.id),
+          username: ownerUser.username,
+          publicKeys: ownerPublicKeys,
         });
         for (const u of users) {
           if (!u?.id || !u.publicKeys?.length) continue;
-          if (String(u.id) === String(currentUser.id)) continue;
+          if (String(u.id) === String(ownerUser.id)) continue;
           audienceMap.set(String(u.id), {
             id: String(u.id),
             username: u.username,
@@ -255,6 +288,19 @@ const [unavailable, setUnavailable] = useState(false);
           });
         }
         const audience = [...audienceMap.values()];
+        if (!audience[0].publicKeys?.length) {
+          throw new Error('Your account is missing X5 public keys');
+        }
+
+        const serverKeys = new Set((ownerUser.publicKeys || []).map((k) => k.toLowerCase()));
+        const localKeys = new Set(ownerPublicKeys.map((k) => k.toLowerCase()));
+        const keysMatchServer = ownerPublicKeys.every((k) => serverKeys.has(k.toLowerCase()));
+        if (!keysMatchServer || serverKeys.size !== localKeys.size) {
+          throw new Error(
+            'Local encryption keys do not match the server — regenerate & resync keys before posting stories'
+          );
+        }
+
         const envelopes = buildStoryEnvelopes(audience, sealed.keyB64, sealed.ivB64);
 
         form.append(
@@ -282,7 +328,8 @@ const [unavailable, setUnavailable] = useState(false);
       setUploading(false);
     }
   }
-useImperativeHandle(ref, () => ({
+
+  useImperativeHandle(ref, () => ({
     async openStoryById(storyId) {
       try {
         const { data } = await client.get(`/stories/${storyId}`);
@@ -294,6 +341,7 @@ useImperativeHandle(ref, () => ({
       }
     },
   }));
+
   return (
     <div className="stories-rail">
       <p className="stories-privacy-note">
@@ -359,7 +407,7 @@ useImperativeHandle(ref, () => ({
           }}
         />
       )}
-     {unavailable && (
+      {unavailable && (
         <div className="story-viewer-overlay" onClick={() => setUnavailable(false)}>
           <div className="story-unavailable-card" onClick={(e) => e.stopPropagation()}>
             <p>This story is no longer available.</p>
@@ -379,15 +427,16 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [blockedReason, setBlockedReason] = useState('');
-const [replyText, setReplyText] = useState('');
+  const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const replyInputRef = useRef(null);
   const [reacting, setReacting] = useState(false);
-const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiQuery, setEmojiQuery] = useState('');
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionQuery, setReactionQuery] = useState('');
   const [burst, setBurst] = useState(null);
+
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
 
@@ -400,16 +449,24 @@ const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     (async () => {
       if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
-        const ivB64 = unlocked?.ivB64 || story.contentIv;
-        if (!unlocked?.keyB64 || !ivB64) {
-          setBlockedReason('Sealed story — no envelope for your keys');
+        const ivB64 = unlocked.ok ? unlocked.payload?.ivB64 : story.contentIv;
+        if (!unlocked.ok || !unlocked.payload?.keyB64 || !ivB64) {
+          if (unlocked.reason === 'no-envelope') {
+            setBlockedReason('Sealed story — no envelope for your account');
+          } else if (unlocked.reason === 'no-secret') {
+            setBlockedReason(
+              'Sealed story — your local keyring is missing the secret for this story (keys may be out of sync; try Regenerate & resync keys)'
+            );
+          } else {
+            setBlockedReason('Sealed story — could not decrypt with your keys');
+          }
           return;
         }
         const res = await client.get(`/stories/${story.id}/media`, {
           responseType: 'arraybuffer',
         });
         const cipherBytes = new Uint8Array(res.data);
-        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.keyB64, ivB64);
+        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
         if (cancelled) return;
         objectUrl = URL.createObjectURL(
           new Blob([plain], { type: story.mimetype || 'application/octet-stream' })
@@ -432,7 +489,7 @@ const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
           } else if (status === 404) {
             setBlockedReason('Story media is missing on the server');
           } else {
-            setBlockedReason('Could not decrypt this sealed story');
+            setBlockedReason('Sealed story — decryption failed');
           }
         }
       }
@@ -443,7 +500,7 @@ const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     };
   }, [story, currentUserId]);
 
- useEffect(() => {
+  useEffect(() => {
     function onKey(e) {
       const tag = document.activeElement?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA';
@@ -466,7 +523,8 @@ const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     await client.delete(`/stories/${story.id}`);
     onDeleted?.();
   }
-async function handleSendReply() {
+
+  async function handleSendReply() {
     const text = replyText.trim();
     if (!text || sendingReply) return;
     try {
@@ -510,6 +568,7 @@ async function handleSendReply() {
       setSendingReply(false);
     }
   }
+
   function autoGrow(el) {
     if (!el) return;
     el.style.height = 'auto';
@@ -522,6 +581,7 @@ async function handleSendReply() {
       handleSendReply();
     }
   }
+
   async function handleReact(emoji) {
     if (reacting) return;
     try {
@@ -565,7 +625,8 @@ async function handleSendReply() {
       setReacting(false);
     }
   }
- const emojiResults = useMemo(
+
+  const emojiResults = useMemo(
     () => (emojiQuery.trim() ? searchEmojis(emojiQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
     [emojiQuery]
   );
@@ -613,7 +674,7 @@ async function handleSendReply() {
           {burst && <span className="story-reaction-burst">{burst}</span>}
         </div>
         {story.caption && <p className="story-caption">{story.caption}</p>}
-       <div className="story-viewer-actions">
+        <div className="story-viewer-actions">
           {isOwn && (
             <button type="button" onClick={handleDelete}>
               Delete
@@ -621,7 +682,7 @@ async function handleSendReply() {
           )}
         </div>
 
-     {!isOwn && (
+        {!isOwn && (
           <form
             className="story-reply-bar"
             onSubmit={(e) => {
@@ -736,7 +797,7 @@ async function handleSendReply() {
             )}
           </form>
         )}
-        </div>
+      </div>
     </div>
   );
 }

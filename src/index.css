@@ -1048,6 +1048,19 @@ input:focus-visible,
   flex-shrink: 0;
 }
 
+.key-sync-banner {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.settings-key-sync-ok {
+  color: var(--success, #22c55e);
+}
+
+.settings-key-sync-warn {
+  color: var(--warning, #f59e0b);
+}
+
 .email-verify-banner {
   display: flex;
   align-items: center;
