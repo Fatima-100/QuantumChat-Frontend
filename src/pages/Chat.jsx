@@ -127,7 +127,7 @@ function isSameDay(d1, d2) {
 }
 
 export default function Chat() {
-  const { user, logout, regenerateKeys, importKeys, hasLocalKeyring, updateSessionUser } = useAuth();
+  const { user, logout, regenerateKeys, importKeys, hasLocalKeyring, keyringNeedsResync, keyringSync, updateSessionUser } = useAuth();
   const { showToast } = useToast();
 
   const [users, setUsers] = useState([]);
@@ -205,6 +205,7 @@ const [incomingRequests, setIncomingRequests] = useState([]);
   const keyFileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const selectedRef = useRef(null);
+  const messagesRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const recordChunksRef = useRef([]);
@@ -217,6 +218,7 @@ const [incomingRequests, setIncomingRequests] = useState([]);
   const usersRef = useRef([]);
   const storiesRailRef = useRef(null);
   selectedRef.current = selected;
+  messagesRef.current = messages;
   usersRef.current = users;
 
   const webrtc = useWebRTCCall({
@@ -232,6 +234,7 @@ const [incomingRequests, setIncomingRequests] = useState([]);
     onMissed: () => showToast('Call ended or declined', 'info'),
     onEnd: async (info) => {
       try {
+        if (info.role !== 'caller') return;
         const peerId = String(info.peerId);
         const peer = usersRef.current.find((u) => String(u.id) === peerId);
         const myKey = pickRandom(getCurrentKeySet(user.id));
@@ -799,6 +802,102 @@ socket.off('friend:removed', handleFriendRemoved);
       cancelled = true;
     };
   }, [selected, hasLocalKeyring, decorate, scrollToBottom, user.id, recordActivityFromMessage, bumpActivity, showToast]);
+
+  // Vercel's serverless API cannot keep a Socket.IO connection alive.
+  // When no socket is connected, sync the open conversation frequently so
+  // both participants see new messages without manually reloading the page.
+  useEffect(() => {
+    if (!selected || !hasLocalKeyring) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+    const endpoint =
+      selected.type === 'group' ? `/groups/${selected.id}/messages` : `/messages/${selected.id}`;
+
+    async function syncOpenConversation() {
+      if (
+        cancelled ||
+        inFlight ||
+        document.visibilityState === 'hidden' ||
+        getSocket()?.connected
+      ) {
+        return;
+      }
+
+      inFlight = true;
+      try {
+        const { data } = await client.get(endpoint, {
+          params: { limit: 80, markRead: 1 },
+        });
+        if (cancelled) return;
+
+        const latest = (data.data || []).map(decorate);
+        const currentIds = new Set(
+          messagesRef.current.map((message) => String(message.id || message._id))
+        );
+        const receivedNewMessage = latest.some(
+          (message) =>
+            !currentIds.has(String(message.id || message._id)) &&
+            String(message.from) !== String(user.id)
+        );
+
+        setMessages((current) => {
+          const existingIds = new Set(
+            current.map((message) => String(message.id || message._id))
+          );
+          const latestById = new Map(
+            latest.map((message) => [String(message.id || message._id), message])
+          );
+
+          const merged = current.map((message) => {
+            const id = String(message.id || message._id);
+            return latestById.get(id) || message;
+          });
+          for (const message of latest) {
+            const id = String(message.id || message._id);
+            if (!existingIds.has(id)) merged.push(message);
+          }
+          merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          return merged;
+        });
+
+        const last = latest.at(-1);
+        if (last) {
+          recordActivityFromMessage(last);
+          markConversationRead(user.id, selected.key);
+        }
+        if (receivedNewMessage) {
+          if (!isChatMuted(user.id, selected.key)) playReceiveSound();
+          setTimeout(() => scrollToBottom('smooth'), 50);
+        }
+      } catch {
+        // Keep retrying; a temporary network failure should not require reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const timer = window.setInterval(syncOpenConversation, 1200);
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') syncOpenConversation();
+    };
+    window.addEventListener('focus', syncOpenConversation);
+    document.addEventListener('visibilitychange', syncWhenVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', syncOpenConversation);
+      document.removeEventListener('visibilitychange', syncWhenVisible);
+    };
+  }, [
+    selected,
+    hasLocalKeyring,
+    decorate,
+    recordActivityFromMessage,
+    scrollToBottom,
+    user.id,
+  ]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!selected || !hasMoreMessages || loadingOlderRef.current || !oldestCreatedAtRef.current) return;
@@ -2108,6 +2207,10 @@ async function handleDeclineFriendRequest(requestId) {
     }
     if (confirmDialog.type === 'delete') {
       await executeDeleteMessage(confirmDialog.messageId);
+      return;
+    }
+    if (confirmDialog.type === 'regenerate-keys') {
+      await handleGenerateKeys();
     }
   }
 
@@ -2175,6 +2278,19 @@ async function handleDeclineFriendRequest(requestId) {
     }
   }
 
+  function requestGenerateKeys() {
+    const isResync = keyringNeedsResync;
+    setConfirmDialog({
+      type: 'regenerate-keys',
+      title: isResync ? 'Regenerate & resync encryption keys?' : 'Generate new encryption keys?',
+      message: isResync
+        ? 'Your local keyring does not match the public keys stored on the server. Regenerating publishes a fresh 5-key pool to the server and saves matching secrets on this device. Sealed stories and messages encrypted with the old pool will stay unreadable.'
+        : 'This creates a new 5-key pool on this device and publishes it to the server. Save the downloaded keys.txt backup. Messages and sealed stories encrypted with any previous keys will stay unreadable.',
+      confirmLabel: isResync ? 'Regenerate & resync' : 'Generate new keys',
+      danger: true,
+    });
+  }
+
   async function handleImportKeyFile(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -2182,7 +2298,7 @@ async function handleDeclineFriendRequest(requestId) {
     try {
       const text = await file.text();
       const secretKeys = parseKeyFile(text);
-      importKeys(secretKeys);
+      await importKeys(secretKeys);
       setImportError('');
       showToast('Encryption key file imported successfully', 'success');
     } catch (err) {
@@ -2198,6 +2314,24 @@ async function handleDeclineFriendRequest(requestId) {
   function confirmLogout() {
     setLogoutConfirmOpen(false);
     logout();
+  }
+
+  async function handleStartCall(video) {
+    if (!selected || selected.type !== 'dm') return;
+    try {
+      await webrtc.startCall({
+        peerId: selected.id,
+        peerName: title,
+        video,
+      });
+    } catch (err) {
+      showToast(
+        err.response?.data?.error ||
+          err.message ||
+          'Could not start the call. Check your connection and try again.',
+        'error'
+      );
+    }
   }
 
   const title = useMemo(() => {
@@ -2456,7 +2590,7 @@ async function handleDeclineFriendRequest(requestId) {
                   Import keys.txt for this account
                 </button>
                 <input ref={keyFileInputRef} type="file" accept=".txt,text/plain" hidden onChange={handleImportKeyFile} />
-                <button type="button" className="key-unlock-secondary" onClick={handleGenerateKeys}>
+                <button type="button" className="key-unlock-secondary" onClick={requestGenerateKeys}>
                   Lost your keys? Generate new set
                 </button>
               </div>
@@ -2469,6 +2603,20 @@ async function handleDeclineFriendRequest(requestId) {
 
         {canChat && (
           <>
+            {keyringNeedsResync && (
+              <div className="email-verify-banner key-sync-banner">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <span>
+                    Your local encryption keys do not match the public keys stored on the server
+                    ({keyringSync?.localMatchCount ?? 0}/{keyringSync?.serverKeys?.length ?? 5} matched).
+                    Sealed stories and new messages may fail to decrypt until you resync.
+                  </span>
+                  <button type="button" className="email-verify-banner-btn" onClick={requestGenerateKeys}>
+                    Regenerate &amp; resync keys
+                  </button>
+                </div>
+              </div>
+            )}
             {user && !user.emailVerified && !emailBannerDismissed && (
               <div className="email-verify-banner email-verify-banner-dismissible">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2569,13 +2717,7 @@ async function handleDeclineFriendRequest(requestId) {
                       type="button"
                       title="Voice call"
                       aria-label="Voice call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: false,
-                        })
-                      }
+                      onClick={() => handleStartCall(false)}
                     >
                       <Phone size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
@@ -2584,13 +2726,7 @@ async function handleDeclineFriendRequest(requestId) {
                       type="button"
                       title="Video call"
                       aria-label="Video call"
-                      onClick={() =>
-                        webrtc.startCall({
-                          peerId: selected.id,
-                          peerName: title,
-                          video: true,
-                        })
-                      }
+                      onClick={() => handleStartCall(true)}
                     >
                       <Video size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
@@ -3443,7 +3579,7 @@ onRemoveFriend={async (peer) => {
           user={user}
           onClose={() => setShowSettings(false)}
           onImportKeys={handleImportKeyFile}
-          onGenerateKeys={handleGenerateKeys}
+          onGenerateKeys={requestGenerateKeys}
           onUserUpdated={updateSessionUser}
           onLogout={() => {
             setShowSettings(false);
