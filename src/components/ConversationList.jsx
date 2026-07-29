@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Archive, Ban, BellOff, MoreVertical, Users, UserPlus, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
@@ -48,6 +48,31 @@ export default function ConversationList({
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState('');
   const [joiningId, setJoiningId] = useState(null);
+  const [openMenuKey, setOpenMenuKey] = useState(null);
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    if (!openMenuKey) return undefined;
+
+    function closeMenu(e) {
+      if (!e.target.closest('.conv-row-menu-wrap')) setOpenMenuKey(null);
+    }
+    function closeOnEscape(e) {
+      if (e.key === 'Escape') setOpenMenuKey(null);
+    }
+
+    document.addEventListener('pointerdown', closeMenu);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenu);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openMenuKey]);
+
+  function runMenuAction(action) {
+    setOpenMenuKey(null);
+    action?.();
+  }
 
   const loadDiscover = useCallback(async (q) => {
     setDiscoverLoading(true);
@@ -91,7 +116,7 @@ export default function ConversationList({
   }
 
   return (
-    <div className="conversation-panel">
+    <div className="conversation-panel" ref={panelRef}>
       <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
         {FILTERS.map((f) => (
           <button
@@ -196,10 +221,13 @@ export default function ConversationList({
           {conversations.map((c, index) => (
             <motion.div
               key={c.key}
-              className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''}`}
+              className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
               role="button"
               tabIndex={0}
-              onClick={() => onSelect(c)}
+              onClick={() => {
+                setOpenMenuKey(null);
+                onSelect(c);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -244,27 +272,44 @@ export default function ConversationList({
               </span>
               {(onHide || onBlock || onMute || onArchive) && (
                 <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" className="conv-row-menu" aria-label="Options">
+                  <button
+                    type="button"
+                    className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
+                    aria-label={`Options for ${c.title}`}
+                    aria-haspopup="menu"
+                    aria-expanded={openMenuKey === c.key}
+                    onClick={() => setOpenMenuKey((current) => (current === c.key ? null : c.key))}
+                  >
                     <MoreVertical size={16} />
                   </button>
-                  <div className="conv-row-dropdown">
+                  <div
+                    className={`conv-row-dropdown ${openMenuKey === c.key ? 'open' : ''}`}
+                    role="menu"
+                    aria-label={`Conversation options for ${c.title}`}
+                  >
+                    <div className="conv-row-dropdown-title">Conversation options</div>
                     {onMute && (
-                      <button type="button" onClick={() => onMute(c)}>
+                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
                         <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
                       </button>
                     )}
                     {onArchive && (
-                      <button type="button" onClick={() => onArchive(c)}>
+                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
                         <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
                       </button>
                     )}
                     {c.type === 'dm' && onHide && (
-                      <button type="button" onClick={() => onHide(c.peer || c)}>
+                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
                         <X size={14} /> Hide chat
                       </button>
                     )}
                     {c.type === 'dm' && onBlock && (
-                      <button type="button" className="danger" onClick={() => onBlock(c.peer || c)}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                      >
                         <Ban size={14} /> Block user
                       </button>
                     )}
