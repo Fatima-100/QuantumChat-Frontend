@@ -18,6 +18,16 @@ import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 
 const MAX_STORY_SECONDS = 60;
+const TTL_PRESETS = [
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '6 hours', ms: 6 * 60 * 60 * 1000 },
+  { label: '24 hours', ms: 24 * 60 * 60 * 1000 },
+  { label: '3 days', ms: 3 * 24 * 60 * 60 * 1000 },
+  { label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+];
+const DEFAULT_TTL_MS = TTL_PRESETS[2].ms; // 24h
+const MIN_TTL_MS = 15 * 60 * 1000;
+const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function bytesToBase64(bytes) {
   let s = '';
@@ -167,6 +177,8 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [stories, setStories] = useState([]);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
   const inputRef = useRef(null);
 
@@ -223,10 +235,16 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     };
   }, [currentUser?.id]);
 
-  async function handleFile(e) {
+  function handleFileSelected(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingFile(file);
+    setPendingPreviewUrl(URL.createObjectURL(file));
+  }
+
+  async function uploadStory(file, ttlMs) {
     try {
       setUploading(true);
 
@@ -319,6 +337,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append('file', file);
       }
       form.append('durationMs', String(durationMs));
+      form.append('ttlMs', String(ttlMs));
 
       await client.post('/stories', form);
       await loadStories();
@@ -327,6 +346,18 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     } finally {
       setUploading(false);
     }
+  }
+
+  function closeComposer() {
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingFile(null);
+    setPendingPreviewUrl(null);
+  }
+
+  async function confirmPostStory(ttlMs) {
+    const file = pendingFile;
+    closeComposer();
+    if (file) await uploadStory(file, ttlMs);
   }
 
   useImperativeHandle(ref, () => ({
@@ -368,7 +399,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         type="file"
         accept="image/*,video/*,audio/*"
         hidden
-        onChange={handleFile}
+        onChange={handleFileSelected}
       />
 
       {grouped
@@ -416,6 +447,15 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
             </button>
           </div>
         </div>
+      )}
+      {pendingFile && (
+        <StoryComposer
+          file={pendingFile}
+          previewUrl={pendingPreviewUrl}
+          onCancel={closeComposer}
+          onConfirm={confirmPostStory}
+          uploading={uploading}
+        />
       )}
     </div>
   );
@@ -815,6 +855,132 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             )}
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
+  const [preset, setPreset] = useState(DEFAULT_TTL_MS);
+  const [customMode, setCustomMode] = useState(false);
+  const [customValue, setCustomValue] = useState(24);
+  const [customUnit, setCustomUnit] = useState('hours');
+  const imagePreviewRef = useRef(null);
+  const videoPreviewRef = useRef(null);
+  const audioPreviewRef = useRef(null);
+
+  const unitMultiplier = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000 };
+
+  useEffect(() => {
+    let safePreviewUrl = '';
+    try {
+      const parsed = new URL(previewUrl);
+      if (parsed.protocol === 'blob:') safePreviewUrl = parsed.href;
+    } catch {
+      // Leave media sources unset for malformed preview URLs.
+    }
+
+    const previewElements = [
+      imagePreviewRef.current,
+      videoPreviewRef.current,
+      audioPreviewRef.current,
+    ].filter(Boolean);
+
+    for (const element of previewElements) {
+      if (safePreviewUrl) element.src = safePreviewUrl;
+      else element.removeAttribute('src');
+    }
+
+    return () => {
+      for (const element of previewElements) element.removeAttribute('src');
+    };
+  }, [previewUrl]);
+
+  function computeTtlMs() {
+    if (customMode) {
+      const raw = Number(customValue) || 0;
+      const ms = raw * (unitMultiplier[customUnit] || unitMultiplier.hours);
+      return Math.min(Math.max(ms, MIN_TTL_MS), MAX_TTL_MS);
+    }
+    return preset;
+  }
+
+  return (
+    <div className="story-composer-overlay" onClick={onCancel}>
+      <div className="story-composer" onClick={(e) => e.stopPropagation()}>
+        <div className="story-composer-top">
+          <span>New story</span>
+          <button type="button" onClick={onCancel} aria-label="Cancel">
+            ×
+          </button>
+        </div>
+
+        <div className="story-composer-preview">
+          {file.type.startsWith('image/') && <img ref={imagePreviewRef} alt="" />}
+          {file.type.startsWith('video/') && <video ref={videoPreviewRef} controls />}
+          {file.type.startsWith('audio/') && <audio ref={audioPreviewRef} controls />}
+        </div>
+
+        <div className="story-composer-ttl">
+          <p className="story-composer-ttl-label">How long should this story last?</p>
+          <div className="story-composer-ttl-presets">
+            {TTL_PRESETS.map((p) => (
+              <button
+                key={p.ms}
+                type="button"
+                className={`story-ttl-preset ${!customMode && preset === p.ms ? 'active' : ''}`}
+                onClick={() => {
+                  setCustomMode(false);
+                  setPreset(p.ms);
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`story-ttl-preset ${customMode ? 'active' : ''}`}
+              onClick={() => setCustomMode(true)}
+            >
+              Custom…
+            </button>
+          </div>
+
+          {customMode && (
+            <div className="story-composer-custom-row">
+              <input
+                type="number"
+                min="1"
+                value={customValue}
+                onChange={(e) => setCustomValue(e.target.value)}
+                aria-label="Custom duration value"
+              />
+              <select
+                value={customUnit}
+                onChange={(e) => setCustomUnit(e.target.value)}
+                aria-label="Custom duration unit"
+              >
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="story-composer-actions">
+          <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={uploading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="story-composer-post"
+            disabled={uploading}
+            onClick={() => onConfirm(computeTtlMs())}
+          >
+            {uploading ? 'Posting…' : 'Post story'}
+          </button>
+        </div>
       </div>
     </div>
   );
