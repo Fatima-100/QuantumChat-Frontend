@@ -2799,9 +2799,9 @@ async function handleDeclineFriendRequest(requestId) {
                 <div className="chat-empty-icon">
                   <MessageSquare size={30} strokeWidth={1.5} aria-hidden="true" />
                 </div>
-                <h2>No conversation selected</h2>
-                <p>Choose a person or group from the sidebar, or create a new group</p>
-                <p className="chat-empty-tagline">End-to-end encrypted conversations</p>
+                <h2>Pick a conversation</h2>
+                <p>Choose someone from the sidebar, open Friends to connect, or start a new group.</p>
+                <p className="chat-empty-tagline">Messages stay end-to-end encrypted on your device</p>
               </div>
             ) : (
               <>
@@ -2876,6 +2876,14 @@ async function handleDeclineFriendRequest(requestId) {
                         <div className="skeleton-message-bubble theirs skeleton" style={{ width: '45%' }} />
                         <div className="skeleton-message-bubble mine skeleton" style={{ width: '35%' }} />
                       </>
+                    ) : messagesWithSeparators.length === 0 ? (
+                      <div className="thread-empty-state" role="status">
+                        <MessageSquare size={22} strokeWidth={1.75} aria-hidden="true" />
+                        <p className="thread-empty-title">No messages yet</p>
+                        <p className="thread-empty-copy">
+                          Say hello — your message is sealed before it leaves this device.
+                        </p>
+                      </div>
                     ) : (
                       messagesWithSeparators.map((item, index) => {
                         if (item.type === 'separator') {

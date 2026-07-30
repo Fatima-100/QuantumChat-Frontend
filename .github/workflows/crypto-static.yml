@@ -16,6 +16,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Forbid plaintext WebRTC signaling emits
         run: |
           set -euo pipefail
@@ -35,6 +44,14 @@ jobs:
           grep -q "sealForPeer\|envelope" src/hooks/useWebRTCCall.js
           echo "OK: useWebRTCCall uses sealed envelopes"
 
+      - name: Require sealed DM payload helper
+        run: |
+          set -euo pipefail
+          test -f src/crypto/sealedPayload.js
+          grep -q "buildSealedDmBody" src/crypto/sealedPayload.js
+          grep -q "FORBIDDEN_PLAINTEXT_KEYS" src/crypto/sealedPayload.js
+          echo "OK: sealedPayload.js forbids plaintext chat fields"
+
       - name: Forbid private key console logging
         run: |
           set -euo pipefail
@@ -45,3 +62,17 @@ jobs:
             exit 1
           fi
           echo "OK: no private-key console logging detected"
+
+      - name: Forbid logging plaintext message drafts in crypto modules
+        run: |
+          set -euo pipefail
+          if grep -RInE --include='*.{js,jsx,ts,tsx}' \
+            "console\.(log|debug|info|warn|error)\([^)]*(plaintext|draft|forRecipient)" \
+            src/crypto; then
+            echo "::error::Do not log plaintext or envelope material from crypto modules."
+            exit 1
+          fi
+          echo "OK: crypto modules do not log plaintext drafts"
+
+      - name: Run frontend crypto unit tests
+        run: npm run test:crypto

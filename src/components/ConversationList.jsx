@@ -214,10 +214,21 @@ export default function ConversationList({
         </div>
       ) : filter === 'friends' ? (
         <div className="user-list friends-list">
-          {incomingRequests.length > 0 && (
-            <div className="friend-requests-incoming">
-              <p className="friend-requests-heading">Requests</p>
-              {incomingRequests.map((r) => (
+          <div className="friend-requests-incoming">
+            <p className="friend-requests-heading">
+              Requests
+              {incomingRequests.length > 0 ? (
+                <span className="friend-section-count">{incomingRequests.length}</span>
+              ) : null}
+            </p>
+            {incomingRequests.length === 0 ? (
+              <div className="friends-empty-card" role="status">
+                <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" />
+                <p className="friends-empty-title">No pending requests</p>
+                <p className="friends-empty-copy">When someone wants to connect, their request shows up here.</p>
+              </div>
+            ) : (
+              incomingRequests.map((r) => (
                 <div key={r.id} className="user-list-item friend-request-item">
                   <UserAvatar
                     userId={r.user.id}
@@ -232,7 +243,7 @@ export default function ConversationList({
                     <button
                       type="button"
                       className="friend-action-btn accept"
-                      aria-label="Accept"
+                      aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
                       onClick={() => onAcceptFriendRequest?.(r.id)}
                     >
                       <Check size={15} strokeWidth={2.5} />
@@ -240,21 +251,21 @@ export default function ConversationList({
                     <button
                       type="button"
                       className="friend-action-btn decline"
-                      aria-label="Decline"
+                      aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
                       onClick={() => onDeclineFriendRequest?.(r.id)}
                     >
                       <X size={15} strokeWidth={2.5} />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
 
           <p className="friend-requests-heading">People</p>
           {friendCandidatesLoading ? (
             [1, 2, 3].map((i) => (
-              <div key={i} className="user-list-item" style={{ pointerEvents: 'none' }}>
+              <div key={i} className="user-list-item friend-skeleton-item" style={{ pointerEvents: 'none' }}>
                 <div className="skeleton skeleton-avatar" />
                 <div className="skeleton-user-info">
                   <div className="skeleton skeleton-line short" />
@@ -263,14 +274,22 @@ export default function ConversationList({
               </div>
             ))
           ) : friendCandidates.length === 0 ? (
-            <p className="empty-hint">
-              {searchQuery.trim() ? 'No one matches your search.' : 'No new people to add right now.'}
-            </p>
+            <div className="friends-empty-card" role="status">
+              <Users size={20} strokeWidth={1.75} aria-hidden="true" />
+              <p className="friends-empty-title">
+                {searchQuery.trim() ? 'No matches' : 'No one new right now'}
+              </p>
+              <p className="friends-empty-copy">
+                {searchQuery.trim()
+                  ? 'Try a different name or username.'
+                  : 'Search above to find people, or wait for new accounts to appear.'}
+              </p>
+            </div>
           ) : (
             friendCandidates.map((u, index) => (
               <motion.div
                 key={u.id}
-                className="user-list-item"
+                className="user-list-item friend-candidate-item"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
@@ -283,7 +302,7 @@ export default function ConversationList({
                 {u.requestStatus === 'pending_sent' ? (
                   <button
                     type="button"
-                    className="discover-join-btn pending"
+                    className="friend-action-btn cancel"
                     onClick={() => onCancelFriendRequest?.(u.requestId)}
                   >
                     Cancel
@@ -293,7 +312,7 @@ export default function ConversationList({
                     <button
                       type="button"
                       className="friend-action-btn accept"
-                      aria-label="Accept"
+                      aria-label={`Accept request from ${u.displayName || u.username}`}
                       onClick={() => onAcceptFriendRequest?.(u.requestId)}
                     >
                       <Check size={15} strokeWidth={2.5} />
@@ -301,14 +320,18 @@ export default function ConversationList({
                     <button
                       type="button"
                       className="friend-action-btn decline"
-                      aria-label="Decline"
+                      aria-label={`Decline request from ${u.displayName || u.username}`}
                       onClick={() => onDeclineFriendRequest?.(u.requestId)}
                     >
                       <UserX size={15} strokeWidth={2.5} />
                     </button>
                   </div>
                 ) : (
-                  <button type="button" className="discover-join-btn" onClick={() => onSendFriendRequest?.(u.id)}>
+                  <button
+                    type="button"
+                    className="friend-action-btn add"
+                    onClick={() => onSendFriendRequest?.(u.id)}
+                  >
                     Add
                   </button>
                 )}
