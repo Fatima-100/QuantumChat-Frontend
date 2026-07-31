@@ -70,7 +70,9 @@ import CameraCapture from '../components/CameraCapture.jsx';
 import ImageLightbox from '../components/ImageLightbox.jsx';
 import AIAssistantPanel from '../components/AIAssistantPanel.jsx';
 import CallOverlay from '../components/CallOverlay.jsx';
+import MeetingOverlay from '../components/MeetingOverlay.jsx';
 import useWebRTCCall from '../hooks/useWebRTCCall.js';
+import useMeetingCall from '../hooks/useMeetingCall.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { getHiddenChatIds, hideChat, unhideChat } from '../utils/hiddenChats.js';
 import {
@@ -216,10 +218,12 @@ const [incomingRequests, setIncomingRequests] = useState([]);
   const imageSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
+  const groupsRef = useRef([]);
   const storiesRailRef = useRef(null);
   selectedRef.current = selected;
   messagesRef.current = messages;
   usersRef.current = users;
+  groupsRef.current = groups;
 
   const webrtc = useWebRTCCall({
     userId: user?.id,
@@ -257,6 +261,53 @@ const [incomingRequests, setIncomingRequests] = useState([]);
           forRecipient,
           forSender,
         });
+        recordActivityFromMessage(data.data);
+        setMessages((prev) => {
+          const id = String(data.data.id || data.data._id);
+          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+          return [...prev, decorate(data.data)];
+        });
+        playSendSound();
+        setTimeout(() => scrollToBottom('smooth'), 50);
+      } catch (err) {
+        /* ignore send errors */
+      }
+    },
+  });
+
+  const meetingCall = useMeetingCall({
+    userId: user?.id,
+    resolveGroupMembers: async (groupId) => {
+      const group =
+        (selectedRef.current?.type === 'group' &&
+          String(selectedRef.current.id) === String(groupId) &&
+          selectedRef.current.group) ||
+        groupsRef.current.find((g) => String(g.id) === String(groupId));
+      if (!group) return null;
+      return { groupName: group.name, members: group.members || [] };
+    },
+    onEnd: async (info) => {
+      try {
+        if (info.role !== 'host') return;
+        const group = groupsRef.current.find((g) => String(g.id) === String(info.groupId));
+        if (!group) return;
+        const payload = JSON.stringify({
+          __type: 'meeting',
+          meetingId: info.meetingId,
+          video: info.video,
+          participantCount: info.participantCount,
+          durationSeconds: Number(info.durationSeconds) || 0,
+          reason: info.reason || null,
+          endedAt: new Date().toISOString(),
+        });
+        const isPublic = group.visibility === 'public';
+        const body = { kind: 'text' };
+        if (isPublic) {
+          body.content = payload;
+        } else {
+          body.envelopes = sealGroupEnvelopes(payload, group);
+        }
+        const { data } = await client.post(`/groups/${group.id}/messages`, body);
         recordActivityFromMessage(data.data);
         setMessages((prev) => {
           const id = String(data.data.id || data.data._id);
@@ -2334,6 +2385,23 @@ async function handleDeclineFriendRequest(requestId) {
     }
   }
 
+  async function handleStartMeeting(video) {
+    if (!selected || selected.type !== 'group') return;
+    try {
+      await meetingCall.startMeeting({
+        groupId: selected.id,
+        video,
+      });
+    } catch (err) {
+      showToast(
+        err.response?.data?.error ||
+          err.message ||
+          'Could not start the meeting. Check your connection and try again.',
+        'error'
+      );
+    }
+  }
+
   const title = useMemo(() => {
     if (!selected) return 'Select a conversation';
     return selected.title || (selected.type === 'group' ? 'Group' : 'Chat');
@@ -2727,6 +2795,28 @@ async function handleDeclineFriendRequest(requestId) {
                       title="Video call"
                       aria-label="Video call"
                       onClick={() => handleStartCall(true)}
+                    >
+                      <Video size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+                {selected?.type === 'group' && (
+                  <>
+                    <button
+                      className="icon-btn"
+                      type="button"
+                      title="Start voice meeting"
+                      aria-label="Start voice meeting"
+                      onClick={() => handleStartMeeting(false)}
+                    >
+                      <Phone size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="icon-btn"
+                      type="button"
+                      title="Start video meeting"
+                      aria-label="Start video meeting"
+                      onClick={() => handleStartMeeting(true)}
                     >
                       <Video size={18} strokeWidth={2} aria-hidden="true" />
                     </button>
@@ -3366,6 +3456,24 @@ async function handleDeclineFriendRequest(requestId) {
         onHangup={webrtc.hangup}
         onToggleMute={webrtc.toggleMute}
         onToggleCamera={webrtc.toggleCamera}
+      />
+
+      <MeetingOverlay
+        meeting={meetingCall.meeting}
+        participants={meetingCall.participants}
+        localStream={meetingCall.localStream}
+        muted={meetingCall.muted}
+        cameraOff={meetingCall.cameraOff}
+        resolveParticipantName={(peerId) =>
+          users.find((u) => String(u.id) === String(peerId))?.displayName ||
+          users.find((u) => String(u.id) === String(peerId))?.username
+        }
+        onJoin={() => meetingCall.joinMeeting().catch(() => showToast('Could not access microphone/camera', 'error'))}
+        onDecline={meetingCall.declineMeeting}
+        onLeave={meetingCall.leaveMeeting}
+        onEndForAll={meetingCall.endMeetingForAll}
+        onToggleMute={meetingCall.toggleMute}
+        onToggleCamera={meetingCall.toggleCamera}
       />
 
       {showCreateGroup && (
