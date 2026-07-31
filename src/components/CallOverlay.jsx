@@ -1,13 +1,24 @@
 import { useEffect, useRef } from 'react';
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 
+function attachStream(el, stream, { muted = false } = {}) {
+  if (!el) return;
+  el.muted = muted;
+  if (el.srcObject !== stream) {
+    el.srcObject = stream || null;
+  }
+  if (stream) {
+    // Browsers often block autoplay; explicit play() is required once media arrives.
+    const playAttempt = el.play();
+    if (playAttempt?.catch) playAttempt.catch(() => {});
+  }
+}
+
 function VideoTile({ stream, muted = false, mirror = false, label }) {
   const ref = useRef(null);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.srcObject = stream || null;
-  }, [stream]);
+    attachStream(ref.current, stream, { muted });
+  }, [stream, muted]);
 
   return (
     <div className={`call-video-tile${mirror ? ' mirror' : ''}`}>
@@ -15,6 +26,31 @@ function VideoTile({ stream, muted = false, mirror = false, label }) {
       {label ? <span className="call-video-label">{label}</span> : null}
     </div>
   );
+}
+
+/** Always-mounted remote audio sink so late-arriving tracks still play. */
+function RemoteAudio({ stream }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    attachStream(ref.current, stream, { muted: false });
+  }, [stream]);
+
+  // Also retry play when tracks unmute/start after ICE finishes.
+  useEffect(() => {
+    if (!stream) return undefined;
+    const onLive = () => attachStream(ref.current, stream, { muted: false });
+    const tracks = stream.getAudioTracks();
+    for (const track of tracks) {
+      track.addEventListener('unmute', onLive);
+    }
+    return () => {
+      for (const track of tracks) {
+        track.removeEventListener('unmute', onLive);
+      }
+    };
+  }, [stream]);
+
+  return <audio ref={ref} autoPlay playsInline style={{ display: 'none' }} />;
 }
 
 export default function CallOverlay({
@@ -66,16 +102,11 @@ export default function CallOverlay({
                       ? 'Video call'
                       : 'Voice call'}
             </p>
-            {inMedia && remoteStream ? (
-              <audio
-                autoPlay
-                ref={(el) => {
-                  if (el) el.srcObject = remoteStream;
-                }}
-              />
-            ) : null}
           </div>
         )}
+
+        {/* Remote audio must play for voice and video calls (video element alone is unreliable). */}
+        {inMedia ? <RemoteAudio stream={remoteStream} /> : null}
 
         <div className="call-controls">
           {isIncoming ? (
