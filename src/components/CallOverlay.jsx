@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 
 function attachStream(el, stream, { muted = false } = {}) {
