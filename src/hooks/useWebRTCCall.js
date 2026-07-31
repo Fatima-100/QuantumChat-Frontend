@@ -1,51 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '../api/socket.js';
-import client from '../api/client.js';
-import { sealMessage, unsealMessage, pickRandom } from '../crypto/keys.js';
-import { findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
+import {
+  ICE_SERVERS,
+  emitSealedEnvelope,
+  newSignalId,
+  registerSignalHandlers,
+  unsealCallEnvelope,
+} from '../utils/callSignalTransport.js';
 import { startDialingSound } from '../utils/sounds.js';
 
-const ICE_SERVERS = [
-  {
-    urls: [
-      'stun:stun.l.google.com:19302',
-      'stun:stun.cloudflare.com:3478',
-    ],
-  },
-  ...(import.meta.env.VITE_TURN_URL
-    ? [
-        {
-          urls: import.meta.env.VITE_TURN_URL,
-          username: import.meta.env.VITE_TURN_USERNAME || '',
-          credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
-        },
-      ]
-    : []),
-];
-
-function newCallId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function sealForPeer(peerPublicKeys, payload) {
-  const keys = (peerPublicKeys || []).filter(Boolean);
-  if (!keys.length) throw new Error('Missing peer public keys for sealed call signaling');
-  return sealMessage(JSON.stringify(payload), pickRandom(keys));
-}
-
-function unsealCallEnvelope(envelope, userId) {
-  if (!envelope?.targetPublicKey) return null;
-  const secret = findSecretKeyForPublicKey(userId, envelope.targetPublicKey);
-  if (!secret) return null;
-  const text = unsealMessage(envelope, secret);
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
+const ICE_RESTART_FAILSAFE_MS = 10_000;
 
 /**
  * DM WebRTC call state machine.
@@ -63,11 +27,11 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
   const callRef = useRef(null);
   const pendingIceRef = useRef([]);
   const peerKeysCacheRef = useRef(new Map());
-  const seenRestSignalsRef = useRef(new Set());
   const resolvePeerPublicKeysRef = useRef(resolvePeerPublicKeys);
   const onMissedRef = useRef(onMissed);
   const onEndRef = useRef(onEnd);
   const stopDialingSoundRef = useRef(null);
+  const iceRestartTimerRef = useRef(null);
   resolvePeerPublicKeysRef.current = resolvePeerPublicKeys;
   onMissedRef.current = onMissed;
   onEndRef.current = onEnd;
@@ -89,26 +53,23 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
 
   const emitSealed = useCallback(
     async (eventName, { to, callId, payload }) => {
-      const keys = await getPeerKeys(to);
-      const envelope = sealForPeer(keys, payload);
-      const socket = getSocket();
-      if (socket?.connected) {
-        socket.emit(eventName, { to, callId, envelope });
-        return;
-      }
-      await client.post('/call-signals', {
-        to,
-        callId,
-        event: eventName,
-        envelope,
-      });
+      const peerKeys = await getPeerKeys(to);
+      await emitSealedEnvelope(eventName, { to, callId, payload, peerKeys });
     },
     [getPeerKeys]
   );
 
+  const clearIceRestartFailsafe = useCallback(() => {
+    if (iceRestartTimerRef.current) {
+      window.clearTimeout(iceRestartTimerRef.current);
+      iceRestartTimerRef.current = null;
+    }
+  }, []);
+
   const cleanupMedia = useCallback(() => {
     stopDialingSoundRef.current?.();
     stopDialingSoundRef.current = null;
+    clearIceRestartFailsafe();
     pendingIceRef.current = [];
     if (pcRef.current) {
       try {
@@ -127,7 +88,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
     setRemoteStream(null);
     setMuted(false);
     setCameraOff(false);
-  }, []);
+  }, [clearIceRestartFailsafe]);
 
   const endCallLocal = useCallback((reason) => {
     const c = callRef.current;
@@ -175,20 +136,45 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       };
 
       pc.ontrack = (e) => {
-        const stream = e.streams?.[0] || new MediaStream([e.track]);
+        // Prefer the browser-provided remote stream; otherwise accumulate tracks.
+        let stream = e.streams?.[0] || remoteStreamRef.current;
+        if (!stream) {
+          stream = new MediaStream();
+        }
+        if (e.track && !stream.getTracks().some((t) => t.id === e.track.id)) {
+          stream.addTrack(e.track);
+        }
         remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+        // Clone track list into a fresh MediaStream so React effects re-bind/play.
+        setRemoteStream(new MediaStream(stream.getTracks()));
       };
 
+      // A 'failed' state during an otherwise long-lived call (e.g. a Wi-Fi
+      // blip) shouldn't hang up immediately — try an ICE restart first, only
+      // the caller side re-offers to avoid both peers racing. If the
+      // connection hasn't recovered within the failsafe window, hang up.
       pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setCall((prev) =>
+            prev && prev.status === 'connecting'
+              ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() }
+              : prev
+          );
+        }
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           endCallLocal();
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'failed') {
+          endCallLocal('ice_failed');
+        }
+      };
+
       return pc;
     },
-    [endCallLocal, emitSealed]
+    [endCallLocal, emitSealed, clearIceRestartFailsafe]
   );
 
   const attachLocalMedia = useCallback(async (video) => {
@@ -204,7 +190,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
   const startCall = useCallback(
     async ({ peerId, peerName, video = false }) => {
       if (!peerId || callRef.current) return;
-      const callId = newCallId();
+      const callId = newSignalId('call');
       const next = {
         callId,
         peerId: String(peerId),
@@ -301,15 +287,12 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
   useEffect(() => {
     const socket = getSocket();
     if (!userId) return undefined;
-    let cancelled = false;
-    let restCursor = new Date(Date.now() - 45_000).toISOString();
-    let pollInFlight = false;
 
     async function flushIce(pc) {
       const queued = pendingIceRef.current.splice(0);
       for (const candidate of queued) {
         try {
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch {
           /* ignore */
         }
@@ -360,7 +343,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
         await emitSealed('call:offer', {
           to: from,
           callId: c.callId,
-          payload: { type: 'offer', callId: c.callId, sdp: offer },
+          payload: { type: 'offer', callId: c.callId, sdp: { type: offer.type, sdp: offer.sdp } },
         });
           setCall((prev) =>
             prev ? { ...prev, status: 'connecting' } : prev
@@ -376,17 +359,24 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       const c = callRef.current;
       if (!c || String(c.callId) !== String(callId)) return;
       const pc = ensurePc(c.peerId);
-      await pc.setRemoteDescription(body.sdp);
+      // Ensure local mic/camera tracks exist before answering (accept may have failed partially).
+      if (!localStreamRef.current) {
+        const stream = await attachLocalMedia(c.video);
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      } else if (pc.getSenders().every((s) => !s.track)) {
+        localStreamRef.current.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current));
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(body.sdp));
       await flushIce(pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await emitSealed('call:answer', {
         to: from,
         callId: c.callId,
-        payload: { type: 'answer', callId: c.callId, sdp: answer },
+        payload: { type: 'answer', callId: c.callId, sdp: { type: answer.type, sdp: answer.sdp } },
       });
       setCall((prev) =>
-        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+        prev ? { ...prev, status: 'connecting', startedAt: prev.startedAt || Date.now() } : prev
       );
     }
 
@@ -395,10 +385,10 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       if (!body || body.type !== 'answer' || !body.sdp) return;
       const c = callRef.current;
       if (!c || String(c.callId) !== String(callId) || !pcRef.current) return;
-      await pcRef.current.setRemoteDescription(body.sdp);
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription(body.sdp));
       await flushIce(pcRef.current);
       setCall((prev) =>
-        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+        prev ? { ...prev, status: 'connecting', startedAt: prev.startedAt || Date.now() } : prev
       );
     }
 
@@ -412,7 +402,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
         return;
       }
       try {
-        await pcRef.current.addIceCandidate(body.candidate);
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(body.candidate));
       } catch {
         /* ignore */
       }
@@ -448,48 +438,10 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
     for (const [eventName, handler] of Object.entries(handlers)) {
       socket?.on(eventName, handler);
     }
-
-    async function pollRestSignals() {
-      if (cancelled || pollInFlight || getSocket()?.connected) return;
-      pollInFlight = true;
-      try {
-        const { data } = await client.get('/call-signals', {
-          params: { after: restCursor },
-        });
-        if (cancelled) return;
-        const payload = data.data || {};
-        if (payload.cursor) restCursor = payload.cursor;
-        for (const signal of payload.signals || []) {
-          const signalId = String(signal.id || '');
-          if (!signalId || seenRestSignalsRef.current.has(signalId)) continue;
-          seenRestSignalsRef.current.add(signalId);
-          if (
-            signal.createdAt &&
-            Date.now() - new Date(signal.createdAt).getTime() > 45_000
-          ) {
-            continue;
-          }
-          handlers[signal.event]?.(signal);
-        }
-        // Signals expire quickly; cap the local de-duplication set as well.
-        if (seenRestSignalsRef.current.size > 500) {
-          seenRestSignalsRef.current = new Set(
-            [...seenRestSignalsRef.current].slice(-250)
-          );
-        }
-      } catch {
-        // A temporary network failure is retried on the next interval.
-      } finally {
-        pollInFlight = false;
-      }
-    }
-
-    const pollTimer = window.setInterval(pollRestSignals, 900);
-    pollRestSignals();
+    const unregisterRestFallback = registerSignalHandlers(handlers);
 
     return () => {
-      cancelled = true;
-      window.clearInterval(pollTimer);
+      unregisterRestFallback();
       for (const [eventName, handler] of Object.entries(handlers)) {
         socket?.off(eventName, handler);
       }
