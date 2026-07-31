@@ -7,6 +7,18 @@ import { findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
 // both seal call/meeting signaling the same way and fall back to the same
 // REST endpoint when the socket isn't connected.
 
+/**
+ * VITE_TURN_URL accepts a comma-separated list so one provider can be reached
+ * over several ports. This matters: UDP 3478 is the fast path, TCP 3478 covers
+ * networks that block UDP, and TLS 443 is usually the only thing that gets out
+ * of restrictive corporate/hotel firewalls. All entries share one credential
+ * pair, which is how TURN providers issue them.
+ */
+const TURN_URLS = String(import.meta.env.VITE_TURN_URL || '')
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean);
+
 export const ICE_SERVERS = [
   {
     urls: [
@@ -14,10 +26,10 @@ export const ICE_SERVERS = [
       'stun:stun.cloudflare.com:3478',
     ],
   },
-  ...(import.meta.env.VITE_TURN_URL
+  ...(TURN_URLS.length
     ? [
         {
-          urls: import.meta.env.VITE_TURN_URL,
+          urls: TURN_URLS,
           username: import.meta.env.VITE_TURN_USERNAME || '',
           credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
         },
