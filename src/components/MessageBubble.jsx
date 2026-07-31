@@ -15,6 +15,7 @@ import {
   Star,
   Trash2,
   Clock,
+  Users,
   Video,
 } from 'lucide-react';
 import AttachmentBubble from './AttachmentBubble.jsx';
@@ -180,6 +181,17 @@ const storyReplyPayload = useMemo(() => {
     try {
       const obj = JSON.parse(message.text);
       if (obj && obj.__type === 'call') return obj;
+    } catch (e) {
+      return null;
+    }
+    return null;
+  }, [message.text]);
+
+  const meetingMeta = useMemo(() => {
+    if (!message.text) return null;
+    try {
+      const obj = JSON.parse(message.text);
+      if (obj && obj.__type === 'meeting') return obj;
     } catch (e) {
       return null;
     }
@@ -443,6 +455,19 @@ const storyReplyPayload = useMemo(() => {
                     {callMeta.answered
                       ? `Duration ${formatVoiceTimer(callMeta.durationSeconds || 0)}`
                       : 'Missed call'}
+                  </div>
+                </div>
+                <div className="call-message-time">{relativeTime}</div>
+              </div>
+            ) : meetingMeta ? (
+              <div className="call-message">
+                <div className="call-message-icon"><Users size={20} /></div>
+                <div className="call-message-body">
+                  <div className="call-message-title">{meetingMeta.video ? 'Video meeting' : 'Voice meeting'}</div>
+                  <div className="call-message-sub">
+                    {meetingMeta.answered
+                      ? `${meetingMeta.participantCount || 1} participants · ${formatVoiceTimer(meetingMeta.durationSeconds || 0)}`
+                      : 'No one joined'}
                   </div>
                 </div>
                 <div className="call-message-time">{relativeTime}</div>

@@ -7929,6 +7929,86 @@ button.message-reply-preview:hover {
   color: #fff;
 }
 
+.meeting-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(8, 12, 18, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.meeting-stage {
+  position: relative;
+  width: min(960px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-lg);
+}
+
+.meeting-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--text-primary);
+}
+
+.meeting-header-title {
+  font-weight: 600;
+}
+
+.meeting-header-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.meeting-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.meeting-grid .call-video-tile {
+  min-height: 180px;
+}
+
+.meeting-controls {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.meeting-ctrl-end-all {
+  padding: 0 16px;
+  height: 52px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  background: var(--danger, #dc2626);
+  color: #fff;
+}
+
 .attachment-audio {
   max-width: 240px;
 }

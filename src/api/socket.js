@@ -1,50 +1,33 @@
 ﻿import { io } from 'socket.io-client';
 import { getToken } from '../crypto/keyStorage.js';
-import { getApiBaseUrl } from './baseUrl.js';
 
 let socket = null;
-let socketDisabled = false;
 
 /**
- * Socket.IO is not available on the Vercel serverless QuantumChat API
- * (requests to /socket.io return 404). Skip connecting there to avoid console spam;
- * the app already polls REST for messages.
+ * The signaling target is a dedicated always-on bot (see calling-bot/),
+ * separate from the Vercel-hosted API (which is a stateless serverless
+ * function and can't hold a persistent Socket.IO connection). If it isn't
+ * configured, sockets are simply unavailable and the app falls back to REST
+ * polling for messages/calls, same as before.
  */
-function shouldSkipSocket() {
-  const api = getApiBaseUrl();
-  if (/vercel\.app/i.test(api)) return true;
-  if (typeof window !== 'undefined' && /\.vercel\.app$/i.test(window.location.hostname)) {
-    return /vercel\.app/i.test(api);
-  }
-  return false;
+function getSignalUrl() {
+  return String(import.meta.env.VITE_SIGNAL_URL || '').trim().replace(/\/$/, '');
 }
 
 export function connectSocket() {
   if (socket) return socket;
-  if (socketDisabled || shouldSkipSocket()) {
-    socketDisabled = true;
-    return null;
-  }
 
-  const url = getApiBaseUrl();
+  const url = getSignalUrl();
+  if (!url) return null;
+
   socket = io(url, {
     auth: { token: getToken() },
     transports: ['websocket', 'polling'],
-    reconnectionAttempts: 3,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 15000,
     timeout: 8000,
-  });
-
-  socket.on('connect_error', () => {
-    // After repeated failures (e.g. serverless 404), stop retrying.
-    if (socket?.io?._reconnectionAttempts >= 3) {
-      try {
-        socket.disconnect();
-      } catch {
-        // ignore
-      }
-      socket = null;
-      socketDisabled = true;
-    }
   });
 
   return socket;
