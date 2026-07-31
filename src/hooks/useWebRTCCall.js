@@ -175,14 +175,35 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       };
 
       pc.ontrack = (e) => {
-        const stream = e.streams?.[0] || new MediaStream([e.track]);
+        // Prefer the browser-provided remote stream; otherwise accumulate tracks.
+        let stream = e.streams?.[0] || remoteStreamRef.current;
+        if (!stream) {
+          stream = new MediaStream();
+        }
+        if (e.track && !stream.getTracks().some((t) => t.id === e.track.id)) {
+          stream.addTrack(e.track);
+        }
         remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+        // Clone track list into a fresh MediaStream so React effects re-bind/play.
+        setRemoteStream(new MediaStream(stream.getTracks()));
       };
 
       pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setCall((prev) =>
+            prev && prev.status === 'connecting'
+              ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() }
+              : prev
+          );
+        }
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           endCallLocal();
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'failed') {
+          endCallLocal('ice_failed');
         }
       };
 
@@ -309,7 +330,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       const queued = pendingIceRef.current.splice(0);
       for (const candidate of queued) {
         try {
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch {
           /* ignore */
         }
@@ -360,7 +381,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
         await emitSealed('call:offer', {
           to: from,
           callId: c.callId,
-          payload: { type: 'offer', callId: c.callId, sdp: offer },
+          payload: { type: 'offer', callId: c.callId, sdp: { type: offer.type, sdp: offer.sdp } },
         });
           setCall((prev) =>
             prev ? { ...prev, status: 'connecting' } : prev
@@ -376,17 +397,24 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       const c = callRef.current;
       if (!c || String(c.callId) !== String(callId)) return;
       const pc = ensurePc(c.peerId);
-      await pc.setRemoteDescription(body.sdp);
+      // Ensure local mic/camera tracks exist before answering (accept may have failed partially).
+      if (!localStreamRef.current) {
+        const stream = await attachLocalMedia(c.video);
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      } else if (pc.getSenders().every((s) => !s.track)) {
+        localStreamRef.current.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current));
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(body.sdp));
       await flushIce(pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await emitSealed('call:answer', {
         to: from,
         callId: c.callId,
-        payload: { type: 'answer', callId: c.callId, sdp: answer },
+        payload: { type: 'answer', callId: c.callId, sdp: { type: answer.type, sdp: answer.sdp } },
       });
       setCall((prev) =>
-        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+        prev ? { ...prev, status: 'connecting', startedAt: prev.startedAt || Date.now() } : prev
       );
     }
 
@@ -395,10 +423,10 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
       if (!body || body.type !== 'answer' || !body.sdp) return;
       const c = callRef.current;
       if (!c || String(c.callId) !== String(callId) || !pcRef.current) return;
-      await pcRef.current.setRemoteDescription(body.sdp);
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription(body.sdp));
       await flushIce(pcRef.current);
       setCall((prev) =>
-        prev ? { ...prev, status: 'active', startedAt: prev.startedAt || Date.now() } : prev
+        prev ? { ...prev, status: 'connecting', startedAt: prev.startedAt || Date.now() } : prev
       );
     }
 
@@ -412,7 +440,7 @@ export default function useWebRTCCall({ userId, resolvePeerPublicKeys, onMissed,
         return;
       }
       try {
-        await pcRef.current.addIceCandidate(body.candidate);
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(body.candidate));
       } catch {
         /* ignore */
       }
