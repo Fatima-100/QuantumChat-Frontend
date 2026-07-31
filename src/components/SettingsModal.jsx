@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTheme } from '../context/ThemeContext.jsx';
+import { useTheme, APP_ICONS } from '../context/ThemeContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import client from '../api/client.js';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
 import { encryptVaultPayload, decryptVaultPayload } from '../crypto/keyVault.js';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 
 function ToggleRow({ label, hint, checked, onChange, disabled }) {
   return (
@@ -28,6 +29,19 @@ const TABS = [
   ['data', 'Data'],
 ];
 
+const THEME_LABELS = {
+  light: 'Light',
+  dark: 'Dark',
+  eyecare: 'Eyecare',
+  moonveil: 'Moonveil',
+   sakura: 'Sakura',
+   sunset: 'Sunset Ember',
+  aurora: 'Aurora',
+  ocean: 'Bioluminescent',
+    nebula: 'Nebula',
+    dreamcloud: 'Dreamcloud',
+};
+
 export default function SettingsModal({
   user,
   onClose,
@@ -37,7 +51,7 @@ export default function SettingsModal({
   onLogout,
   onExportChat,
 }) {
-  const { theme, setTheme } = useTheme();
+ const { theme, appIcon, setAppIcon } = useTheme();
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
@@ -590,18 +604,88 @@ export default function SettingsModal({
 
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Appearance</h3>
-                <ToggleRow
-                  label="Dark theme"
-                  hint={theme === 'dark' ? 'On' : 'Off'}
-                  checked={theme === 'dark'}
-                  onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                />
-                <ToggleRow
-                  label="Eyecare mode"
-                  hint={theme === 'eyecare' ? 'On' : 'Off'}
-                  checked={theme === 'eyecare'}
-                  onChange={(checked) => setTheme(checked ? 'eyecare' : 'light')}
-                />
+
+                <div className="settings-row" style={{ cursor: 'default' }}>
+                  <span className="settings-row-left">
+                    <span className="settings-row-label">Display mode</span>
+                    <span className="settings-row-hint">Light, Dark, or Eyecare</span>
+                  </span>
+                  <ThemeSwitcher />
+                </div>
+
+                <div className="settings-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                  <span className="settings-row-left">
+                    <span className="settings-row-label">Dreamy themes</span>
+                    <span className="settings-row-hint">
+                      {theme === 'moonveil' ? 'Moonveil is active' : 'Optional decorative skins'}
+                    </span>
+                  </span>
+                  <FunThemeSwitcher />
+                  <div className="settings-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+  <span className="settings-row-left">
+    <span className="settings-row-label">App icon</span>
+    <span className="settings-row-hint">Choose a color for your app icon</span>
+  </span>
+</div>
+<div
+  style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
+    gap: '10px',
+    padding: '4px 0 12px',
+  }}
+>
+  {APP_ICONS.map((icon) => (
+    <button
+      key={icon.id}
+      type="button"
+      onClick={() => setAppIcon(icon.id)}
+      aria-pressed={appIcon === icon.id}
+      aria-label={icon.label}
+      title={icon.label}
+      style={{
+        position: 'relative',
+        width: '56px',
+        height: '56px',
+        borderRadius: '50%',
+        border: appIcon === icon.id ? '2px solid var(--accent, #38bdf8)' : '2px solid transparent',
+        padding: '3px',
+        background: 'transparent',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <img
+        src={icon.file}
+        alt=""
+        style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+      />
+      {appIcon === icon.id && (
+        <span
+          style={{
+            position: 'absolute',
+            bottom: '-2px',
+            right: '-2px',
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: 'var(--accent, #38bdf8)',
+            color: '#fff',
+            fontSize: '11px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          ✓
+        </span>
+      )}
+    </button>
+  ))}
+</div>
+                </div>
               </div>
             </section>
           )}
