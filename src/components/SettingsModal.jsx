@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTheme, APP_ICONS, FUN_THEMES } from '../context/ThemeContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import client from '../api/client.js';
+import client, { updatePrivacySettings } from '../api/client.js';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
 import { encryptVaultPayload, decryptVaultPayload } from '../crypto/keyVault.js';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
+import PrivacySelect from './ui/PrivacySelect.jsx';
 
 function ToggleRow({ label, hint, checked, onChange, disabled }) {
   return (
@@ -70,9 +71,17 @@ export default function SettingsModal({
   const [phone, setPhone] = useState(user?.phone || '');
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
-    online: user?.privacy?.online || 'everyone',
-    readReceipts: user?.privacy?.readReceipts !== false,
+    readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
+      ? (user.privacy.readReceipts ? 'everyone' : 'nobody')
+      : (user?.privacy?.readReceipts || 'everyone'),
+    onlineStatus: user?.privacy?.onlineStatus || (user?.privacy?.online === 'nobody' ? 'selected' : (user?.privacy?.online || 'everyone')),
+    onlineStatusVisibleTo: Array.isArray(user?.privacy?.onlineStatusVisibleTo)
+      ? user.privacy.onlineStatusVisibleTo.map((id) => String(id._id || id))
+      : [],
+    whoCanMessage: user?.privacy?.whoCanMessage || 'everyone',
+    discoverable: user?.privacy?.discoverable || 'everyone',
   });
+  const [friendsList, setFriendsList] = useState([]);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -197,19 +206,43 @@ export default function SettingsModal({
     }
   }
 
-  async function savePrivacy() {
+  useEffect(() => {
+    if (tab !== 'privacy') return;
+    client
+      .get('/users/friends')
+      .then((res) => setFriendsList(res.data.data || []))
+      .catch(() => setFriendsList([]));
+  }, [tab]);
+
+  async function updatePrivacyField(key, val) {
+    const updated = { ...privacy, [key]: val };
+    setPrivacy(updated);
     setBusy(true);
     setError('');
     setOk('');
     try {
-      const { data } = await client.patch('/users/me', { privacy });
-      onUserUpdated?.(data.data);
+      const res = await updatePrivacySettings(updated);
+      onUserUpdated?.(res.user || { ...user, privacy: res.data });
       setOk('Privacy settings saved');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save privacy');
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleSelectedFriend(friendId) {
+    const current = new Set(privacy.onlineStatusVisibleTo || []);
+    if (current.has(friendId)) {
+      current.delete(friendId);
+    } else {
+      current.add(friendId);
+    }
+    updatePrivacyField('onlineStatusVisibleTo', [...current]);
+  }
+
+  async function savePrivacy() {
+    updatePrivacyField('lastSeen', privacy.lastSeen);
   }
 
   async function changePassword() {
@@ -683,31 +716,102 @@ export default function SettingsModal({
           {tab === 'privacy' && (
             <section className="settings-section">
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">Visibility</h3>
+                <h3 className="settings-section-title">Privacy Controls</h3>
                 <p className="settings-section-copy">
-                  These control what others see. Encryption keys stay on this device.
+                  Manage who can view your presence, send direct messages, and discover your account.
                 </p>
-                <ToggleRow
-                  label="Show last seen"
-                  hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
-                  checked={privacy.lastSeen === 'everyone'}
-                  onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
+
+                <PrivacySelect
+                  label="Last Seen"
+                  description="Who can see your last active time"
+                  value={privacy.lastSeen}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('lastSeen', v)}
                 />
-                <ToggleRow
-                  label="Show online status"
-                  hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
-                  checked={privacy.online === 'everyone'}
-                  onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
+
+                <PrivacySelect
+                  label="Read Receipts"
+                  description="Who can see when you have read their messages"
+                  value={privacy.readReceipts}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('readReceipts', v)}
                 />
-                <ToggleRow
-                  label="Read receipts"
-                  hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
-                  checked={privacy.readReceipts}
-                  onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
+
+                <PrivacySelect
+                  label="Online Status"
+                  description="Who can see when you are online"
+                  value={privacy.onlineStatus}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'selected', label: 'Selected People' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('onlineStatus', v)}
                 />
-                <button type="button" className="settings-btn primary" disabled={busy} onClick={savePrivacy}>
-                  Save privacy
-                </button>
+
+                {privacy.onlineStatus === 'selected' && (
+                  <div className="privacy-friend-picker">
+                    <span className="privacy-select-description" style={{ marginBottom: 4 }}>
+                      Friends permitted to see online status:
+                    </span>
+                    {friendsList.length === 0 ? (
+                      <p className="privacy-select-description">No friends added yet.</p>
+                    ) : (
+                      friendsList.map((f) => {
+                        const fId = String(f.id || f._id);
+                        const isChecked = (privacy.onlineStatusVisibleTo || []).includes(fId);
+                        return (
+                          <label key={fId} className="privacy-friend-item">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={busy}
+                              onChange={() => toggleSelectedFriend(fId)}
+                            />
+                            <UserAvatar userId={f.id} name={f.displayName || f.username} size="xs" />
+                            <span>{f.displayName || f.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                <PrivacySelect
+                  label="Who Can Direct Message You"
+                  description="Control who can send you direct messages"
+                  value={privacy.whoCanMessage}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'friendsOfFriends', label: 'Friends of Friends' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanMessage', v)}
+                />
+
+                <PrivacySelect
+                  label="Show My Account To"
+                  description="Account discoverability in user search"
+                  value={privacy.discoverable}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('discoverable', v)}
+                />
               </div>
             </section>
           )}
