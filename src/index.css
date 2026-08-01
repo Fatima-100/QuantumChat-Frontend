@@ -4520,7 +4520,7 @@ input:focus-visible,
 .confirm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 220;
   display: flex;
   align-items: center;
   justify-content: center;
