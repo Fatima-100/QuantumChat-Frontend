@@ -74,12 +74,33 @@ export async function emitSealedEnvelope(eventName, { to, callId, payload, peerK
     socket.emit(eventName, { to, callId, envelope });
     return;
   }
-  await client.post('/call-signals', {
-    to,
-    callId,
-    event: eventName,
-    envelope,
-  });
+  try {
+    await client.post('/call-signals', { to, callId, event: eventName, envelope });
+  } catch (err) {
+    // Callers routinely .catch(() => {}) these (ICE especially), which used to
+    // hide the failure that actually breaks the call. Say it out loud.
+    warnSignalFailure(`send ${eventName}`, err);
+    throw err;
+  }
+}
+
+let lastWarnKey = '';
+function warnSignalFailure(action, err) {
+  const status = err?.response?.status;
+  const key = `${action}:${status || err?.code || 'network'}`;
+  if (key === lastWarnKey) return; // don't spam once per 900ms tick
+  lastWarnKey = key;
+
+  if (status === 429) {
+    console.warn(
+      `[call] ${action} was rate limited (429). Call signaling will stall — ` +
+        'ICE candidates are being dropped, so the call stays on "connecting".'
+    );
+  } else if (status) {
+    console.warn(`[call] ${action} failed with HTTP ${status}.`);
+  } else {
+    console.warn(`[call] ${action} failed to reach the API (${err?.message || 'network error'}).`);
+  }
 }
 
 // --- Shared REST-fallback poller -------------------------------------------
@@ -131,8 +152,10 @@ async function pollRestSignals() {
     if (seenSignals.size > 500) {
       seenSignals = new Set([...seenSignals].slice(-250));
     }
-  } catch {
-    // A temporary network failure is retried on the next interval.
+  } catch (err) {
+    // Retried on the next interval, but surface it — a sustained 429/DNS
+    // failure here means incoming ICE never arrives and calls hang.
+    warnSignalFailure('poll /call-signals', err);
   } finally {
     pollInFlight = false;
   }
