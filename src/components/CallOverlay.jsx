@@ -60,6 +60,8 @@ export default function CallOverlay({
   muted,
   cameraOff,
   peerLabel,
+  minimized = false,
+  onToggleMinimize,
   onAccept,
   onReject,
   onHangup,
@@ -74,8 +76,24 @@ export default function CallOverlay({
   const inMedia = call.status === 'connecting' || call.status === 'active';
 
   return (
-    <div className="call-overlay" role="dialog" aria-modal="true" aria-label="Call">
+    <div
+      className={`call-overlay${minimized ? ' is-minimized' : ''}`}
+      role="dialog"
+      aria-modal={!minimized}
+      aria-label="Call"
+    >
       <div className={`call-stage${call.video ? ' has-video' : ''}`}>
+        <div className="call-mini-banner">
+          <div>
+            <strong>{name}</strong>
+            <div className="call-status-text">
+              {isIncoming ? 'Incoming…' : isRinging ? 'Calling…' : 'In call'}
+            </div>
+          </div>
+          <button type="button" className="call-ctrl" onClick={onToggleMinimize} aria-label="Expand call">
+            <Phone size={18} />
+          </button>
+        </div>
         {call.video && inMedia ? (
           <>
             <VideoTile stream={remoteStream} label={name} />
@@ -120,6 +138,16 @@ export default function CallOverlay({
             </>
           ) : (
             <>
+              {typeof onToggleMinimize === 'function' ? (
+                <button
+                  type="button"
+                  className="call-ctrl"
+                  onClick={onToggleMinimize}
+                  aria-label={minimized ? 'Expand call' : 'Minimize call'}
+                >
+                  <Phone size={18} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`call-ctrl${muted ? ' active' : ''}`}

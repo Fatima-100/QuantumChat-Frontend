@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
@@ -112,7 +112,7 @@ function ReadReceipt({ status }) {
   );
 }
 
-export default function MessageBubble({
+function MessageBubble({
   message,
   isMine,
   currentUserId,
@@ -600,3 +600,5 @@ const storyReplyPayload = useMemo(() => {
     </>
   );
 }
+
+export default memo(MessageBubble);
