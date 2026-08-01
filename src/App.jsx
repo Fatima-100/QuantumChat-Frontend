@@ -12,6 +12,14 @@ import Chat from './pages/Chat.jsx';
 import JoinInvite from './components/JoinInvite.jsx';
 import Landing from './pages/Landing.jsx';
 
+function ProtectedChat() {
+  return (
+    <ProtectedRoute>
+      <Chat />
+    </ProtectedRoute>
+  );
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -32,14 +40,11 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute>
-                  <Chat />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/chat" element={<ProtectedChat />} />
+            <Route path="/chat/settings" element={<ProtectedChat />} />
+            <Route path="/chat/settings/:tab" element={<ProtectedChat />} />
+            <Route path="/chat/g/:groupId" element={<ProtectedChat />} />
+            <Route path="/chat/:peerId" element={<ProtectedChat />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

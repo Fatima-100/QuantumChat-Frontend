@@ -50,13 +50,15 @@ export default function SettingsModal({
   onUserUpdated,
   onLogout,
   onExportChat,
+  initialTab = 'profile',
+  className = '',
 }) {
  const { theme, appIcon, setAppIcon } = useTheme();
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
-  const [tab, setTab] = useState('profile');
+  const [tab, setTab] = useState(initialTab);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -103,6 +105,10 @@ export default function SettingsModal({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [onClose]);
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     if (tab !== 'blocked') return;
@@ -451,7 +457,7 @@ export default function SettingsModal({
   return (
     <div className="create-group-overlay" role="presentation" onClick={onClose}>
       <div
-        className="settings-modal settings-modal-wide"
+        className={`settings-modal settings-modal-wide ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
