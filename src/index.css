@@ -3153,6 +3153,7 @@ input:focus-visible,
 
 .message-bubble {
   max-width: min(58vw, 440px);
+  flex: 0 1 auto;
   padding: 12px 16px;
   border-radius: 22px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
@@ -3174,10 +3175,20 @@ input:focus-visible,
 }
 
 /* Call message card */
+.message-bubble:has(.call-message) {
+  flex-shrink: 0;
+  min-width: min(220px, 85vw);
+  width: max-content;
+  max-width: min(320px, 85vw);
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
 .call-message {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 200px;
   padding: 8px 12px;
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
@@ -3186,6 +3197,7 @@ input:focus-visible,
 .call-message .call-message-icon {
   width: 36px;
   height: 36px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3193,18 +3205,36 @@ input:focus-visible,
   background: rgba(0,0,0,0.06);
 }
 .call-message .call-message-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .call-message .call-message-title {
   font-weight: 700;
+  white-space: nowrap;
 }
 .call-message .call-message-sub {
   font-size: 0.9rem;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 .call-message .call-message-time {
   font-size: 0.8rem;
   color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.message-bubble.mine .call-message {
+  border-color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 22%, transparent);
+  background: color-mix(in srgb, #000 12%, transparent);
+}
+.message-bubble.mine .call-message-icon {
+  background: color-mix(in srgb, #000 18%, transparent);
+  color: var(--bubble-mine-fg, #fff);
+}
+.message-bubble.mine .call-message-sub,
+.message-bubble.mine .call-message-time {
+  color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
 }
 
 .message-bubble.mine .message-time {
@@ -10797,10 +10827,10 @@ body.theme-dreamcloud {
 .user-list-item,
 .qc-msg-row {
   content-visibility: auto;
-  contain-intrinsic-size: 72px;
+  contain-intrinsic-size: auto 72px;
 }
 .message-list .qc-msg-row {
-  contain-intrinsic-size: 88px;
+  contain-intrinsic-size: auto 88px;
 }
 
 .story-viewer-overlay {

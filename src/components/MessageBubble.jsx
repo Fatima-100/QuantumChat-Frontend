@@ -64,14 +64,17 @@ function placePopover(anchorRect, popoverEl, { preferMine }) {
   return { top, left, placement };
 }
 
-function formatRelativeTime(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function formatMessageTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  // WhatsApp-style 12-hour clock, e.g. "7:20 pm"
+  return d
+    .toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    .toLowerCase();
 }
 
 function formatVoiceTimer(seconds) {
@@ -206,7 +209,7 @@ const storyReplyPayload = useMemo(() => {
     return 'sent';
   }, [isMine, message.readAt, message.deliveredAt, message._status, showReadReceipts]);
 
-  const relativeTime = useMemo(() => formatRelativeTime(message.createdAt), [message.createdAt]);
+  const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
 
   function closeAll() {
