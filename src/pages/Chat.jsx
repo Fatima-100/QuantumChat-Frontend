@@ -536,18 +536,25 @@ export default function Chat() {
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
       const from = raw.from;
+      let key;
       if (raw.group) {
-        const key = conversationKeyForGroup(raw.group);
-        setConversationActivity(user.id, key, { at, from });
+        key = conversationKeyForGroup(
+          typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group,
+        );
       } else {
         const otherId =
           String(raw.from) === String(user.id) ? raw.to : raw.from;
         if (!otherId) return;
-        setConversationActivity(user.id, conversationKeyForUser(otherId), {
-          at,
-          from,
-        });
+        key = conversationKeyForUser(otherId);
       }
+      const prev = getConversationActivity(user.id, key);
+      if (
+        prev?.at === at &&
+        String(prev?.from || "") === String(from || "")
+      ) {
+        return;
+      }
+      setConversationActivity(user.id, key, { at, from });
       bumpActivity();
     },
     [user.id, bumpActivity],
@@ -989,47 +996,75 @@ export default function Chat() {
     showToast,
   ]);
 
+  const selectedKey = selected?.key;
+  const selectedType = selected?.type;
+  const selectedId = selected?.id;
+  const decorateRef = useRef(decorate);
+  decorateRef.current = decorate;
+  const recordActivityRef = useRef(recordActivityFromMessage);
+  recordActivityRef.current = recordActivityFromMessage;
+  const scrollToBottomRef = useRef(scrollToBottom);
+  scrollToBottomRef.current = scrollToBottom;
+  const bumpActivityRef = useRef(bumpActivity);
+  bumpActivityRef.current = bumpActivity;
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+  const loadedThreadKeyRef = useRef(null);
+
   useEffect(() => {
-    if (!selected || !hasLocalKeyring) return undefined;
+    if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
+
+    const threadKey = selectedKey;
+    const threadType = selectedType;
+    const threadId = selectedId;
+    const switching = loadedThreadKeyRef.current !== threadKey;
+    loadedThreadKeyRef.current = threadKey;
 
     setDisappearSeconds(0);
     let cancelled = false;
     setPeerTyping(false);
     setHasMoreMessages(false);
     oldestCreatedAtRef.current = null;
-    if (selected.type === "group") {
-      setPinnedIds((selected.group?.pinnedMessageIds || []).map(String));
-    } else {
-      setPinnedIds(getPinnedIds(user.id, selected.key));
+
+    if (switching) {
+      if (threadType === "group") {
+        setPinnedIds(
+          (selectedRef.current?.group?.pinnedMessageIds || []).map(String),
+        );
+      } else {
+        setPinnedIds(getPinnedIds(user.id, threadKey));
+      }
+      // Only flash skeletons when opening a different conversation — not on
+      // sidebar activity / URL-sync object identity churn.
+      setLoadingMessages(true);
+      setMessages([]);
     }
 
     const endpoint =
-      selected.type === "group"
-        ? `/groups/${selected.id}/messages`
-        : `/messages/${selected.id}`;
+      threadType === "group"
+        ? `/groups/${threadId}/messages`
+        : `/messages/${threadId}`;
 
-    setLoadingMessages(true);
     client
       .get(endpoint, { params: { limit: 80, markRead: 1 } })
       .then((res) => {
         if (cancelled) return;
-        const next = (res.data.data || []).map(decorate);
+        const next = (res.data.data || []).map((raw) => decorateRef.current(raw));
         setHasMoreMessages(Boolean(res.data.meta?.hasMore));
         oldestCreatedAtRef.current = next[0]?.createdAt || null;
         if (next.length) {
-          const last = next[next.length - 1];
-          recordActivityFromMessage(last);
+          recordActivityRef.current(next[next.length - 1]);
         }
         setMessages(next);
-        markConversationRead(user.id, selected.key);
-        bumpActivity();
-        if (selected.type === "dm") {
-          client.post(`/messages/${selected.id}/read`).catch(() => {});
+        markConversationRead(user.id, threadKey);
+        bumpActivityRef.current();
+        if (threadType === "dm") {
+          client.post(`/messages/${threadId}/read`).catch(() => {});
         }
-        setTimeout(() => scrollToBottom("auto"), 50);
+        setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
       .catch((err) =>
-        showToast(
+        showToastRef.current(
           err.response?.data?.error || "Failed to load messages",
           "error",
         ),
@@ -1041,29 +1076,23 @@ export default function Chat() {
     return () => {
       cancelled = true;
     };
-  }, [
-    selected,
-    hasLocalKeyring,
-    decorate,
-    scrollToBottom,
-    user.id,
-    recordActivityFromMessage,
-    bumpActivity,
-    showToast,
-  ]);
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
 
   // Vercel's serverless API cannot keep a Socket.IO connection alive.
   // When no socket is connected, sync the open conversation frequently so
   // both participants see new messages without manually reloading the page.
   useEffect(() => {
-    if (!selected || !hasLocalKeyring) return undefined;
+    if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
 
     let cancelled = false;
     let inFlight = false;
+    const threadType = selectedType;
+    const threadId = selectedId;
+    const threadKey = selectedKey;
     const endpoint =
-      selected.type === "group"
-        ? `/groups/${selected.id}/messages`
-        : `/messages/${selected.id}`;
+      threadType === "group"
+        ? `/groups/${threadId}/messages`
+        : `/messages/${threadId}`;
 
     async function syncOpenConversation() {
       if (
@@ -1082,7 +1111,7 @@ export default function Chat() {
         });
         if (cancelled) return;
 
-        const latest = (data.data || []).map(decorate);
+        const latest = (data.data || []).map((raw) => decorateRef.current(raw));
         const currentIds = new Set(
           messagesRef.current.map((message) =>
             String(message.id || message._id),
@@ -1105,26 +1134,43 @@ export default function Chat() {
             ]),
           );
 
+          let changed = false;
           const merged = current.map((message) => {
             const id = String(message.id || message._id);
-            return latestById.get(id) || message;
+            const next = latestById.get(id);
+            if (!next) return message;
+            if (
+              next.text === message.text &&
+              next.readAt === message.readAt &&
+              next.deliveredAt === message.deliveredAt &&
+              next.editedAt === message.editedAt &&
+              (next.reactions || []).length === (message.reactions || []).length
+            ) {
+              return message;
+            }
+            changed = true;
+            return next;
           });
           for (const message of latest) {
             const id = String(message.id || message._id);
-            if (!existingIds.has(id)) merged.push(message);
+            if (!existingIds.has(id)) {
+              merged.push(message);
+              changed = true;
+            }
           }
+          if (!changed) return current;
           merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
           return merged;
         });
 
         const last = latest.at(-1);
         if (last) {
-          recordActivityFromMessage(last);
-          markConversationRead(user.id, selected.key);
+          recordActivityRef.current(last);
+          markConversationRead(user.id, threadKey);
         }
         if (receivedNewMessage) {
-          if (!isChatMuted(user.id, selected.key)) playReceiveSound();
-          setTimeout(() => scrollToBottom("smooth"), 50);
+          if (!isChatMuted(user.id, threadKey)) playReceiveSound();
+          setTimeout(() => scrollToBottomRef.current("smooth"), 50);
         }
       } catch {
         // Keep retrying; a temporary network failure should not require reload.
@@ -1146,14 +1192,7 @@ export default function Chat() {
       window.removeEventListener("focus", syncOpenConversation);
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
-  }, [
-    selected,
-    hasLocalKeyring,
-    decorate,
-    recordActivityFromMessage,
-    scrollToBottom,
-    user.id,
-  ]);
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -1362,7 +1401,30 @@ export default function Chat() {
       String(selected.id) === String(fromUrl.id)
     ) {
       if (fromUrl.peer || fromUrl.group?.name) {
-        setSelected((prev) => ({ ...prev, ...fromUrl }));
+        setSelected((prev) => {
+          if (!prev) return fromUrl;
+          const samePeer =
+            String(prev.peer?.id || "") === String(fromUrl.peer?.id || "") &&
+            prev.peer?.displayName === fromUrl.peer?.displayName &&
+            prev.peer?.lastLoginAt === fromUrl.peer?.lastLoginAt &&
+            prev.peer?.hasAvatar === fromUrl.peer?.hasAvatar;
+          const sameGroup =
+            String(prev.group?.id || prev.group?._id || "") ===
+              String(fromUrl.group?.id || fromUrl.group?._id || "") &&
+            prev.group?.name === fromUrl.group?.name &&
+            prev.group?.updatedAt === fromUrl.group?.updatedAt &&
+            String(prev.group?.pinnedMessageIds || "") ===
+              String(fromUrl.group?.pinnedMessageIds || "");
+          if (
+            prev.title === fromUrl.title &&
+            prev.subtitle === fromUrl.subtitle &&
+            samePeer &&
+            sameGroup
+          ) {
+            return prev;
+          }
+          return { ...prev, ...fromUrl };
+        });
       }
       return;
     }
