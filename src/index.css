@@ -27,8 +27,9 @@
   padding: 8px 14px;
   border-radius: var(--radius-full);
   max-width: fit-content;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
+  background: var(--bubble-theirs-bg, var(--bg-elevated));
+  color: var(--bubble-theirs-fg, var(--text-primary));
+  border: 1px solid var(--bubble-theirs-border, var(--border-glass));
   box-shadow: none;
 }
 .story-reaction-time {
@@ -171,7 +172,7 @@
   }
 }
 /* ================================================================
-   QuantumChat ΓÇö Premium Design System
+   QuantumChat ??? Premium Design System
    Soft glass, deep-navy dark, sky-blue light. Not Telegram/WhatsApp.
    ================================================================ */
 
@@ -179,7 +180,7 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* Backgrounds ΓÇö deep navy, never pure black */
+  /* Backgrounds ??? deep navy, never pure black */
   --bg-body: #07131f;
   --bg-surface: #0d1b2a;
   --bg-elevated: #16263d;
@@ -242,6 +243,14 @@
   --wave-bg: rgba(255, 255, 255, 0.22);
   --wave-bg-theirs: rgba(255, 255, 255, 0.08);
 
+  /* Chat bubbles ? always high-contrast against theme chat bg */
+  --bubble-theirs-bg: #1a2d45;
+  --bubble-theirs-fg: #f1f5f9;
+  --bubble-theirs-border: rgba(148, 163, 184, 0.22);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.78);
+  --info-panel-bg: rgba(13, 27, 42, 0.94);
+
   /* Auth / secondary */
   --key-list-bg: #0d1b2a;
   --key-list-border: #223248;
@@ -249,7 +258,7 @@
   --secondary-btn-color: #60a5fa;
   --secondary-btn-border: #223248;
 
-  /* Radii ΓÇö premium large */
+  /* Radii ??? premium large */
   --radius-sm: 12px;
   --radius-md: 16px;
   --radius-lg: 22px;
@@ -375,6 +384,13 @@
   --wave-bg: rgba(255, 255, 255, 0.35);
   --wave-bg-theirs: rgba(30, 41, 59, 0.08);
 
+  --bubble-theirs-bg: #e2eaf6;
+  --bubble-theirs-fg: #0f172a;
+  --bubble-theirs-border: rgba(37, 99, 235, 0.18);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(255, 255, 255, 0.96);
+
   --key-list-bg: #f8fbff;
   --key-list-border: #e2e8f0;
   --key-list-text: #1e293b;
@@ -439,6 +455,13 @@ body.theme-eyecare {
   --chip-bg-mine: rgba(255, 255, 255, 0.14);
   --wave-bg: rgba(255, 255, 255, 0.22);
   --wave-bg-theirs: rgba(255, 255, 255, 0.08);
+
+  --bubble-theirs-bg: #2a251c;
+  --bubble-theirs-fg: #f0e9dc;
+  --bubble-theirs-border: rgba(245, 158, 11, 0.22);
+  --bubble-mine-fg: #1a140c;
+  --bubble-mine-time: rgba(26, 20, 12, 0.72);
+  --info-panel-bg: rgba(30, 27, 21, 0.96);
 
   --key-list-bg: #1e1b15;
   --key-list-border: #322d23;
@@ -1213,7 +1236,7 @@ input:focus-visible,
   position: relative;
   z-index: 2;
   background: var(--bg-glass);
-  /* Avoid overflow-x:auto here — it forces overflow-y clipping and eats tab underlines. */
+  /* Avoid overflow-x:auto here ? it forces overflow-y clipping and eats tab underlines. */
   overflow: visible;
 }
 
@@ -1606,6 +1629,8 @@ input:focus-visible,
    ================================================================ */
 
 .chat-page {
+  position: relative;
+  z-index: 2;
   display: flex;
   gap: 12px;
   padding: 12px;
@@ -1616,7 +1641,7 @@ input:focus-visible,
 }
 
 /* ----------------------------------------------------------------
-   Sidebar ΓÇö frosted floating panel
+   Sidebar ??? frosted floating panel
    ---------------------------------------------------------------- */
 
 .sidebar {
@@ -2536,6 +2561,8 @@ input:focus-visible,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+  z-index: 2;
   background:
     var(--bg-quantum),
     linear-gradient(180deg, rgba(59, 130, 246, 0.06), transparent 28%),
@@ -2543,7 +2570,6 @@ input:focus-visible,
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
-  position: relative;
   overflow: hidden;
   transition: background-color var(--transition-theme), border-color var(--transition-theme);
 }
@@ -2807,9 +2833,10 @@ input:focus-visible,
   max-width: min(58vw, 440px);
   padding: 12px 16px;
   border-radius: 22px;
-  background: var(--bg-glass);
+  background: var(--bubble-theirs-bg, var(--bg-elevated));
+  color: var(--bubble-theirs-fg, var(--text-primary));
   backdrop-filter: blur(12px);
-  border: 1px solid var(--border-glass);
+  border: 1px solid var(--bubble-theirs-border, var(--border-glass));
   box-shadow: var(--shadow-sm);
   font-size: 14.5px;
   font-weight: 450;
@@ -2819,7 +2846,7 @@ input:focus-visible,
 
 .message-bubble.mine {
   background: var(--accent-gradient);
-  color: var(--text-inverse);
+  color: var(--bubble-mine-fg, #ffffff);
   border-color: transparent;
   box-shadow: var(--shadow-glow);
 }
@@ -2859,7 +2886,7 @@ input:focus-visible,
 }
 
 .message-bubble.mine .message-time {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
 }
 
 .message-expiry-badge {
@@ -3626,7 +3653,7 @@ input:focus-visible,
 }
 
 /* ----------------------------------------------------------------
-   Composer ΓÇö floating pill
+   Composer ??? floating pill
    ---------------------------------------------------------------- */
 
 .composer-shell {
@@ -5885,7 +5912,7 @@ body.theme-eyecare .drag-drop-overlay,
   border-color: var(--accent);
 }
 /* ================================================================
-   MOONVEIL FX — decorative 3D moon + starfield
+   MOONVEIL FX ? decorative 3D moon + starfield
    ================================================================ */
 .moonveil-fx {
   position: fixed;
@@ -5949,7 +5976,7 @@ body.theme-eyecare .drag-drop-overlay,
 }
 
 /* ================================================================
-   FUN THEME PICKER (dreamy skins — separate from Light/Dark/Eyecare)
+   FUN THEME PICKER (dreamy skins ? separate from Light/Dark/Eyecare)
    ================================================================ */
 .theme-fun-switcher {
   display: flex;
@@ -6173,13 +6200,17 @@ body.theme-eyecare .drag-drop-overlay,
   transition: color 300ms ease;
 }
 
-.read-receipt.sent { color: rgba(255, 255, 255, 0.4); }
-.read-receipt.delivered { color: rgba(255, 255, 255, 0.6); }
-.read-receipt.read { color: #60a5fa; }
+.read-receipt.sent { color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 42%, transparent); }
+.read-receipt.delivered { color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 65%, transparent); }
+.read-receipt.read { color: var(--accent-cyan, #60a5fa); }
 
 .message-bubble.theirs .read-receipt.sent { color: var(--text-muted); }
 .message-bubble.theirs .read-receipt.delivered { color: var(--text-secondary); }
 .message-bubble.theirs .read-receipt.read { color: var(--accent); }
+
+.message-bubble.mine .read-receipt.read {
+  color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 92%, var(--accent-cyan, #93c5fd));
+}
 
 /* ================================================================
    GRADIENT AVATARS
@@ -6280,7 +6311,7 @@ body.theme-eyecare .drag-drop-overlay,
 }
 
 /* ================================================================
-   Landing page — premium QuantumChat marketing surface
+   Landing page ? premium QuantumChat marketing surface
    ================================================================ */
 
 .landing-page {
@@ -8625,6 +8656,13 @@ body.theme-moonveil {
   --key-list-text: #ece7ff;
   --secondary-btn-color: #c4b5fd;
   --secondary-btn-border: #2f2b57;
+
+  --bubble-theirs-bg: #2a2750;
+  --bubble-theirs-fg: #f3efff;
+  --bubble-theirs-border: rgba(196, 181, 253, 0.28);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.8);
+  --info-panel-bg: rgba(28, 26, 58, 0.96);
 }
 
 [data-theme='sakura'],
@@ -8682,6 +8720,13 @@ body.theme-sakura {
   --key-list-text: #4a2532;
   --secondary-btn-color: #db2777;
   --secondary-btn-border: #f9a8d4;
+
+  --bubble-theirs-bg: #ffd6e0;
+  --bubble-theirs-fg: #3b1524;
+  --bubble-theirs-border: rgba(190, 24, 93, 0.22);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(255, 248, 249, 0.96);
 }
 [data-theme='sunset'],
 body.theme-sunset {
@@ -8738,6 +8783,13 @@ body.theme-sunset {
   --key-list-text: #fff2e2;
   --secondary-btn-color: #ffd88a;
   --secondary-btn-border: #45231f;
+
+  --bubble-theirs-bg: #3a2226;
+  --bubble-theirs-fg: #fff5ea;
+  --bubble-theirs-border: rgba(255, 216, 138, 0.24);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(36, 20, 26, 0.96);
 }
 
 [data-theme='aurora'],
@@ -8795,6 +8847,13 @@ body.theme-aurora {
   --key-list-text: #e8fffb;
   --secondary-btn-color: #5eead4;
   --secondary-btn-border: #122a3a;
+
+  --bubble-theirs-bg: #123342;
+  --bubble-theirs-fg: #e8fffb;
+  --bubble-theirs-border: rgba(45, 212, 191, 0.28);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(8, 23, 34, 0.96);
 }
 
 [data-theme='ocean'],
@@ -8852,6 +8911,13 @@ body.theme-ocean {
   --key-list-text: #e0fffb;
   --secondary-btn-color: #67e8f9;
   --secondary-btn-border: #0a332f;
+
+  --bubble-theirs-bg: #0a3532;
+  --bubble-theirs-fg: #e0fffb;
+  --bubble-theirs-border: rgba(34, 211, 238, 0.28);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(3, 25, 23, 0.96);
 }
 
 [data-theme='nebula'],
@@ -8909,9 +8975,16 @@ body.theme-nebula {
   --key-list-text: #f5ecff;
   --secondary-btn-color: #a78bfa;
   --secondary-btn-border: #271447;
+
+  --bubble-theirs-bg: #241448;
+  --bubble-theirs-fg: #f5ecff;
+  --bubble-theirs-border: rgba(217, 70, 239, 0.28);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(18, 10, 36, 0.96);
 }
 /* ================================================================
-   SAKURA FX — decorative falling petals + blossom branch
+   SAKURA FX ? decorative falling petals + blossom branch
    ================================================================ */
 .sakura-fx {
   position: fixed;
@@ -8976,9 +9049,9 @@ body.theme-nebula {
   }
 }
 /* ================================================================
-   SUNSET EMBER FX — warm gradient sky, rays, birds, heat haze, embers
+   SUNSET EMBER FX ? warm gradient sky, rays, birds, heat haze, embers
 /* ================================================================
-   SUNSET EMBER FX — sun at the horizon, warm sky gradient, no rays
+   SUNSET EMBER FX ? sun at the horizon, warm sky gradient, no rays
    ================================================================ */
 .sunset-fx { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
 
@@ -9038,7 +9111,7 @@ body.theme-nebula {
   100% { left: 108%; }
 }
 
-/* Sun sits low, near the horizon line — mountains partially cover it */
+/* Sun sits low, near the horizon line ? mountains partially cover it */
 .sunset-sun-halo {
   position: absolute;
   bottom: 12vh;
@@ -9075,7 +9148,7 @@ body.theme-nebula {
   50% { transform: translate(-50%, 45%) scale(1.035); }
 }
 
-/* Horizontal light bleeding sideways along the horizon — the key "sunset" cue */
+/* Horizontal light bleeding sideways along the horizon ? the key "sunset" cue */
 .sunset-horizon-wash {
   position: absolute;
   bottom: 20vh;
@@ -9152,14 +9225,14 @@ body.theme-nebula {
   .sunset-bird { width: 16px; height: 8px; }
 }
 /* ================================================================
-   AURORA FX v3 — dramatic, saturated curtains reaching down toward
+   AURORA FX v3 ? dramatic, saturated curtains reaching down toward
    the horizon, with a soft vertical ray texture for real movement.
-   Replaces the AURORA FX block in index.css (same as v2 — swap the
+   Replaces the AURORA FX block in index.css (same as v2 ? swap the
    whole block). AuroraFX.jsx markup is unchanged from v2, just the
    CSS below.
 
    What changed from v2: v2 was correct in shape (no hard edges) but
-   too faint and too short — the color only lived in the very top
+   too faint and too short ? the color only lived in the very top
    corner, so it read as a dim glow instead of dramatic aurora. This
    version: (1) raises opacity/saturation a lot, (2) extends the
    light layer much further down so ribbons actually reach toward
@@ -9235,7 +9308,7 @@ body.theme-nebula {
   50% { opacity: 1; }
 }
 
-/* Bright core glows — saturated, tall ellipses reaching well down the
+/* Bright core glows ? saturated, tall ellipses reaching well down the
    screen (not just the top corner), overlapped with mix-blend-mode:
    screen so overlapping colors light each other up like real aurora. */
 .aurora-lights {
@@ -9270,7 +9343,7 @@ body.theme-nebula {
   filter: blur(48px);
 }
 
-/* Vertical ray texture — thin, softly blurred stripes riding on top of
+/* Vertical ray texture ? thin, softly blurred stripes riding on top of
    the glow layers. This is what turns "colored fog" into "curtains of
    light falling from the sky", matching the streaky look of real aurora. */
 .aurora-rays {
@@ -9458,7 +9531,7 @@ body.theme-nebula {
 }
 
 /* ================================================================
-   OCEAN FX — god-rays, glowing jellyfish, bubbles
+   OCEAN FX ? god-rays, glowing jellyfish, bubbles
    ================================================================ */
 .ocean-fx { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
 
@@ -9546,7 +9619,7 @@ body.theme-nebula {
 }
 
 /* ================================================================
-   NEBULA FX — layered spiral arms, breathing core, flares, shooting stars
+   NEBULA FX ? layered spiral arms, breathing core, flares, shooting stars
    ================================================================ */
 .nebula-fx { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
 
@@ -9773,10 +9846,17 @@ body.theme-dreamcloud {
   --key-list-text: #5b3a5c;
   --secondary-btn-color: #d946af;
   --secondary-btn-border: #f0c6ea;
+
+  --bubble-theirs-bg: #f3d4ee;
+  --bubble-theirs-fg: #3d2040;
+  --bubble-theirs-border: rgba(190, 24, 172, 0.2);
+  --bubble-mine-fg: #ffffff;
+  --bubble-mine-time: rgba(255, 255, 255, 0.82);
+  --info-panel-bg: rgba(255, 247, 253, 0.96);
 }
 
 /* ================================================================
-   DREAMCLOUD FX — pastel sky, drifting clouds, twinkling sparkles
+   DREAMCLOUD FX ? pastel sky, drifting clouds, twinkling sparkles
    ================================================================ */
 .dreamcloud-fx { position: fixed; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
 
@@ -9825,10 +9905,12 @@ body.theme-dreamcloud {
   .dreamcloud-cloud { transform: scale(0.7); }
 }
 /* ================================================================
-   QC Shell � Hybrid WhatsApp-grade chrome + Quantum theme skins
+   QC Shell ? Hybrid WhatsApp-grade chrome + Quantum theme skins
    ================================================================ */
 
 .qc-shell {
+  position: relative;
+  z-index: 2;
   height: var(--vv-height, 100dvh);
   max-height: var(--vv-height, 100dvh);
   padding: max(var(--shell-pad), var(--safe-top)) max(var(--shell-pad), var(--safe-right)) max(var(--shell-pad), var(--safe-bottom)) max(var(--shell-pad), var(--safe-left));
@@ -10075,14 +10157,19 @@ body.theme-dreamcloud {
 }
 
 .qc-info-panel {
+  position: relative;
+  z-index: 2;
   width: var(--info-panel-width);
   min-width: var(--info-panel-width);
   display: none;
   flex-direction: column;
-  background: var(--bg-glass);
+  background: var(--info-panel-bg, var(--bg-surface));
+  color: var(--text-primary);
   backdrop-filter: blur(22px) saturate(1.2);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -10101,6 +10188,7 @@ body.theme-dreamcloud {
 .qc-info-panel-header h2 {
   margin: 0;
   font-size: 1rem;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
@@ -10108,6 +10196,7 @@ body.theme-dreamcloud {
   padding: 20px 16px;
   overflow: auto;
   flex: 1;
+  color: var(--text-primary);
 }
 
 .qc-info-hero {
@@ -10120,6 +10209,7 @@ body.theme-dreamcloud {
 
 .qc-info-hero h3 {
   margin: 0;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
@@ -10150,7 +10240,13 @@ body.theme-dreamcloud {
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   color: var(--text-primary);
+  font-weight: 600;
   cursor: pointer;
+}
+
+.qc-info-action:hover {
+  background: var(--accent-muted);
+  color: var(--text-primary);
 }
 
 .qc-thread-stack {

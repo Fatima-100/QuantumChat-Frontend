@@ -68,7 +68,8 @@ function getPreferredTheme() {
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+  const lightLike = theme === 'light' || theme === 'sakura' || theme === 'dreamcloud';
+  document.documentElement.style.colorScheme = lightLike ? 'light' : 'dark';
   document.body.classList.remove(...VALID_THEMES.map((t) => `theme-${t}`));
   document.body.classList.add(`theme-${theme}`);
 }
@@ -128,7 +129,7 @@ export function ThemeProvider({ children }) {
   const value = useMemo(
     () => ({
       theme,
-      isDark: theme !== 'light',
+      isDark: theme !== 'light' && theme !== 'sakura' && theme !== 'dreamcloud',
       isFunTheme: FUN_THEMES.includes(theme),
       setTheme,
       toggleTheme,
