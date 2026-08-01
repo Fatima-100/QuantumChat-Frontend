@@ -2392,6 +2392,31 @@ input:focus-visible,
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.friend-connections {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.friend-connection-item {
+  cursor: pointer;
+}
+
+.friend-connection-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.friend-chat-hint {
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-muted);
+  flex-shrink: 0;
+}
+
 .friend-requests-heading {
   display: flex;
   align-items: center;

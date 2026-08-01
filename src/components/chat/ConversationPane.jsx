@@ -33,10 +33,13 @@ export default function ConversationPane({
   friendCandidates,
   friendCandidatesLoading,
   incomingRequests,
+  myFriends = [],
+  myFriendsLoading = false,
   onSendFriendRequest,
   onCancelFriendRequest,
   onAcceptFriendRequest,
   onDeclineFriendRequest,
+  onOpenFriend,
 }) {
   return (
     <>
@@ -96,10 +99,13 @@ export default function ConversationPane({
             friendCandidates={friendCandidates}
             friendCandidatesLoading={friendCandidatesLoading}
             incomingRequests={incomingRequests}
+            myFriends={myFriends}
+            myFriendsLoading={myFriendsLoading}
             onSendFriendRequest={onSendFriendRequest}
             onCancelFriendRequest={onCancelFriendRequest}
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
+            onOpenFriend={onOpenFriend}
           />
         ) : (
           <p className="empty-hint">Set up your device key to see people.</p>
