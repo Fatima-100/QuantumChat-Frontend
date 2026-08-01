@@ -1095,8 +1095,8 @@ input:focus-visible,
 }
 
 .settings-modal-wide {
-  width: min(640px, 100%);
-  max-height: min(92vh, 800px);
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(86vh, 700px);
 }
 
 .settings-ok {
@@ -1166,14 +1166,15 @@ input:focus-visible,
 }
 
 .settings-modal {
-  width: min(520px, 100%);
-  max-height: min(88vh, 720px);
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(86vh, 680px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 0;
   padding: 0;
-  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
   backdrop-filter: blur(28px) saturate(1.2);
   -webkit-backdrop-filter: blur(28px) saturate(1.2);
   border: 1px solid var(--border-glass);
@@ -1188,10 +1189,12 @@ input:focus-visible,
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 20px 22px 10px;
+  padding: 14px 16px 6px;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .settings-modal-heading h2 {
@@ -1231,8 +1234,10 @@ input:focus-visible,
   display: flex;
   flex-shrink: 0;
   gap: 2px;
-  padding: 0 12px;
+  padding: 0 10px;
   margin: 0;
+  width: 100%;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border-glass);
   position: relative;
   z-index: 2;
@@ -1279,11 +1284,13 @@ input:focus-visible,
 .settings-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 20px 22px;
+  gap: 12px;
+  padding: 12px 14px 14px;
   overflow: auto;
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
   position: relative;
   z-index: 1;
   background: transparent;
@@ -1313,7 +1320,9 @@ input:focus-visible,
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .settings-section-title {
@@ -1474,11 +1483,13 @@ input:focus-visible,
 .settings-fieldset {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--bg-input) 80%, transparent);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .settings-fieldset-danger {
@@ -1792,6 +1803,10 @@ input:focus-visible,
   background: var(--accent);
   color: var(--text-inverse);
   border-color: var(--accent);
+}
+
+.settings-fieldset > .settings-btn.primary {
+  width: 100%;
 }
 
 .settings-btn.primary:hover:not(:disabled) {
@@ -10650,7 +10665,25 @@ body.theme-dreamcloud {
 }
 
 .settings-modal.qc-settings-sheet {
-  align-items: flex-end;
+  align-items: stretch;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(86vh, 700px);
+  height: auto;
+  min-width: 0;
+}
+
+/* Keep header / tabs / body full-bleed ? never shrink to the right */
+.settings-modal > .settings-modal-header,
+.settings-modal > .settings-tabs,
+.settings-modal > .settings-body,
+.settings-modal.qc-settings-sheet > .settings-modal-header,
+.settings-modal.qc-settings-sheet > .settings-tabs,
+.settings-modal.qc-settings-sheet > .settings-body {
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-inline: 0;
 }
 
 @media (max-width: 768px) {
@@ -10799,14 +10832,24 @@ body.theme-dreamcloud {
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     padding-bottom: calc(20px + var(--safe-bottom));
   }
-  .settings-modal.qc-settings-sheet {
+  .create-group-overlay:has(.qc-settings-sheet) {
     align-items: flex-end;
+    padding: 0;
+  }
+  .settings-modal.qc-settings-sheet {
+    align-items: stretch;
+    width: 100%;
+    max-width: none;
+    max-height: min(92dvh, 720px);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding-bottom: var(--safe-bottom);
   }
   .settings-modal.qc-settings-sheet .settings-modal-panel,
   .settings-modal.qc-settings-sheet .settings-card,
   .settings-modal.qc-settings-sheet > div {
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    max-height: 92dvh;
+    border-radius: 0;
+    max-width: none;
+    width: 100%;
   }
 }
 
