@@ -3119,10 +3119,14 @@ export default function Chat() {
     visibleMessages.forEach((m, i) => {
       const prev = visibleMessages[i - 1];
       if (!prev || !isSameDay(prev.createdAt, m.createdAt)) {
+        const d = new Date(m.createdAt);
+        const dayKey = Number.isNaN(d.getTime())
+          ? `sep-${i}`
+          : `sep-${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
         items.push({
           type: "separator",
           date: m.createdAt,
-          key: `sep-${m.createdAt}`,
+          key: dayKey,
         });
       }
       items.push({ type: "message", data: m, key: m.id || m._id });
