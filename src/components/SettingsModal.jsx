@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTheme, APP_ICONS } from '../context/ThemeContext.jsx';
+import { useTheme, APP_ICONS, FUN_THEMES } from '../context/ThemeContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import client from '../api/client.js';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
@@ -532,33 +532,22 @@ export default function SettingsModal({
                       <span className="settings-badge settings-badge-warn">Unverified email</span>
                     )}
                   </div>
+                  <div className="settings-photo-actions">
+                    <button
+                      type="button"
+                      className="settings-btn ghost"
+                      disabled={avatarBusy}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      {avatarBusy ? 'Uploading…' : 'Change photo'}
+                    </button>
+                    {user?.hasAvatar && (
+                      <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div className="settings-fieldset">
-                <h3 className="settings-section-title">Session</h3>
-                <p className="settings-section-copy">
-                  Sign out on this browser. Your encryption keys stay on this device for the next login.
-                </p>
-                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
-                  Log out
-                </button>
-              </div>
-
-              <div className="settings-photo-actions">
-                <button
-                  type="button"
-                  className="settings-btn ghost"
-                  disabled={avatarBusy}
-                  onClick={() => avatarInputRef.current?.click()}
-                >
-                  {avatarBusy ? 'Uploading…' : 'Change photo'}
-                </button>
-                {user?.hasAvatar && (
-                  <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
-                    Remove
-                  </button>
-                )}
               </div>
 
               {!user?.emailVerified && (
@@ -602,124 +591,124 @@ export default function SettingsModal({
                     inputMode="tel"
                   />
                 </label>
+                <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
+                  {busy ? 'Saving…' : 'Save profile'}
+                </button>
               </div>
 
-              <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
-                {busy ? 'Saving…' : 'Save profile'}
-              </button>
-
-              <div className="settings-fieldset">
+              <div className="settings-fieldset settings-appearance">
                 <h3 className="settings-section-title">Appearance</h3>
+                <p className="settings-section-copy">
+                  Current look: <strong>{THEME_LABELS[theme] || theme}</strong>
+                </p>
 
-                <div className="settings-row" style={{ cursor: 'default' }}>
-                  <span className="settings-row-left">
-                    <span className="settings-row-label">Display mode</span>
-                    <span className="settings-row-hint">Light, Dark, or Eyecare</span>
-                  </span>
-                  <ThemeSwitcher />
+                <div className="settings-skin-card settings-skin-card--mode">
+                  <header className="settings-skin-card-head">
+                    <div>
+                      <h4 className="settings-skin-card-title">Display mode</h4>
+                      <p className="settings-skin-card-hint">Everyday light, dark, or eyecare</p>
+                    </div>
+                  </header>
+                  <div className="settings-skin-card-body settings-skin-card-body--mode">
+                    <ThemeSwitcher />
+                  </div>
                 </div>
 
-                <div className="settings-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
-                  <span className="settings-row-left">
-                    <span className="settings-row-label">Dreamy themes</span>
-                    <span className="settings-row-hint">
-                      {theme === 'moonveil' ? 'Moonveil is active' : 'Optional decorative skins'}
-                    </span>
-                  </span>
-                  <FunThemeSwitcher />
-                  <div className="settings-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
-  <span className="settings-row-left">
-    <span className="settings-row-label">App icon</span>
-    <span className="settings-row-hint">Choose a color for your app icon</span>
-  </span>
-</div>
-<div
-  style={{
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
-    gap: '10px',
-    padding: '4px 0 12px',
-  }}
->
-  {APP_ICONS.map((icon) => (
-    <button
-      key={icon.id}
-      type="button"
-      onClick={() => setAppIcon(icon.id)}
-      aria-pressed={appIcon === icon.id}
-      aria-label={icon.label}
-      title={icon.label}
-      style={{
-        position: 'relative',
-        width: '56px',
-        height: '56px',
-        borderRadius: '50%',
-        border: appIcon === icon.id ? '2px solid var(--accent, #38bdf8)' : '2px solid transparent',
-        padding: '3px',
-        background: 'transparent',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <img
-        src={icon.file}
-        alt=""
-        style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-      />
-      {appIcon === icon.id && (
-        <span
-          style={{
-            position: 'absolute',
-            bottom: '-2px',
-            right: '-2px',
-            width: '18px',
-            height: '18px',
-            borderRadius: '50%',
-            background: 'var(--accent, #38bdf8)',
-            color: '#fff',
-            fontSize: '11px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          ✓
-        </span>
-      )}
-    </button>
-  ))}
-</div>
+                <div className="settings-skin-split">
+                  <div className="settings-skin-card settings-skin-card--themes">
+                    <header className="settings-skin-card-head">
+                      <div>
+                        <h4 className="settings-skin-card-title">Dreamy themes</h4>
+                        <p className="settings-skin-card-hint">
+                          {FUN_THEMES.includes(theme)
+                            ? `${THEME_LABELS[theme] || theme} is active`
+                            : 'Pick a decorative skin'}
+                        </p>
+                      </div>
+                      <span className="settings-skin-badge" aria-hidden="true">FX</span>
+                    </header>
+                    <div className="settings-skin-card-body">
+                      <FunThemeSwitcher />
+                    </div>
+                  </div>
+
+                  <div className="settings-skin-card settings-skin-card--icons">
+                    <header className="settings-skin-card-head">
+                      <div>
+                        <h4 className="settings-skin-card-title">App icon</h4>
+                        <p className="settings-skin-card-hint">Browser tab &amp; shortcut color</p>
+                      </div>
+                      <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
+                    </header>
+                    <div className="settings-skin-card-body">
+                      <div className="settings-icon-grid" role="list">
+                        {APP_ICONS.map((icon) => (
+                          <button
+                            key={icon.id}
+                            type="button"
+                            className={`settings-icon-pick ${appIcon === icon.id ? 'active' : ''}`}
+                            onClick={() => setAppIcon(icon.id)}
+                            aria-pressed={appIcon === icon.id}
+                            aria-label={icon.label}
+                            title={icon.label}
+                          >
+                            <span
+                              className="settings-icon-ring"
+                              style={{ background: icon.swatch }}
+                              aria-hidden="true"
+                            />
+                            <img src={icon.file} alt="" />
+                            {appIcon === icon.id ? <span className="settings-icon-check">✓</span> : null}
+                            <span className="settings-icon-name">{icon.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div className="settings-fieldset settings-fieldset-danger">
+                <h3 className="settings-section-title">Session</h3>
+                <p className="settings-section-copy">
+                  Sign out on this browser. Your encryption keys stay on this device for the next login.
+                </p>
+                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
+                  Log out
+                </button>
               </div>
             </section>
           )}
 
           {tab === 'privacy' && (
             <section className="settings-section">
-              <p className="settings-section-copy">These control what others see. Encryption keys stay on this device.</p>
-              <ToggleRow
-                label="Show last seen"
-                hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
-                checked={privacy.lastSeen === 'everyone'}
-                onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
-              />
-              <ToggleRow
-                label="Show online status"
-                hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
-                checked={privacy.online === 'everyone'}
-                onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
-              />
-              <ToggleRow
-                label="Read receipts"
-                hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
-                checked={privacy.readReceipts}
-                onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
-              />
-              <button type="button" className="settings-btn primary" disabled={busy} onClick={savePrivacy}>
-                Save privacy
-              </button>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Visibility</h3>
+                <p className="settings-section-copy">
+                  These control what others see. Encryption keys stay on this device.
+                </p>
+                <ToggleRow
+                  label="Show last seen"
+                  hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
+                  checked={privacy.lastSeen === 'everyone'}
+                  onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
+                />
+                <ToggleRow
+                  label="Show online status"
+                  hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
+                  checked={privacy.online === 'everyone'}
+                  onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
+                />
+                <ToggleRow
+                  label="Read receipts"
+                  hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
+                  checked={privacy.readReceipts}
+                  onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
+                />
+                <button type="button" className="settings-btn primary" disabled={busy} onClick={savePrivacy}>
+                  Save privacy
+                </button>
+              </div>
             </section>
           )}
 
