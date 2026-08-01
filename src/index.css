@@ -1095,8 +1095,8 @@ input:focus-visible,
 }
 
 .settings-modal-wide {
-  width: min(520px, 100%);
-  max-height: min(92vh, 760px);
+  width: min(640px, 100%);
+  max-height: min(92vh, 800px);
 }
 
 .settings-ok {
