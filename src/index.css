@@ -1647,7 +1647,7 @@ input:focus-visible,
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
-  background: var(--bg-glass);
+  background: color-mix(in srgb, var(--bg-surface) 28%, transparent);
   backdrop-filter: blur(22px) saturate(1.2);
   -webkit-backdrop-filter: blur(22px) saturate(1.2);
   border: 1px solid var(--border-glass);
@@ -2563,15 +2563,13 @@ input:focus-visible,
   min-width: 0;
   position: relative;
   z-index: 2;
-  background:
-    var(--bg-quantum),
-    linear-gradient(180deg, rgba(59, 130, 246, 0.06), transparent 28%),
-    var(--bg-chat);
+  /* Transparent so theme FX shows through; header/composer stay frosted */
+  background: transparent;
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
+  box-shadow: none;
   overflow: hidden;
-  transition: background-color var(--transition-theme), border-color var(--transition-theme);
+  transition: border-color var(--transition-theme);
 }
 
 /* Header */
@@ -2584,7 +2582,7 @@ input:focus-visible,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--bg-glass);
+  background: color-mix(in srgb, var(--bg-surface) 34%, transparent);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   gap: 12px;
@@ -3671,7 +3669,7 @@ input:focus-visible,
   padding: 8px 10px 8px 12px;
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-full);
-  background: var(--bg-glass);
+  background: color-mix(in srgb, var(--bg-surface) 40%, transparent);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--shadow-md);
@@ -5861,9 +5859,14 @@ body.theme-light .theme-switcher-btn:hover {
 .date-separator {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 16px;
   padding: 12px 0;
-  animation: fadeSlideUp 300ms ease both;
+  flex-shrink: 0;
+  /* Not sticky ? sticky caused Yesterday/Today to stack on scroll */
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .date-separator::before,
@@ -5872,19 +5875,24 @@ body.theme-light .theme-switcher-btn:hover {
   flex: 1;
   height: 1px;
   background: var(--border-subtle);
+  opacity: 0.7;
 }
 
 .date-separator-label {
+  pointer-events: auto;
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   white-space: nowrap;
   padding: 4px 12px;
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-full);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ================================================================
@@ -9864,7 +9872,7 @@ body.theme-dreamcloud {
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg, #fbe7f7 0%, #f3e0fc 45%, #fde9f4 100%);
-  opacity: 0.9;
+  opacity: 0.55;
 }
 
 .dreamcloud-sparkle {
@@ -10163,7 +10171,7 @@ body.theme-dreamcloud {
   min-width: var(--info-panel-width);
   display: none;
   flex-direction: column;
-  background: var(--info-panel-bg, var(--bg-surface));
+  background: color-mix(in srgb, var(--bg-surface) 28%, transparent);
   color: var(--text-primary);
   backdrop-filter: blur(22px) saturate(1.2);
   -webkit-backdrop-filter: blur(22px) saturate(1.2);
@@ -10268,30 +10276,6 @@ body.theme-dreamcloud {
 
 .qc-shell .composer-shell {
   padding-bottom: calc(10px + var(--safe-bottom) + var(--vv-keyboard-inset, 0px));
-}
-
-.date-separator {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  justify-content: center;
-  padding: 8px 0;
-  pointer-events: none;
-}
-
-.date-separator-label {
-  pointer-events: auto;
-  backdrop-filter: blur(10px);
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-sm);
 }
 
 .qc-swipe-reply-wrap {
