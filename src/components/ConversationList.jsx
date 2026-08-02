@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Check, MoreVertical, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 
@@ -49,6 +49,12 @@ export default function ConversationList({
   incomingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
+  contactQuery = '',
+  onContactQueryChange,
+  contactLookupResult = null,
+  contactLookupLoading = false,
+  contactLookupError = '',
+  onLookupContact,
   onSendFriendRequest,
   onCancelFriendRequest,
   onAcceptFriendRequest,
@@ -327,6 +333,112 @@ export default function ConversationList({
                   </motion.div>
                 ))
             )}
+          </div>
+
+          <div className="friend-contact-lookup">
+            <p className="friend-requests-heading">
+              <Mail size={14} strokeWidth={2.2} aria-hidden="true" />
+              Find via phone or email
+            </p>
+            <form
+              className="friend-contact-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                onLookupContact?.();
+              }}
+            >
+              <div className="friend-contact-input-wrap">
+                <Phone size={15} strokeWidth={2} aria-hidden="true" className="friend-contact-input-icon" />
+                <input
+                  type="text"
+                  className="friend-contact-input"
+                  value={contactQuery}
+                  onChange={(e) => onContactQueryChange?.(e.target.value)}
+                  placeholder="Email or phone number"
+                  autoComplete="off"
+                  inputMode="email"
+                  aria-label="Find friend by email or phone"
+                />
+              </div>
+              <button
+                type="submit"
+                className="friend-contact-submit"
+                disabled={contactLookupLoading || !contactQuery.trim()}
+              >
+                {contactLookupLoading ? '…' : <Search size={15} strokeWidth={2.4} aria-hidden="true" />}
+                <span>Find</span>
+              </button>
+            </form>
+            {contactLookupError ? (
+              <p className="friend-contact-error" role="alert">{contactLookupError}</p>
+            ) : null}
+            {contactLookupResult ? (
+              <motion.div
+                className="user-list-item friend-candidate-item"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <UserAvatar
+                  userId={contactLookupResult.id}
+                  name={contactLookupResult.displayName || contactLookupResult.username}
+                  hasAvatar={Boolean(contactLookupResult.hasAvatar)}
+                />
+                <span className="user-list-meta">
+                  <span className="user-list-name">
+                    {contactLookupResult.displayName || contactLookupResult.username}
+                  </span>
+                  <span className="user-list-lastseen">
+                    @{contactLookupResult.username}
+                    {contactLookupResult.matchedBy
+                      ? ` · matched by ${contactLookupResult.matchedBy}`
+                      : ''}
+                  </span>
+                </span>
+                {contactLookupResult.requestStatus === 'friends' ? (
+                  <button
+                    type="button"
+                    className="friend-action-btn add"
+                    onClick={() => onOpenFriend?.(contactLookupResult)}
+                  >
+                    Chat
+                  </button>
+                ) : contactLookupResult.requestStatus === 'pending_sent' ? (
+                  <button
+                    type="button"
+                    className="friend-action-btn cancel"
+                    onClick={() => onCancelFriendRequest?.(contactLookupResult.requestId)}
+                  >
+                    Cancel
+                  </button>
+                ) : contactLookupResult.requestStatus === 'pending_received' ? (
+                  <div className="friend-request-actions">
+                    <button
+                      type="button"
+                      className="friend-action-btn accept"
+                      onClick={() => onAcceptFriendRequest?.(contactLookupResult.requestId)}
+                    >
+                      <Check size={15} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      className="friend-action-btn decline"
+                      onClick={() => onDeclineFriendRequest?.(contactLookupResult.requestId)}
+                    >
+                      <X size={15} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="friend-action-btn add"
+                    onClick={() => onSendFriendRequest?.(contactLookupResult.id)}
+                  >
+                    Add
+                  </button>
+                )}
+              </motion.div>
+            ) : null}
           </div>
 
           <p className="friend-requests-heading">People</p>
