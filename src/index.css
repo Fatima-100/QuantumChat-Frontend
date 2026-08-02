@@ -2413,6 +2413,90 @@ input:focus-visible,
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.friend-contact-lookup {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.friend-contact-lookup .friend-requests-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.friend-contact-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 0 4px 8px;
+}
+
+.friend-contact-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.friend-contact-input-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.friend-contact-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 10px 0;
+  outline: none;
+}
+
+.friend-contact-input::placeholder {
+  color: var(--text-muted);
+}
+
+.friend-contact-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--text-inverse, #fff);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.friend-contact-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.friend-contact-submit:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.friend-contact-error {
+  margin: 0 8px 8px;
+  font-size: 0.78rem;
+  color: var(--danger, #ef4444);
+}
+
 .friend-connection-item {
   cursor: pointer;
 }

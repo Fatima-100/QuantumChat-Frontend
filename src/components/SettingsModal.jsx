@@ -620,9 +620,12 @@ export default function SettingsModal({
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     maxLength={32}
-                    placeholder="Private to you"
+                    placeholder="+1 555 0100"
                     inputMode="tel"
                   />
+                  <p className="settings-section-copy">
+                    Friends can find you by this number. It is never shown on your public profile.
+                  </p>
                 </label>
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
                   {busy ? 'Saving…' : 'Save profile'}
