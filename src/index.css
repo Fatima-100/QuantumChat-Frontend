@@ -3243,9 +3243,11 @@ input:focus-visible,
   position: relative;
   display: inline-block;
   width: fit-content;
-  max-width: min(78%, 460px);
-  min-width: 3.25rem;
+  /* No percentage here - it would resolve against the shrink-to-fit wrap (i.e.
+     against the bubble's own width). The cap lives on .message-bubble-wrap. */
+  max-width: none;
   flex: 0 1 auto;
+  min-width: 0;
   padding: 6px 10px 5px;
   border-radius: 14px 14px 14px 5px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
@@ -3266,19 +3268,6 @@ input:focus-visible,
   color: var(--bubble-mine-fg, #ffffff);
   border-color: transparent;
   box-shadow: var(--shadow-glow);
-}
-
-.message-bubble::after {
-  content: '';
-  display: table;
-  clear: both;
-}
-
-.message-text {
-  display: inline;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: normal;
 }
 
 /* Call message card */
@@ -3368,34 +3357,41 @@ input:focus-visible,
   font-size: 12px;
 }
 
-/* Floated so it sits on the last line of text when there is room and drops to
-   its own line only when there isn't - the WhatsApp behaviour. */
-.message-time {
-  float: right;
+/* The timestamp is painted at the bubble's bottom-right, while an invisible
+   copy of it (.message-time-spacer) sits inline after the text. The spacer is
+   what reserves room on the last line AND what makes the bubble's shrink-to-fit
+   width account for the timestamp - a float can't do the latter reliably, which
+   left short bubbles ("hiiiii") too narrow to hold their own time. */
+.message-time,
+.message-time-spacer {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin: 5px 0 -1px 10px;
-  padding: 0;
   font-size: 11px;
   font-weight: 400;
   line-height: 1.2;
-  color: var(--text-muted);
   white-space: nowrap;
-  position: relative;
-  top: 3px;
 }
 
+.message-time-spacer {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+  margin-left: 10px;
+  vertical-align: bottom;
+}
+
+.message-time {
+  position: absolute;
+  right: 10px;
+  bottom: 5px;
+  color: var(--text-muted);
+}
+
+/* Call cards render their own timestamp inside the card */
 .message-bubble:has(.call-message) .message-time,
-.message-bubble:has(.attachment-chip) .message-time,
-.message-bubble:has(.voice-player) .message-time,
-.message-bubble:has(.story-reply-quote) .message-time {
-  float: none;
-  display: flex;
-  justify-content: flex-end;
-  margin: 6px 0 0;
-  top: 0;
-  clear: both;
+.message-bubble:has(.call-message) .message-time-spacer {
+  display: none;
 }
 
 .message-text {
@@ -8569,6 +8565,15 @@ button.message-reply-preview:hover {
 
 .call-video-tile.mirror video {
   transform: scaleX(-1);
+}
+
+/* Screen shares are letterboxed — cropping a shared window loses content. */
+.call-video-tile.is-contain {
+  background: #000;
+}
+
+.call-video-tile.is-contain video {
+  object-fit: contain;
 }
 
 .call-video-label {
