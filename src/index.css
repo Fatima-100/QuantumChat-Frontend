@@ -277,7 +277,7 @@
   --info-panel-width: 320px;
   --header-height: 64px;
   --composer-height: 64px;
-  --bubble-max-width: 68%;
+  --bubble-max-width: 78%;
   --list-row-height: 72px;
   --tap-min: 44px;
   --swipe-threshold: 56px;
@@ -3103,10 +3103,10 @@ input:focus-visible,
   flex: 1;
   overflow-y: auto;
   overflow-anchor: none; /* prevent browser scroll-anchoring from fighting chat auto-scroll */
-  padding: 20px 20px 28px;
+  padding: 16px 16px 24px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 /* Message rows & bubbles */
@@ -3152,11 +3152,14 @@ input:focus-visible,
 }
 
 .message-bubble {
-  max-width: min(58vw, 440px);
-  min-width: 4.75rem;
+  position: relative;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(78%, 460px);
+  min-width: 3.25rem;
   flex: 0 1 auto;
-  padding: 8px 12px 6px;
-  border-radius: 22px;
+  padding: 6px 10px 5px;
+  border-radius: 14px 14px 14px 5px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
   color: var(--bubble-theirs-fg, var(--text-primary));
   backdrop-filter: blur(12px);
@@ -3164,42 +3167,57 @@ input:focus-visible,
   box-shadow: var(--shadow-sm);
   font-size: 14.5px;
   font-weight: 450;
-  line-height: 1.55;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  line-height: 1.4;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .message-bubble.mine {
+  border-radius: 14px 14px 5px 14px;
   background: var(--accent-gradient);
   color: var(--bubble-mine-fg, #ffffff);
   border-color: transparent;
   box-shadow: var(--shadow-glow);
 }
 
+.message-bubble::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+.message-text {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 /* Call message card */
 .message-bubble:has(.call-message) {
+  display: block;
   flex-shrink: 0;
   min-width: min(220px, 85vw);
   width: max-content;
   max-width: min(320px, 85vw);
   word-break: normal;
   overflow-wrap: normal;
-  padding: 10px 12px 6px;
+  padding: 8px 10px 5px;
 }
 
 .call-message {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 200px;
-  padding: 4px 2px 2px;
+  gap: 10px;
+  min-width: 180px;
+  padding: 2px 0;
   border-radius: 0;
   background: transparent;
   border: none;
 }
 .call-message .call-message-icon {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -3216,7 +3234,7 @@ input:focus-visible,
   white-space: nowrap;
 }
 .call-message .call-message-sub {
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -3263,23 +3281,38 @@ input:focus-visible,
 }
 
 .message-time {
-  display: flex;
+  float: right;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
+  gap: 3px;
+  margin: 5px 0 -1px 10px;
+  padding: 0;
   font-size: 11px;
   font-weight: 400;
+  line-height: 1.2;
   color: var(--text-muted);
-  margin-top: 4px;
   white-space: nowrap;
-  flex-shrink: 0;
+  position: relative;
+  top: 3px;
+}
+
+.message-bubble:has(.call-message) .message-time,
+.message-bubble:has(.attachment-chip) .message-time,
+.message-bubble:has(.voice-player) .message-time,
+.message-bubble:has(.story-reply-quote) .message-time {
+  float: none;
+  display: flex;
+  justify-content: flex-end;
+  margin: 6px 0 0;
+  top: 0;
+  clear: both;
 }
 
 .message-text {
   display: inline;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .message-more-btn {
@@ -3585,11 +3618,11 @@ input:focus-visible,
 }
 
 .message-bubble.mine.grouped {
-  border-top-right-radius: 4px;
+  border-top-right-radius: 5px;
 }
 
 .message-bubble.theirs.grouped {
-  border-top-left-radius: 4px;
+  border-top-left-radius: 5px;
 }
 
 /* Attachment chips */
@@ -6561,7 +6594,7 @@ body.theme-eyecare .drag-drop-overlay,
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: 6px;
+  margin-left: 2px;
   vertical-align: middle;
 }
 
@@ -10634,7 +10667,7 @@ body.theme-dreamcloud {
 }
 
 .qc-shell .message-bubble {
-  max-width: var(--bubble-max-width);
+  max-width: min(var(--bubble-max-width), 460px);
 }
 
 .qc-shell .composer-shell {
