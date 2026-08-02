@@ -4189,7 +4189,11 @@ useEffect(() => {
                         const mid = String(m.id || m._id);
 
                         return (
-                          <div key={item.key} id={`msg-${mid}`}>
+                          <div
+                            key={item.key}
+                            id={`msg-${mid}`}
+                            className="message-item"
+                          >
                             <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}

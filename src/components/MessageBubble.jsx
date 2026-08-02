@@ -402,8 +402,8 @@ const storyReplyPayload = useMemo(() => {
         ref={rootRef}
         className={`message-row ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${anyPopover ? 'popover-open' : ''} ${pinned ? 'pinned' : ''} ${starred ? 'starred' : ''}`}
         initial={false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
           <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}`}>
