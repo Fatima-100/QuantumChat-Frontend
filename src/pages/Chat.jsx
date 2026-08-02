@@ -224,6 +224,10 @@ export default function Chat() {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [myFriends, setMyFriends] = useState([]);
   const [myFriendsLoading, setMyFriendsLoading] = useState(false);
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactLookupResult, setContactLookupResult] = useState(null);
+  const [contactLookupLoading, setContactLookupLoading] = useState(false);
+  const [contactLookupError, setContactLookupError] = useState("");
   // Custom UI feature states
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -673,6 +677,46 @@ onMissed: (call) => {
       setMyFriendsLoading(false);
     }
   }, []);
+
+  const handleLookupContact = useCallback(async () => {
+    const raw = contactQuery.trim();
+    setContactLookupError("");
+    setContactLookupResult(null);
+    if (!raw) {
+      setContactLookupError("Enter an email or phone number");
+      return;
+    }
+
+    const looksEmail = raw.includes("@");
+    const looksPhone = /^[\d\s+\-().]{7,}$/.test(raw);
+    if (!looksEmail && !looksPhone) {
+      setContactLookupError("Enter a valid email or phone number");
+      return;
+    }
+
+    setContactLookupLoading(true);
+    try {
+      const params = looksEmail
+        ? { email: raw.toLowerCase() }
+        : { phone: raw };
+      const { data } = await client.get("/users/lookup", { params });
+      if (!data.data) {
+        setContactLookupError(
+          looksEmail
+            ? "No verified account found for that email"
+            : "No account found for that phone number",
+        );
+        return;
+      }
+      setContactLookupResult(data.data);
+    } catch (err) {
+      setContactLookupError(
+        err.response?.data?.error || "Lookup failed — try again",
+      );
+    } finally {
+      setContactLookupLoading(false);
+    }
+  }, [contactQuery]);
 
   useEffect(() => {
     loadDirectory();
@@ -1684,6 +1728,16 @@ useEffect(() => {
       }
       loadFriendDiscover(search);
       loadFriendRequests();
+      setContactLookupResult((prev) =>
+        prev && String(prev.id) === String(userId)
+          ? {
+              ...prev,
+              requestStatus:
+                data?.data?.status === "accepted" ? "friends" : "pending_sent",
+              requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
+            }
+          : prev,
+      );
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to send request", "error");
     }
@@ -1693,6 +1747,11 @@ useEffect(() => {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
       loadFriendDiscover(search);
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "none", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to cancel request",
@@ -1723,6 +1782,11 @@ useEffect(() => {
       loadDirectory();
       loadFriendDiscover(search);
       loadMyFriends();
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "friends", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to accept request",
@@ -1738,6 +1802,11 @@ useEffect(() => {
         prev.filter((r) => String(r.id) !== String(requestId)),
       );
       loadFriendDiscover(search);
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "none", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to decline request",
@@ -3423,6 +3492,16 @@ useEffect(() => {
         incomingRequests={incomingRequests}
         myFriends={myFriends}
         myFriendsLoading={myFriendsLoading}
+        contactQuery={contactQuery}
+        onContactQueryChange={(value) => {
+          setContactQuery(value);
+          setContactLookupError("");
+          if (contactLookupResult) setContactLookupResult(null);
+        }}
+        contactLookupResult={contactLookupResult}
+        contactLookupLoading={contactLookupLoading}
+        contactLookupError={contactLookupError}
+        onLookupContact={handleLookupContact}
         onSendFriendRequest={handleSendFriendRequest}
         onCancelFriendRequest={handleCancelFriendRequest}
         onAcceptFriendRequest={handleAcceptFriendRequest}
