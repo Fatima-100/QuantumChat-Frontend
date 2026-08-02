@@ -1,21 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
-  BarChart2,
-  Calendar,
-  Camera,
+  ArrowLeft,
   HelpCircle,
-  Megaphone,
+  Info,
   Menu,
   MessageSquare,
   Mic,
-  Paperclip,
-  Pin,
   Phone,
+  Pin,
+  Plus,
   Search,
   Send,
-  Settings,
   Settings2,
   Smile,
   Square,
@@ -24,8 +22,18 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import BrandLogo from "../components/BrandLogo.jsx";
 import client from "../api/client.js";
+import ChatShell from "../components/chat/ChatShell.jsx";
+import ConversationPane from "../components/chat/ConversationPane.jsx";
+import InfoPanel from "../components/chat/InfoPanel.jsx";
+import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
+import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
+import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
+import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import {
+  chatPathForSelection,
+  selectionFromParams,
+} from "../utils/chatRoutes.js";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import {
@@ -67,17 +75,13 @@ import {
   extractMentions,
   isGroupAdmin,
 } from "../utils/groupPayload.js";
-import ConversationList from "../components/ConversationList.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
-import SidebarMenu from "../components/SidebarMenu.jsx";
 import UserProfileModal from "../components/UserProfileModal.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
-import MessageBubble from "../components/MessageBubble.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
-import StoriesRail from "../components/StoriesRail.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
 import DragDropOverlay from "../components/DragDropOverlay.jsx";
@@ -102,6 +106,10 @@ import {
   toggleMuteChat,
   toggleArchiveChat,
   isChatMuted,
+  getInfoPanelOpen,
+  setInfoPanelOpen,
+  getLastQuickReaction,
+  setLastQuickReaction,
 } from "../utils/chatPrefs.js";
 import {
   deleteMessageForMe,
@@ -165,6 +173,11 @@ export default function Chat() {
     updateSessionUser,
   } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
+  const params = useParams();
+  const location = useLocation();
+  const isSettingsRoute = location.pathname.startsWith("/chat/settings");
+  const settingsTab = params.tab || "profile";
 
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -200,6 +213,8 @@ export default function Chat() {
   const [friendCandidates, setFriendCandidates] = useState([]);
   const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
   const [incomingRequests, setIncomingRequests] = useState([]);
+  const [myFriends, setMyFriends] = useState([]);
+  const [myFriendsLoading, setMyFriendsLoading] = useState(false);
   // Custom UI feature states
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -235,7 +250,34 @@ export default function Chat() {
   const [aiBusy, setAiBusy] = useState(false);
   const [emailBannerDismissed, setEmailBannerDismissed] = useState(false);
   const [composerHelpOpen, setComposerHelpOpen] = useState(false);
-  const [composerOptionsOpen, setComposerOptionsOpen] = useState(false);
+  const [composerPlusOpen, setComposerPlusOpen] = useState(false);
+  const [infoPanelOpen, setInfoPanelOpenState] = useState(() =>
+    getInfoPanelOpen(),
+  );
+  const [actionSheetMessage, setActionSheetMessage] = useState(null);
+  const [callMinimized, setCallMinimized] = useState(false);
+  const [isMobileShell, setIsMobileShell] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 768px)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const sync = () => setIsMobileShell(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
+
+  useEffect(() => {
+    const cores = navigator.hardwareConcurrency || 4;
+    const reduced =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      cores <= 4;
+    document.body.classList.toggle("low-fx", reduced);
+    return () => document.body.classList.remove("low-fx");
+  }, []);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
@@ -494,18 +536,25 @@ export default function Chat() {
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
       const from = raw.from;
+      let key;
       if (raw.group) {
-        const key = conversationKeyForGroup(raw.group);
-        setConversationActivity(user.id, key, { at, from });
+        key = conversationKeyForGroup(
+          typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group,
+        );
       } else {
         const otherId =
           String(raw.from) === String(user.id) ? raw.to : raw.from;
         if (!otherId) return;
-        setConversationActivity(user.id, conversationKeyForUser(otherId), {
-          at,
-          from,
-        });
+        key = conversationKeyForUser(otherId);
       }
+      const prev = getConversationActivity(user.id, key);
+      if (
+        prev?.at === at &&
+        String(prev?.from || "") === String(from || "")
+      ) {
+        return;
+      }
+      setConversationActivity(user.id, key, { at, from });
       bumpActivity();
     },
     [user.id, bumpActivity],
@@ -559,6 +608,19 @@ export default function Chat() {
       // non-fatal
     }
   }, []);
+
+  const loadMyFriends = useCallback(async () => {
+    setMyFriendsLoading(true);
+    try {
+      const { data } = await client.get("/users/friends");
+      setMyFriends(data.data || []);
+    } catch {
+      setMyFriends([]);
+    } finally {
+      setMyFriendsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
@@ -566,7 +628,8 @@ export default function Chat() {
     if (filter !== "friends") return;
     loadFriendDiscover(search);
     loadFriendRequests();
-  }, [filter, search, loadFriendDiscover, loadFriendRequests]);
+    loadMyFriends();
+  }, [filter, search, loadFriendDiscover, loadFriendRequests, loadMyFriends]);
   // Socket routing and listener hooks
   useEffect(() => {
     if (!hasLocalKeyring) return;
@@ -695,6 +758,8 @@ export default function Chat() {
 
       loadDirectory();
       loadFriendRequests();
+      loadMyFriends();
+      loadFriendDiscover();
     }
     async function handleFriendRemoved() {
       try {
@@ -704,6 +769,7 @@ export default function Chat() {
         // non-fatal
       }
       loadDirectory();
+      loadMyFriends();
     }
 
     function handleGroupUpdated(payload) {
@@ -747,6 +813,7 @@ export default function Chat() {
         setSelected(null);
         setMessages([]);
         setShowGroupSettings(false);
+        if (location.pathname !== "/chat") navigate("/chat");
       }
     }
 
@@ -929,47 +996,75 @@ export default function Chat() {
     showToast,
   ]);
 
+  const selectedKey = selected?.key;
+  const selectedType = selected?.type;
+  const selectedId = selected?.id;
+  const decorateRef = useRef(decorate);
+  decorateRef.current = decorate;
+  const recordActivityRef = useRef(recordActivityFromMessage);
+  recordActivityRef.current = recordActivityFromMessage;
+  const scrollToBottomRef = useRef(scrollToBottom);
+  scrollToBottomRef.current = scrollToBottom;
+  const bumpActivityRef = useRef(bumpActivity);
+  bumpActivityRef.current = bumpActivity;
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+  const loadedThreadKeyRef = useRef(null);
+
   useEffect(() => {
-    if (!selected || !hasLocalKeyring) return undefined;
+    if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
+
+    const threadKey = selectedKey;
+    const threadType = selectedType;
+    const threadId = selectedId;
+    const switching = loadedThreadKeyRef.current !== threadKey;
+    loadedThreadKeyRef.current = threadKey;
 
     setDisappearSeconds(0);
     let cancelled = false;
     setPeerTyping(false);
     setHasMoreMessages(false);
     oldestCreatedAtRef.current = null;
-    if (selected.type === "group") {
-      setPinnedIds((selected.group?.pinnedMessageIds || []).map(String));
-    } else {
-      setPinnedIds(getPinnedIds(user.id, selected.key));
+
+    if (switching) {
+      if (threadType === "group") {
+        setPinnedIds(
+          (selectedRef.current?.group?.pinnedMessageIds || []).map(String),
+        );
+      } else {
+        setPinnedIds(getPinnedIds(user.id, threadKey));
+      }
+      // Only flash skeletons when opening a different conversation — not on
+      // sidebar activity / URL-sync object identity churn.
+      setLoadingMessages(true);
+      setMessages([]);
     }
 
     const endpoint =
-      selected.type === "group"
-        ? `/groups/${selected.id}/messages`
-        : `/messages/${selected.id}`;
+      threadType === "group"
+        ? `/groups/${threadId}/messages`
+        : `/messages/${threadId}`;
 
-    setLoadingMessages(true);
     client
       .get(endpoint, { params: { limit: 80, markRead: 1 } })
       .then((res) => {
         if (cancelled) return;
-        const next = (res.data.data || []).map(decorate);
+        const next = (res.data.data || []).map((raw) => decorateRef.current(raw));
         setHasMoreMessages(Boolean(res.data.meta?.hasMore));
         oldestCreatedAtRef.current = next[0]?.createdAt || null;
         if (next.length) {
-          const last = next[next.length - 1];
-          recordActivityFromMessage(last);
+          recordActivityRef.current(next[next.length - 1]);
         }
         setMessages(next);
-        markConversationRead(user.id, selected.key);
-        bumpActivity();
-        if (selected.type === "dm") {
-          client.post(`/messages/${selected.id}/read`).catch(() => {});
+        markConversationRead(user.id, threadKey);
+        bumpActivityRef.current();
+        if (threadType === "dm") {
+          client.post(`/messages/${threadId}/read`).catch(() => {});
         }
-        setTimeout(() => scrollToBottom("auto"), 50);
+        setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
       .catch((err) =>
-        showToast(
+        showToastRef.current(
           err.response?.data?.error || "Failed to load messages",
           "error",
         ),
@@ -981,29 +1076,23 @@ export default function Chat() {
     return () => {
       cancelled = true;
     };
-  }, [
-    selected,
-    hasLocalKeyring,
-    decorate,
-    scrollToBottom,
-    user.id,
-    recordActivityFromMessage,
-    bumpActivity,
-    showToast,
-  ]);
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
 
   // Vercel's serverless API cannot keep a Socket.IO connection alive.
   // When no socket is connected, sync the open conversation frequently so
   // both participants see new messages without manually reloading the page.
   useEffect(() => {
-    if (!selected || !hasLocalKeyring) return undefined;
+    if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
 
     let cancelled = false;
     let inFlight = false;
+    const threadType = selectedType;
+    const threadId = selectedId;
+    const threadKey = selectedKey;
     const endpoint =
-      selected.type === "group"
-        ? `/groups/${selected.id}/messages`
-        : `/messages/${selected.id}`;
+      threadType === "group"
+        ? `/groups/${threadId}/messages`
+        : `/messages/${threadId}`;
 
     async function syncOpenConversation() {
       if (
@@ -1022,7 +1111,7 @@ export default function Chat() {
         });
         if (cancelled) return;
 
-        const latest = (data.data || []).map(decorate);
+        const latest = (data.data || []).map((raw) => decorateRef.current(raw));
         const currentIds = new Set(
           messagesRef.current.map((message) =>
             String(message.id || message._id),
@@ -1045,26 +1134,43 @@ export default function Chat() {
             ]),
           );
 
+          let changed = false;
           const merged = current.map((message) => {
             const id = String(message.id || message._id);
-            return latestById.get(id) || message;
+            const next = latestById.get(id);
+            if (!next) return message;
+            if (
+              next.text === message.text &&
+              next.readAt === message.readAt &&
+              next.deliveredAt === message.deliveredAt &&
+              next.editedAt === message.editedAt &&
+              (next.reactions || []).length === (message.reactions || []).length
+            ) {
+              return message;
+            }
+            changed = true;
+            return next;
           });
           for (const message of latest) {
             const id = String(message.id || message._id);
-            if (!existingIds.has(id)) merged.push(message);
+            if (!existingIds.has(id)) {
+              merged.push(message);
+              changed = true;
+            }
           }
+          if (!changed) return current;
           merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
           return merged;
         });
 
         const last = latest.at(-1);
         if (last) {
-          recordActivityFromMessage(last);
-          markConversationRead(user.id, selected.key);
+          recordActivityRef.current(last);
+          markConversationRead(user.id, threadKey);
         }
         if (receivedNewMessage) {
-          if (!isChatMuted(user.id, selected.key)) playReceiveSound();
-          setTimeout(() => scrollToBottom("smooth"), 50);
+          if (!isChatMuted(user.id, threadKey)) playReceiveSound();
+          setTimeout(() => scrollToBottomRef.current("smooth"), 50);
         }
       } catch {
         // Keep retrying; a temporary network failure should not require reload.
@@ -1086,14 +1192,7 @@ export default function Chat() {
       window.removeEventListener("focus", syncOpenConversation);
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
-  }, [
-    selected,
-    hasLocalKeyring,
-    decorate,
-    recordActivityFromMessage,
-    scrollToBottom,
-    user.id,
-  ]);
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -1287,7 +1386,59 @@ export default function Chat() {
       : `${prefix}QuantumChat`;
   }, [selected, activityTick, conversations]);
 
-  function handleSelectConversation(c) {
+  // URL deep-link sync — restore selection from /chat/:peerId or /chat/g/:groupId
+  useEffect(() => {
+    if (isSettingsRoute) {
+      setShowSettings(true);
+      return;
+    }
+    if (!params.peerId && !params.groupId) return;
+    const fromUrl = selectionFromParams(params, conversations);
+    if (!fromUrl) return;
+    if (
+      selected &&
+      selected.type === fromUrl.type &&
+      String(selected.id) === String(fromUrl.id)
+    ) {
+      if (fromUrl.peer || fromUrl.group?.name) {
+        setSelected((prev) => {
+          if (!prev) return fromUrl;
+          const samePeer =
+            String(prev.peer?.id || "") === String(fromUrl.peer?.id || "") &&
+            prev.peer?.displayName === fromUrl.peer?.displayName &&
+            prev.peer?.lastLoginAt === fromUrl.peer?.lastLoginAt &&
+            prev.peer?.hasAvatar === fromUrl.peer?.hasAvatar;
+          const sameGroup =
+            String(prev.group?.id || prev.group?._id || "") ===
+              String(fromUrl.group?.id || fromUrl.group?._id || "") &&
+            prev.group?.name === fromUrl.group?.name &&
+            prev.group?.updatedAt === fromUrl.group?.updatedAt &&
+            String(prev.group?.pinnedMessageIds || "") ===
+              String(fromUrl.group?.pinnedMessageIds || "");
+          if (
+            prev.title === fromUrl.title &&
+            prev.subtitle === fromUrl.subtitle &&
+            samePeer &&
+            sameGroup
+          ) {
+            return prev;
+          }
+          return { ...prev, ...fromUrl };
+        });
+      }
+      return;
+    }
+    applyConversationSelection(fromUrl, { syncUrl: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.peerId, params.groupId, conversations, isSettingsRoute]);
+
+  function applyConversationSelection(c, { syncUrl = true } = {}) {
+    if (!c) {
+      setSelected(null);
+      setMessages([]);
+      if (syncUrl && !isSettingsRoute) navigate("/chat");
+      return;
+    }
     if (c.type === "dm" && hiddenChatIds.includes(String(c.id))) {
       setHiddenChatIds(unhideChat(user.id, c.id));
     }
@@ -1314,6 +1465,26 @@ export default function Chat() {
     if (socket && c.type === "group") {
       socket.emit("group:join", { groupId: c.id });
     }
+    if (syncUrl) {
+      const next = chatPathForSelection(c);
+      if (location.pathname !== next) navigate(next);
+    }
+  }
+
+  function handleSelectConversation(c) {
+    applyConversationSelection(c, { syncUrl: true });
+  }
+
+  function handleBackToList() {
+    applyConversationSelection(null, { syncUrl: true });
+  }
+
+  function toggleInfoPanel() {
+    setInfoPanelOpenState((open) => {
+      const next = !open;
+      setInfoPanelOpen(next);
+      return next;
+    });
   }
 
   async function handleCreateGroup({
@@ -1382,9 +1553,16 @@ export default function Chat() {
   }
   async function handleSendFriendRequest(userId) {
     try {
-      await client.post("/users/friend-requests", { to: userId });
-      showToast("Friend request sent", "success");
+      const { data } = await client.post("/users/friend-requests", { to: userId });
+      if (data?.data?.status === "accepted") {
+        if (data?.data?.me) updateSessionUser(data.data.me);
+        showToast("You are now friends", "success");
+        loadMyFriends();
+      } else {
+        showToast("Friend request sent", "success");
+      }
       loadFriendDiscover(search);
+      loadFriendRequests();
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to send request", "error");
     }
@@ -1404,12 +1582,18 @@ export default function Chat() {
 
   async function handleAcceptFriendRequest(requestId) {
     try {
-      await client.post(`/users/friend-requests/${requestId}/accept`);
-      try {
-        const { data } = await client.get("/users/me");
-        if (data?.data) updateSessionUser(data.data);
-      } catch {
-        // non-fatal
+      const { data } = await client.post(
+        `/users/friend-requests/${requestId}/accept`,
+      );
+      if (data?.data?.me) {
+        updateSessionUser(data.data.me);
+      } else {
+        try {
+          const meRes = await client.get("/users/me");
+          if (meRes.data?.data) updateSessionUser(meRes.data.data);
+        } catch {
+          // non-fatal
+        }
       }
       showToast("Friend request accepted", "success");
       setIncomingRequests((prev) =>
@@ -1417,6 +1601,7 @@ export default function Chat() {
       );
       loadDirectory();
       loadFriendDiscover(search);
+      loadMyFriends();
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to accept request",
@@ -1541,8 +1726,7 @@ export default function Chat() {
     const peerId = String(u.id);
     setHiddenChatIds(hideChat(user.id, peerId));
     if (selected?.type === "dm" && String(selected.id) === peerId) {
-      setSelected(null);
-      setMessages([]);
+      applyConversationSelection(null);
     }
   }
 
@@ -1568,8 +1752,7 @@ export default function Chat() {
       );
       setHiddenChatIds(hideChat(user.id, u.id));
       if (selected?.type === "dm" && String(selected.id) === String(u.id)) {
-        setSelected(null);
-        setMessages([]);
+        applyConversationSelection(null);
       }
       setError("");
       setConfirmDialog(null);
@@ -3000,8 +3183,7 @@ export default function Chat() {
   function handleLeftOrDeletedGroup(groupId) {
     setGroups((prev) => prev.filter((g) => String(g.id) !== String(groupId)));
     if (selected?.type === "group" && String(selected.id) === String(groupId)) {
-      setSelected(null);
-      setMessages([]);
+      applyConversationSelection(null);
     }
     setShowGroupSettings(false);
     setProfileUserId(null);
@@ -3032,10 +3214,14 @@ export default function Chat() {
     visibleMessages.forEach((m, i) => {
       const prev = visibleMessages[i - 1];
       if (!prev || !isSameDay(prev.createdAt, m.createdAt)) {
+        const d = new Date(m.createdAt);
+        const dayKey = Number.isNaN(d.getTime())
+          ? `sep-${i}`
+          : `sep-${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
         items.push({
           type: "separator",
           date: m.createdAt,
-          key: `sep-${m.createdAt}`,
+          key: dayKey,
         });
       }
       items.push({ type: "message", data: m, key: m.id || m._id });
@@ -3065,82 +3251,64 @@ export default function Chat() {
   }, []);
 
   return (
-    <div className="chat-page">
-      <div
-        className={`sidebar-overlay ${sidebarOpen ? "visible" : ""}`}
-        onClick={() => setSidebarOpen(false)}
+    <ChatShell
+      threadOpen={Boolean(selected)}
+      infoOpen={infoPanelOpen && Boolean(selected)}
+      aiOpen={aiPanelOpen}
+    >
+      <ConversationPane
+        user={user}
+        canChat={canChat}
+        sidebarOpen={sidebarOpen}
+        onCloseSidebar={() => setSidebarOpen(false)}
+        onSettings={() => {
+          setShowSettings(true);
+          navigate("/chat/settings");
+        }}
+        onLogout={handleLogout}
+        storiesRailRef={storiesRailRef}
+        users={users}
+        onStoriesError={setError}
+        search={search}
+        onSearchChange={setSearch}
+        conversations={conversations}
+        filter={filter}
+        onFilterChange={setFilter}
+        selectedKey={selected?.key}
+        onSelect={handleSelectConversation}
+        onCreateGroup={() => setShowCreateGroup(true)}
+        onDiscoverJoin={handleDiscoverJoin}
+        onHide={handleHideChat}
+        onBlock={handleBlockUser}
+        onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
+        onArchive={(c) => {
+          setArchivedKeys(toggleArchiveChat(user.id, c.key));
+        }}
+        loadingUsers={loadingUsers}
+        friendCandidates={friendCandidates}
+        friendCandidatesLoading={friendCandidatesLoading}
+        incomingRequests={incomingRequests}
+        myFriends={myFriends}
+        myFriendsLoading={myFriendsLoading}
+        onSendFriendRequest={handleSendFriendRequest}
+        onCancelFriendRequest={handleCancelFriendRequest}
+        onAcceptFriendRequest={handleAcceptFriendRequest}
+        onDeclineFriendRequest={handleDeclineFriendRequest}
+        onOpenFriend={(friend) => {
+          const key = conversationKeyForUser(friend.id);
+          handleSelectConversation({
+            key,
+            type: "dm",
+            id: friend.id,
+            title: friend.displayName || friend.username || "Friend",
+            subtitle: null,
+            peer: friend,
+            muted: isChatMuted(user.id, key),
+            archived: false,
+            online: onlineUserIds.has(String(friend.id)),
+          });
+        }}
       />
-
-      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
-        <div className="sidebar-header">
-          <div className="sidebar-brand">
-            <div className="sidebar-brand-mark">
-              <BrandLogo size={40} />
-            </div>
-            <div className="sidebar-user-info">
-              <div className="sidebar-username">{user.username}</div>
-              <div className="sidebar-lastseen sidebar-status-online">
-                online
-              </div>
-            </div>
-          </div>
-          <div
-            className="sidebar-header-actions"
-            style={{ display: "flex", alignItems: "center", gap: "8px" }}
-          >
-            <SidebarMenu
-              onSettings={() => setShowSettings(true)}
-              onLogout={handleLogout}
-            />
-          </div>
-        </div>
-        {canChat && (
-          <>
-            <StoriesRail
-              ref={storiesRailRef}
-              currentUser={user}
-              users={users}
-              onError={setError}
-            />
-            <div className="sidebar-search">
-              <input
-                placeholder="Search conversations…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                aria-label="Search conversations"
-              />
-            </div>
-          </>
-        )}
-        {canChat ? (
-          <ConversationList
-            conversations={conversations}
-            filter={filter}
-            onFilterChange={setFilter}
-            selectedKey={selected?.key}
-            onSelect={handleSelectConversation}
-            onCreateGroup={() => setShowCreateGroup(true)}
-            onDiscoverJoin={handleDiscoverJoin}
-            onHide={handleHideChat}
-            onBlock={handleBlockUser}
-            onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
-            onArchive={(c) => {
-              setArchivedKeys(toggleArchiveChat(user.id, c.key));
-            }}
-            loading={loadingUsers}
-            searchQuery={search}
-            friendCandidates={friendCandidates}
-            friendCandidatesLoading={friendCandidatesLoading}
-            incomingRequests={incomingRequests}
-            onSendFriendRequest={handleSendFriendRequest}
-            onCancelFriendRequest={handleCancelFriendRequest}
-            onAcceptFriendRequest={handleAcceptFriendRequest}
-            onDeclineFriendRequest={handleDeclineFriendRequest}
-          />
-        ) : (
-          <p className="empty-hint">Set up your device key to see people.</p>
-        )}
-      </aside>
 
       <main
         className="chat-main"
@@ -3304,6 +3472,14 @@ export default function Chat() {
             )}
             <header className="chat-header">
               <div className="chat-header-left">
+                <button
+                  type="button"
+                  className="mobile-back-btn"
+                  onClick={handleBackToList}
+                  aria-label="Back to conversations"
+                >
+                  <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
+                </button>
                 <button
                   className="mobile-menu-btn"
                   onClick={() => setSidebarOpen(true)}
@@ -3478,6 +3654,17 @@ export default function Chat() {
                     <Search size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
+                {selected && (
+                  <button
+                    className={`icon-btn${infoPanelOpen ? " active" : ""}`}
+                    onClick={toggleInfoPanel}
+                    title="Chat details"
+                    aria-label="Chat details"
+                    aria-pressed={infoPanelOpen}
+                  >
+                    <Info size={18} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                )}
               </div>
             </header>
 
@@ -3495,28 +3682,13 @@ export default function Chat() {
             )}
 
             {!selected ? (
-              <div className="chat-empty-state">
-                <div className="chat-empty-rings">
-                  <div className="ring ring-3"></div>
-                  <div className="ring ring-3"></div>
-                  <div className="ring ring-3"></div>
-                </div>
-                <div className="chat-empty-icon">
-                  <MessageSquare
-                    size={30}
-                    strokeWidth={1.5}
-                    aria-hidden="true"
-                  />
-                </div>
-                <h2>Pick a conversation</h2>
-                <p>
-                  Choose someone from the sidebar, open Friends to connect, or
-                  start a new group.
-                </p>
-                <p className="chat-empty-tagline">
-                  Messages stay end-to-end encrypted on your device
-                </p>
-              </div>
+              <ChatEmptyState
+                variant="welcome"
+                title="Pick a conversation"
+                copy="Choose someone from the sidebar, open Friends to connect, or start a new group. Messages stay end-to-end encrypted on your device."
+                actionLabel="New group"
+                onAction={() => setShowCreateGroup(true)}
+              />
             ) : (
               <>
                 {pinnedMessages.length > 0 && (
@@ -3651,9 +3823,22 @@ export default function Chat() {
 
                         return (
                           <div key={item.key} id={`msg-${mid}`}>
-                            <MessageBubble
+                            <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}
+                              onReply={(msg) => {
+                                setEditingMessage(null);
+                                setReplyTo(msg);
+                              }}
+                              onLongPress={(msg) => setActionSheetMessage(msg)}
+                              onDoubleTap={(msg) => {
+                                const emoji = getLastQuickReaction();
+                                const mid = msg.id || msg._id;
+                                if (mid) {
+                                  setLastQuickReaction(emoji);
+                                  handleReactMessage(mid, emoji);
+                                }
+                              }}
                               currentUserId={user.id}
                               resolveSecretKey={resolveMySecretKey}
                               grouped={isGrouped}
@@ -3680,7 +3865,10 @@ export default function Chat() {
                               }
                               onDelete={handleDeleteMessage}
                               onDeleteForMe={handleDeleteForMe}
-                              onReact={handleReactMessage}
+                              onReact={(id, emoji) => {
+                                if (emoji) setLastQuickReaction(emoji);
+                                handleReactMessage(id, emoji);
+                              }}
                               onCopy={handleCopyMessage}
                               onForward={setForwardMessage}
                               onStar={handleStarMessage}
@@ -3694,10 +3882,6 @@ export default function Chat() {
                               onOpenStory={(storyId) =>
                                 storiesRailRef.current?.openStoryById(storyId)
                               }
-                              onReply={(msg) => {
-                                setEditingMessage(null);
-                                setReplyTo(msg);
-                              }}
                               onEdit={
                                 m.text &&
                                 !String(m.text).trim().startsWith('{"__qc')
@@ -3851,7 +4035,7 @@ export default function Chat() {
                         ))}
                       </div>
                     )}
-                    <div className="composer-tools-bar">
+                    <div className="composer-tools-bar qc-composer-tools-slim">
                       <button
                         type="button"
                         className={`composer-tools-btn ${composerHelpOpen ? "active" : ""}`}
@@ -3873,82 +4057,6 @@ export default function Chat() {
                           </span>
                         </div>
                       )}
-
-                      <button
-                        type="button"
-                        className={`composer-tools-btn ${composerOptionsOpen ? "active" : ""}`}
-                        onClick={() => setComposerOptionsOpen((v) => !v)}
-                        aria-label="Message options"
-                      >
-                        <Settings size={16} />
-                      </button>
-                      {composerOptionsOpen && (
-                        <div className="composer-options-popover">
-                          <label
-                            className="disappear-select-wrap"
-                            title="Disappearing messages"
-                          >
-                            <span>Disappear:</span>
-                            <select
-                              className="disappear-select"
-                              value={disappearSeconds}
-                              onChange={(e) =>
-                                setDisappearSeconds(Number(e.target.value) || 0)
-                              }
-                              aria-label="Disappearing message timer"
-                            >
-                              <option value={0}>Off</option>
-                              <option value={30}>30s</option>
-                              <option value={300}>5m</option>
-                              <option value={3600}>1h</option>
-                              <option value={86400}>24h</option>
-                              <option value={604800}>7d</option>
-                            </select>
-                          </label>
-                          <label
-                            className="disappear-select-wrap"
-                            title="Allow recipients to forward this message"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={allowForward}
-                              onChange={(e) =>
-                                setAllowForward(e.target.checked)
-                              }
-                              aria-label="Allow forwarding"
-                            />
-                            <span>Allow forwarding</span>
-                          </label>
-                          {allowForward && (
-                            <label
-                              className="disappear-select-wrap"
-                              title="Optional forward expiry"
-                            >
-                              <span>Fwd expires:</span>
-                              <select
-                                className="disappear-select"
-                                value={forwardUntilSeconds}
-                                onChange={(e) =>
-                                  setForwardUntilSeconds(
-                                    Number(e.target.value) || 0,
-                                  )
-                                }
-                                aria-label="Forwarding expiry"
-                              >
-                                <option value={0}>Never</option>
-                                <option value={3600}>1h</option>
-                                <option value={86400}>24h</option>
-                                <option value={604800}>7d</option>
-                              </select>
-                            </label>
-                          )}
-                          <span
-                            style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}
-                          >
-                            Max 15 MB · multi-file OK
-                          </span>
-                        </div>
-                      )}
                     </div>
                     <form
                       className="composer"
@@ -3957,138 +4065,13 @@ export default function Chat() {
                     >
                       <button
                         type="button"
-                        className="attach-button"
-                        onClick={() => fileInputRef.current?.click()}
-                        aria-label="Attach files to message"
+                        className={`attach-button ${composerPlusOpen ? "active" : ""}`}
+                        onClick={() => setComposerPlusOpen(true)}
+                        aria-label="More message actions"
                         disabled={sendingVoice || uploads.length > 0}
                       >
-                        <Paperclip
-                          size={20}
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        />
+                        <Plus size={20} strokeWidth={2} aria-hidden="true" />
                       </button>
-                      <button
-                        type="button"
-                        className="attach-button"
-                        onClick={() => setCameraOpen(true)}
-                        aria-label="Capture photo with camera"
-                        disabled={sendingVoice || uploads.length > 0}
-                      >
-                        <Camera size={20} strokeWidth={2} aria-hidden="true" />
-                      </button>
-                      {isGroupChat && (
-                        <div style={{ position: "relative" }}>
-                          <button
-                            type="button"
-                            className={`attach-button ${groupComposerMenu === "tools" ? "active" : ""}`}
-                            onClick={() =>
-                              setGroupComposerMenu((v) =>
-                                v === "tools" ? null : "tools",
-                              )
-                            }
-                            aria-label="Group tools"
-                            disabled={sendingVoice}
-                          >
-                            <Megaphone
-                              size={20}
-                              strokeWidth={2}
-                              aria-hidden="true"
-                            />
-                          </button>
-                          {groupComposerMenu === "tools" && (
-                            <div
-                              className="composer-context"
-                              style={{
-                                position: "absolute",
-                                bottom: "110%",
-                                left: 0,
-                                zIndex: 20,
-                                minWidth: 160,
-                                flexDirection: "column",
-                                alignItems: "stretch",
-                                gap: 4,
-                                padding: 8,
-                              }}
-                            >
-                              <button
-                                type="button"
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  background: "transparent",
-                                  border: 0,
-                                  color: "inherit",
-                                  padding: "6px 8px",
-                                  cursor: "pointer",
-                                  borderRadius: 6,
-                                  fontSize: 13,
-                                }}
-                                onClick={() => {
-                                  setGroupComposerMenu(null);
-                                  setPollDraft({
-                                    question: "",
-                                    options: ["", ""],
-                                  });
-                                }}
-                              >
-                                <BarChart2 size={14} /> Poll
-                              </button>
-                              <button
-                                type="button"
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  background: "transparent",
-                                  border: 0,
-                                  color: "inherit",
-                                  padding: "6px 8px",
-                                  cursor: "pointer",
-                                  borderRadius: 6,
-                                  fontSize: 13,
-                                }}
-                                onClick={() => {
-                                  setGroupComposerMenu(null);
-                                  setEventDraft({
-                                    title: "",
-                                    when: "",
-                                    where: "",
-                                    notes: "",
-                                  });
-                                }}
-                              >
-                                <Calendar size={14} /> Event
-                              </button>
-                              {isGroupAdmin(activeGroup, user.id) && (
-                                <button
-                                  type="button"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    background: "transparent",
-                                    border: 0,
-                                    color: "inherit",
-                                    padding: "6px 8px",
-                                    cursor: "pointer",
-                                    borderRadius: 6,
-                                    fontSize: 13,
-                                  }}
-                                  onClick={() => {
-                                    setGroupComposerMenu(null);
-                                    setPendingAnnouncement(true);
-                                    textareaRef.current?.focus();
-                                  }}
-                                >
-                                  <Megaphone size={14} /> Announcement
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
                       <button
                         type="button"
                         className={`attach-button ${showEmojiPicker ? "active" : ""}`}
@@ -4208,6 +4191,8 @@ export default function Chat() {
         onHangup={webrtc.hangup}
         onToggleMute={webrtc.toggleMute}
         onToggleCamera={webrtc.toggleCamera}
+        minimized={callMinimized}
+        onToggleMinimize={() => setCallMinimized((v) => !v)}
       />
 
       <MeetingOverlay
@@ -4287,6 +4272,8 @@ export default function Chat() {
               showToast("Friend removed", "success");
               setProfileUserId(null);
               loadDirectory();
+              loadMyFriends();
+              loadFriendDiscover(search);
             } catch (err) {
               showToast(
                 err.response?.data?.error || "Failed to remove friend",
@@ -4491,7 +4478,12 @@ export default function Chat() {
       {showSettings && (
         <SettingsModal
           user={user}
-          onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          className="qc-settings-sheet"
+          onClose={() => {
+            setShowSettings(false);
+            if (isSettingsRoute) navigate(selected ? chatPathForSelection(selected) : "/chat");
+          }}
           onImportKeys={handleImportKeyFile}
           onGenerateKeys={requestGenerateKeys}
           onUserUpdated={updateSessionUser}
@@ -4566,6 +4558,107 @@ export default function Chat() {
         }
         onClose={() => setGallery(null)}
       />
-    </div>
+
+      <ComposerPlusSheet
+        open={composerPlusOpen}
+        onClose={() => setComposerPlusOpen(false)}
+        onAttach={() => fileInputRef.current?.click()}
+        onCamera={() => setCameraOpen(true)}
+        showGroupTools={isGroupChat}
+        canAnnounce={Boolean(
+          isGroupChat && activeGroup && isGroupAdmin(activeGroup, user.id),
+        )}
+        onPoll={() => setPollDraft({ question: "", options: ["", ""] })}
+        onEvent={() =>
+          setEventDraft({ title: "", when: "", where: "", notes: "" })
+        }
+        onAnnounce={() => {
+          setPendingAnnouncement(true);
+          textareaRef.current?.focus();
+        }}
+        disappearSeconds={disappearSeconds}
+        onCycleDisappear={() => {
+          const steps = [0, 30, 300, 3600, 86400, 604800];
+          const i = steps.indexOf(disappearSeconds);
+          setDisappearSeconds(steps[(i + 1) % steps.length]);
+        }}
+        allowForward={allowForward}
+        onToggleForward={() => setAllowForward((v) => !v)}
+        forwardUntilSeconds={forwardUntilSeconds}
+        onCycleForwardUntil={() => {
+          const steps = [0, 3600, 86400, 604800];
+          const i = steps.indexOf(forwardUntilSeconds);
+          setForwardUntilSeconds(steps[(i + 1) % steps.length]);
+        }}
+      />
+
+      <MessageActionSheet
+        open={Boolean(actionSheetMessage)}
+        onClose={() => setActionSheetMessage(null)}
+        message={actionSheetMessage}
+        isMine={
+          actionSheetMessage
+            ? String(actionSheetMessage.from) === String(user.id)
+            : false
+        }
+        starred={
+          actionSheetMessage
+            ? starredIds
+                .map(String)
+                .includes(
+                  String(actionSheetMessage.id || actionSheetMessage._id),
+                )
+            : false
+        }
+        pinned={
+          actionSheetMessage
+            ? pinnedIds
+                .map(String)
+                .includes(
+                  String(actionSheetMessage.id || actionSheetMessage._id),
+                )
+            : false
+        }
+        canEdit={Boolean(
+          actionSheetMessage?.text &&
+            !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
+            String(actionSheetMessage.from) === String(user.id),
+        )}
+        canForward={actionSheetMessage?.allowForward !== false}
+        onReply={(msg) => {
+          setEditingMessage(null);
+          setReplyTo(msg);
+        }}
+        onReact={(msg, emoji) => {
+          if (!emoji || !msg) return;
+          setLastQuickReaction(emoji);
+          handleReactMessage(msg.id || msg._id, emoji);
+        }}
+        onCopy={handleCopyMessage}
+        onForward={setForwardMessage}
+        onEdit={(msg) => {
+          setReplyTo(null);
+          setEditingMessage(msg);
+          setDraft(msg.text || "");
+        }}
+        onDelete={(msg) =>
+          handleDeleteMessage(msg?.id || msg?._id || msg)
+        }
+        onStar={(msg) => handleStarMessage(msg?.id || msg?._id || msg)}
+        onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
+      />
+
+      <InfoPanel
+        open={infoPanelOpen && Boolean(selected) && !isMobileShell}
+        onClose={() => {
+          setInfoPanelOpenState(false);
+          setInfoPanelOpen(false);
+        }}
+        selected={selected}
+        users={users}
+        onOpenProfile={setProfileUserId}
+        onOpenGroupSettings={() => setShowGroupSettings(true)}
+      />
+    </ChatShell>
   );
 }

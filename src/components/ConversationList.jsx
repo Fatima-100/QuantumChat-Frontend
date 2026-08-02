@@ -47,10 +47,13 @@ export default function ConversationList({
   friendCandidates = [],
   friendCandidatesLoading = false,
   incomingRequests = [],
+  myFriends = [],
+  myFriendsLoading = false,
   onSendFriendRequest,
   onCancelFriendRequest,
   onAcceptFriendRequest,
   onDeclineFriendRequest,
+  onOpenFriend,
 }) {
   const [discoverItems, setDiscoverItems] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
@@ -259,6 +262,70 @@ export default function ConversationList({
                   </div>
                 </div>
               ))
+            )}
+          </div>
+
+          <div className="friend-connections">
+            <p className="friend-requests-heading">
+              Your friends
+              {myFriends.length > 0 ? (
+                <span className="friend-section-count">{myFriends.length}</span>
+              ) : null}
+            </p>
+            {myFriendsLoading ? (
+              [1, 2].map((i) => (
+                <div key={i} className="user-list-item friend-skeleton-item" style={{ pointerEvents: 'none' }}>
+                  <div className="skeleton skeleton-avatar" />
+                  <div className="skeleton-user-info">
+                    <div className="skeleton skeleton-line short" />
+                    <div className="skeleton skeleton-line medium" style={{ marginTop: '4px' }} />
+                  </div>
+                </div>
+              ))
+            ) : myFriends.length === 0 ? (
+              <div className="friends-empty-card" role="status">
+                <Users size={20} strokeWidth={1.75} aria-hidden="true" />
+                <p className="friends-empty-title">No friends yet</p>
+                <p className="friends-empty-copy">
+                  Accept a request above, or add someone from People below.
+                </p>
+              </div>
+            ) : (
+              myFriends
+                .filter((u) => {
+                  const q = searchQuery.trim().toLowerCase();
+                  if (!q) return true;
+                  return `${u.displayName || ''} ${u.username || ''}`.toLowerCase().includes(q);
+                })
+                .map((u, index) => (
+                  <motion.div
+                    key={u.id}
+                    className="user-list-item friend-connection-item"
+                    role="button"
+                    tabIndex={0}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
+                    onClick={() => onOpenFriend?.(u)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onOpenFriend?.(u);
+                      }
+                    }}
+                  >
+                    <UserAvatar
+                      userId={u.id}
+                      name={u.displayName || u.username}
+                      hasAvatar={Boolean(u.hasAvatar)}
+                    />
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{u.displayName || u.username}</span>
+                      <span className="user-list-lastseen">@{u.username}</span>
+                    </span>
+                    <span className="friend-chat-hint">Chat</span>
+                  </motion.div>
+                ))
             )}
           </div>
 

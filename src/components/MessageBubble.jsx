@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
@@ -64,14 +64,17 @@ function placePopover(anchorRect, popoverEl, { preferMine }) {
   return { top, left, placement };
 }
 
-function formatRelativeTime(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function formatMessageTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  // WhatsApp-style 12-hour clock, e.g. "7:20 pm"
+  return d
+    .toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    .toLowerCase();
 }
 
 function formatVoiceTimer(seconds) {
@@ -112,7 +115,7 @@ function ReadReceipt({ status }) {
   );
 }
 
-export default function MessageBubble({
+function MessageBubble({
   message,
   isMine,
   currentUserId,
@@ -206,7 +209,7 @@ const storyReplyPayload = useMemo(() => {
     return 'sent';
   }, [isMine, message.readAt, message.deliveredAt, message._status, showReadReceipts]);
 
-  const relativeTime = useMemo(() => formatRelativeTime(message.createdAt), [message.createdAt]);
+  const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
 
   function closeAll() {
@@ -397,9 +400,9 @@ const storyReplyPayload = useMemo(() => {
       <motion.div
         ref={rootRef}
         className={`message-row ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${anyPopover ? 'popover-open' : ''} ${pinned ? 'pinned' : ''} ${starred ? 'starred' : ''}`}
-        initial={grouped ? false : { opacity: 0, y: 10 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
           <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}`}>
@@ -600,3 +603,5 @@ const storyReplyPayload = useMemo(() => {
     </>
   );
 }
+
+export default memo(MessageBubble);

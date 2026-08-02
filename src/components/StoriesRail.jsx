@@ -13,6 +13,7 @@ import {
 import { getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, pickRandom, KEY_SET_SIZE } from '../crypto/keys.js';
 import UserAvatar from './UserAvatar.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { motion } from 'framer-motion';
 import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
@@ -501,6 +502,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionQuery, setReactionQuery] = useState('');
   const [burst, setBurst] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
@@ -567,6 +570,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
   useEffect(() => {
     function onKey(e) {
+      if (confirmDelete) return;
       const tag = document.activeElement?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA';
 
@@ -581,12 +585,25 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [group.items.length, onClose]);
+  }, [group.items.length, onClose, confirmDelete]);
 
   async function handleDelete() {
-    if (!window.confirm('Delete this story?')) return;
-    await client.delete(`/stories/${story.id}`);
-    onDeleted?.();
+    setConfirmDelete(true);
+  }
+
+  async function confirmDeleteStory() {
+    if (deleting) return;
+    try {
+      setDeleting(true);
+      await client.delete(`/stories/${story.id}`);
+      setConfirmDelete(false);
+      onDeleted?.();
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to delete story');
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSendReply() {
@@ -873,6 +890,20 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           </form>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this story?"
+        message="This story will be removed for everyone who can see it. This can’t be undone."
+        confirmLabel="Delete story"
+        cancelLabel="Keep story"
+        danger
+        busy={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
+        onConfirm={confirmDeleteStory}
+      />
     </div>
   );
 }

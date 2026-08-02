@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTheme } from '../context/ThemeContext.jsx';
+import { useTheme, APP_ICONS, FUN_THEMES } from '../context/ThemeContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import client from '../api/client.js';
+import client, { updatePrivacySettings } from '../api/client.js';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
 import { encryptVaultPayload, decryptVaultPayload } from '../crypto/keyVault.js';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
+import PrivacySelect from './ui/PrivacySelect.jsx';
 
 function ToggleRow({ label, hint, checked, onChange, disabled }) {
   return (
@@ -28,6 +30,19 @@ const TABS = [
   ['data', 'Data'],
 ];
 
+const THEME_LABELS = {
+  light: 'Light',
+  dark: 'Dark',
+  eyecare: 'Eyecare',
+  moonveil: 'Moonveil',
+   sakura: 'Sakura',
+   sunset: 'Sunset Ember',
+  aurora: 'Aurora',
+  ocean: 'Bioluminescent',
+    nebula: 'Nebula',
+    dreamcloud: 'Dreamcloud',
+};
+
 export default function SettingsModal({
   user,
   onClose,
@@ -36,13 +51,15 @@ export default function SettingsModal({
   onUserUpdated,
   onLogout,
   onExportChat,
+  initialTab = 'profile',
+  className = '',
 }) {
-  const { theme, setTheme } = useTheme();
+ const { theme, appIcon, setAppIcon } = useTheme();
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
-  const [tab, setTab] = useState('profile');
+  const [tab, setTab] = useState(initialTab);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -54,9 +71,17 @@ export default function SettingsModal({
   const [phone, setPhone] = useState(user?.phone || '');
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
-    online: user?.privacy?.online || 'everyone',
-    readReceipts: user?.privacy?.readReceipts !== false,
+    readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
+      ? (user.privacy.readReceipts ? 'everyone' : 'nobody')
+      : (user?.privacy?.readReceipts || 'everyone'),
+    onlineStatus: user?.privacy?.onlineStatus || (user?.privacy?.online === 'nobody' ? 'selected' : (user?.privacy?.online || 'everyone')),
+    onlineStatusVisibleTo: Array.isArray(user?.privacy?.onlineStatusVisibleTo)
+      ? user.privacy.onlineStatusVisibleTo.map((id) => String(id._id || id))
+      : [],
+    whoCanMessage: user?.privacy?.whoCanMessage || 'everyone',
+    discoverable: user?.privacy?.discoverable || 'everyone',
   });
+  const [friendsList, setFriendsList] = useState([]);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -89,6 +114,10 @@ export default function SettingsModal({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [onClose]);
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     if (tab !== 'blocked') return;
@@ -177,19 +206,43 @@ export default function SettingsModal({
     }
   }
 
-  async function savePrivacy() {
+  useEffect(() => {
+    if (tab !== 'privacy') return;
+    client
+      .get('/users/friends')
+      .then((res) => setFriendsList(res.data.data || []))
+      .catch(() => setFriendsList([]));
+  }, [tab]);
+
+  async function updatePrivacyField(key, val) {
+    const updated = { ...privacy, [key]: val };
+    setPrivacy(updated);
     setBusy(true);
     setError('');
     setOk('');
     try {
-      const { data } = await client.patch('/users/me', { privacy });
-      onUserUpdated?.(data.data);
+      const res = await updatePrivacySettings(updated);
+      onUserUpdated?.(res.user || { ...user, privacy: res.data });
       setOk('Privacy settings saved');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save privacy');
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleSelectedFriend(friendId) {
+    const current = new Set(privacy.onlineStatusVisibleTo || []);
+    if (current.has(friendId)) {
+      current.delete(friendId);
+    } else {
+      current.add(friendId);
+    }
+    updatePrivacyField('onlineStatusVisibleTo', [...current]);
+  }
+
+  async function savePrivacy() {
+    updatePrivacyField('lastSeen', privacy.lastSeen);
   }
 
   async function changePassword() {
@@ -437,7 +490,7 @@ export default function SettingsModal({
   return (
     <div className="create-group-overlay" role="presentation" onClick={onClose}>
       <div
-        className="settings-modal settings-modal-wide"
+        className={`settings-modal settings-modal-wide ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
@@ -512,33 +565,22 @@ export default function SettingsModal({
                       <span className="settings-badge settings-badge-warn">Unverified email</span>
                     )}
                   </div>
+                  <div className="settings-photo-actions">
+                    <button
+                      type="button"
+                      className="settings-btn ghost"
+                      disabled={avatarBusy}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      {avatarBusy ? 'Uploading…' : 'Change photo'}
+                    </button>
+                    {user?.hasAvatar && (
+                      <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div className="settings-fieldset">
-                <h3 className="settings-section-title">Session</h3>
-                <p className="settings-section-copy">
-                  Sign out on this browser. Your encryption keys stay on this device for the next login.
-                </p>
-                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
-                  Log out
-                </button>
-              </div>
-
-              <div className="settings-photo-actions">
-                <button
-                  type="button"
-                  className="settings-btn ghost"
-                  disabled={avatarBusy}
-                  onClick={() => avatarInputRef.current?.click()}
-                >
-                  {avatarBusy ? 'Uploading…' : 'Change photo'}
-                </button>
-                {user?.hasAvatar && (
-                  <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
-                    Remove
-                  </button>
-                )}
               </div>
 
               {!user?.emailVerified && (
@@ -582,54 +624,195 @@ export default function SettingsModal({
                     inputMode="tel"
                   />
                 </label>
+                <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
+                  {busy ? 'Saving…' : 'Save profile'}
+                </button>
               </div>
 
-              <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
-                {busy ? 'Saving…' : 'Save profile'}
-              </button>
-
-              <div className="settings-fieldset">
+              <div className="settings-fieldset settings-appearance">
                 <h3 className="settings-section-title">Appearance</h3>
-                <ToggleRow
-                  label="Dark theme"
-                  hint={theme === 'dark' ? 'On' : 'Off'}
-                  checked={theme === 'dark'}
-                  onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                />
-                <ToggleRow
-                  label="Eyecare mode"
-                  hint={theme === 'eyecare' ? 'On' : 'Off'}
-                  checked={theme === 'eyecare'}
-                  onChange={(checked) => setTheme(checked ? 'eyecare' : 'light')}
-                />
+                <p className="settings-section-copy">
+                  Current look: <strong>{THEME_LABELS[theme] || theme}</strong>
+                </p>
+
+                <div className="settings-skin-card settings-skin-card--mode">
+                  <header className="settings-skin-card-head">
+                    <div>
+                      <h4 className="settings-skin-card-title">Display mode</h4>
+                      <p className="settings-skin-card-hint">Everyday light, dark, or eyecare</p>
+                    </div>
+                  </header>
+                  <div className="settings-skin-card-body settings-skin-card-body--mode">
+                    <ThemeSwitcher />
+                  </div>
+                </div>
+
+                <div className="settings-skin-split">
+                  <div className="settings-skin-card settings-skin-card--themes">
+                    <header className="settings-skin-card-head">
+                      <div>
+                        <h4 className="settings-skin-card-title">Dreamy themes</h4>
+                        <p className="settings-skin-card-hint">
+                          {FUN_THEMES.includes(theme)
+                            ? `${THEME_LABELS[theme] || theme} is active`
+                            : 'Pick a decorative skin'}
+                        </p>
+                      </div>
+                      <span className="settings-skin-badge" aria-hidden="true">FX</span>
+                    </header>
+                    <div className="settings-skin-card-body">
+                      <FunThemeSwitcher />
+                    </div>
+                  </div>
+
+                  <div className="settings-skin-card settings-skin-card--icons">
+                    <header className="settings-skin-card-head">
+                      <div>
+                        <h4 className="settings-skin-card-title">App icon</h4>
+                        <p className="settings-skin-card-hint">Browser tab &amp; shortcut color</p>
+                      </div>
+                      <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
+                    </header>
+                    <div className="settings-skin-card-body">
+                      <div className="settings-icon-grid" role="list">
+                        {APP_ICONS.map((icon) => (
+                          <button
+                            key={icon.id}
+                            type="button"
+                            className={`settings-icon-pick ${appIcon === icon.id ? 'active' : ''}`}
+                            onClick={() => setAppIcon(icon.id)}
+                            aria-pressed={appIcon === icon.id}
+                            aria-label={icon.label}
+                            title={icon.label}
+                          >
+                            <span
+                              className="settings-icon-ring"
+                              style={{ background: icon.swatch }}
+                              aria-hidden="true"
+                            />
+                            <img src={icon.file} alt="" />
+                            {appIcon === icon.id ? <span className="settings-icon-check">✓</span> : null}
+                            <span className="settings-icon-name">{icon.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-fieldset settings-fieldset-danger">
+                <h3 className="settings-section-title">Session</h3>
+                <p className="settings-section-copy">
+                  Sign out on this browser. Your encryption keys stay on this device for the next login.
+                </p>
+                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
+                  Log out
+                </button>
               </div>
             </section>
           )}
 
           {tab === 'privacy' && (
             <section className="settings-section">
-              <p className="settings-section-copy">These control what others see. Encryption keys stay on this device.</p>
-              <ToggleRow
-                label="Show last seen"
-                hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
-                checked={privacy.lastSeen === 'everyone'}
-                onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
-              />
-              <ToggleRow
-                label="Show online status"
-                hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
-                checked={privacy.online === 'everyone'}
-                onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
-              />
-              <ToggleRow
-                label="Read receipts"
-                hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
-                checked={privacy.readReceipts}
-                onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
-              />
-              <button type="button" className="settings-btn primary" disabled={busy} onClick={savePrivacy}>
-                Save privacy
-              </button>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Privacy Controls</h3>
+                <p className="settings-section-copy">
+                  Manage who can view your presence, send direct messages, and discover your account.
+                </p>
+
+                <PrivacySelect
+                  label="Last Seen"
+                  description="Who can see your last active time"
+                  value={privacy.lastSeen}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('lastSeen', v)}
+                />
+
+                <PrivacySelect
+                  label="Read Receipts"
+                  description="Who can see when you have read their messages"
+                  value={privacy.readReceipts}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('readReceipts', v)}
+                />
+
+                <PrivacySelect
+                  label="Online Status"
+                  description="Who can see when you are online"
+                  value={privacy.onlineStatus}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'selected', label: 'Selected People' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('onlineStatus', v)}
+                />
+
+                {privacy.onlineStatus === 'selected' && (
+                  <div className="privacy-friend-picker">
+                    <span className="privacy-select-description" style={{ marginBottom: 4 }}>
+                      Friends permitted to see online status:
+                    </span>
+                    {friendsList.length === 0 ? (
+                      <p className="privacy-select-description">No friends added yet.</p>
+                    ) : (
+                      friendsList.map((f) => {
+                        const fId = String(f.id || f._id);
+                        const isChecked = (privacy.onlineStatusVisibleTo || []).includes(fId);
+                        return (
+                          <label key={fId} className="privacy-friend-item">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={busy}
+                              onChange={() => toggleSelectedFriend(fId)}
+                            />
+                            <UserAvatar userId={f.id} name={f.displayName || f.username} size="xs" />
+                            <span>{f.displayName || f.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                <PrivacySelect
+                  label="Who Can Direct Message You"
+                  description="Control who can send you direct messages"
+                  value={privacy.whoCanMessage}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'friendsOfFriends', label: 'Friends of Friends' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanMessage', v)}
+                />
+
+                <PrivacySelect
+                  label="Show My Account To"
+                  description="Account discoverability in user search"
+                  value={privacy.discoverable}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('discoverable', v)}
+                />
+              </div>
             </section>
           )}
 
