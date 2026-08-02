@@ -8567,6 +8567,15 @@ button.message-reply-preview:hover {
   transform: scaleX(-1);
 }
 
+/* Screen shares are letterboxed — cropping a shared window loses content. */
+.call-video-tile.is-contain {
+  background: #000;
+}
+
+.call-video-tile.is-contain video {
+  object-fit: contain;
+}
+
 .call-video-label {
   position: absolute;
   left: 10px;
