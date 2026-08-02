@@ -3139,12 +3139,16 @@ input:focus-visible,
   }
 }
 
+/* The width cap lives here, not on .message-bubble: the wrap is a child of the
+   full-width .message-row, so a percentage resolves against the row. Putting it
+   on the bubble made it a percentage of its own shrink-to-fit parent, which
+   clamped every bubble to ~68% of its natural width and wrapped text early. */
 .message-bubble-wrap {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  max-width: 100%;
+  width: fit-content;
+  max-width: min(78%, 560px);
 }
 
 .message-bubble-wrap.mine {
@@ -3152,10 +3156,12 @@ input:focus-visible,
 }
 
 .message-bubble {
-  max-width: min(58vw, 440px);
+  max-width: 100%;
   flex: 0 1 auto;
-  padding: 12px 16px;
-  border-radius: 22px;
+  min-width: 0;
+  display: flow-root; /* contains the floated timestamp */
+  padding: 7px 11px 8px;
+  border-radius: 16px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
   color: var(--bubble-theirs-fg, var(--text-primary));
   backdrop-filter: blur(12px);
@@ -3163,8 +3169,25 @@ input:focus-visible,
   box-shadow: var(--shadow-sm);
   font-size: 14.5px;
   font-weight: 450;
-  line-height: 1.55;
-  word-break: break-word;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: pre-wrap; /* keep the sender's line breaks */
+}
+
+/* Group messages wrap their body in a div; keep it inline so the floated
+   timestamp can share the last line instead of being pushed underneath. */
+.message-text {
+  display: inline;
+}
+
+/* WhatsApp-style tail corner on the first bubble of each run */
+.message-bubble.theirs:not(.grouped) {
+  border-top-left-radius: 6px;
+}
+
+.message-bubble.mine:not(.grouped) {
+  border-top-right-radius: 6px;
 }
 
 .message-bubble.mine {
@@ -3266,11 +3289,19 @@ input:focus-visible,
   font-size: 12px;
 }
 
+/* Floated so it sits on the last line of text when there is room and drops to
+   its own line only when there isn't - the WhatsApp behaviour. */
 .message-time {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin: 6px 0 0 12px;
   font-size: 11px;
   font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
   color: var(--text-muted);
-  margin-top: 6px;
 }
 
 .message-more-btn {
@@ -3568,6 +3599,23 @@ input:focus-visible,
 .attach-button.active {
   background: var(--accent-muted);
   color: var(--accent);
+}
+
+/* Group-chat sender name inside the bubble */
+.message-sender-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--accent);
+}
+
+.message-bubble.mine .message-sender-label {
+  color: var(--bubble-mine-fg, #ffffff);
+  opacity: 0.9;
 }
 
 /* Message grouping tweaks */
@@ -4728,8 +4776,8 @@ input:focus-visible,
     display: flex;
   }
 
-  .message-bubble {
-    max-width: 82%;
+  .message-bubble-wrap {
+    max-width: 85%;
   }
 
   .chat-header {
@@ -4760,7 +4808,7 @@ input:focus-visible,
     padding: 32px 24px 24px;
   }
 
-  .message-bubble {
+  .message-bubble-wrap {
     max-width: 90%;
   }
 }
@@ -5012,12 +5060,31 @@ input:focus-visible,
 }
 
 /* Message actions, reply, stories, avatars */
+/* Sits in the gutter beside the bubble instead of stealing width from it */
 .message-action-cluster {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 4px;
-  align-self: center;
+  z-index: 2;
+}
+
+.message-bubble-wrap.theirs .message-action-cluster {
+  left: calc(100% + 6px);
+}
+
+.message-bubble-wrap.mine .message-action-cluster {
+  right: calc(100% + 6px);
+}
+
+/* Touch devices use long-press -> MessageActionSheet instead */
+@media (hover: none), (max-width: 768px) {
+  .message-action-cluster {
+    display: none;
+  }
 }
 
 .message-react-btn {
@@ -7438,7 +7505,12 @@ button.message-reply-preview {
   text-align: left;
   cursor: pointer;
   border: none;
-  font: inherit;
+  border-left: 3px solid var(--accent);
+  /* `font: inherit` here used to reset font-size back to the bubble's 14.5px,
+     which made reply quotes as large as the message itself. */
+  font-family: inherit;
+  font-size: 12px;
+  color: inherit;
 }
 
 button.message-reply-preview:hover {
@@ -10624,7 +10696,7 @@ body.theme-dreamcloud {
   min-width: 0;
 }
 
-.qc-shell .message-bubble {
+.qc-shell .message-bubble-wrap {
   max-width: var(--bubble-max-width);
 }
 
@@ -10753,8 +10825,8 @@ body.theme-dreamcloud {
     display: none !important;
   }
 
-  .qc-shell .message-bubble {
-    max-width: 82%;
+  .qc-shell .message-bubble-wrap {
+    max-width: 85%;
   }
 
   .mobile-back-btn {
