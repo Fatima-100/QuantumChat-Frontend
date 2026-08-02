@@ -3223,12 +3223,16 @@ input:focus-visible,
   }
 }
 
+/* The width cap lives here, not on .message-bubble: the wrap is a child of the
+   full-width .message-row, so a percentage resolves against the row. Putting it
+   on the bubble made it a percentage of its own shrink-to-fit parent, which
+   clamped every bubble to ~68% of its natural width and wrapped text early. */
 .message-bubble-wrap {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  max-width: 100%;
+  width: fit-content;
+  max-width: min(78%, 560px);
 }
 
 .message-bubble-wrap.mine {
@@ -3364,6 +3368,8 @@ input:focus-visible,
   font-size: 12px;
 }
 
+/* Floated so it sits on the last line of text when there is room and drops to
+   its own line only when there isn't - the WhatsApp behaviour. */
 .message-time {
   float: right;
   display: inline-flex;
@@ -3694,6 +3700,23 @@ input:focus-visible,
 .attach-button.active {
   background: var(--accent-muted);
   color: var(--accent);
+}
+
+/* Group-chat sender name inside the bubble */
+.message-sender-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--accent);
+}
+
+.message-bubble.mine .message-sender-label {
+  color: var(--bubble-mine-fg, #ffffff);
+  opacity: 0.9;
 }
 
 /* Message grouping tweaks */
@@ -4854,8 +4877,8 @@ input:focus-visible,
     display: flex;
   }
 
-  .message-bubble {
-    max-width: 82%;
+  .message-bubble-wrap {
+    max-width: 85%;
   }
 
   .chat-header {
@@ -4886,7 +4909,7 @@ input:focus-visible,
     padding: 32px 24px 24px;
   }
 
-  .message-bubble {
+  .message-bubble-wrap {
     max-width: 90%;
   }
 }
@@ -5138,12 +5161,31 @@ input:focus-visible,
 }
 
 /* Message actions, reply, stories, avatars */
+/* Sits in the gutter beside the bubble instead of stealing width from it */
 .message-action-cluster {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 4px;
-  align-self: center;
+  z-index: 2;
+}
+
+.message-bubble-wrap.theirs .message-action-cluster {
+  left: calc(100% + 6px);
+}
+
+.message-bubble-wrap.mine .message-action-cluster {
+  right: calc(100% + 6px);
+}
+
+/* Touch devices use long-press -> MessageActionSheet instead */
+@media (hover: none), (max-width: 768px) {
+  .message-action-cluster {
+    display: none;
+  }
 }
 
 .message-react-btn {
@@ -7564,7 +7606,12 @@ button.message-reply-preview {
   text-align: left;
   cursor: pointer;
   border: none;
-  font: inherit;
+  border-left: 3px solid var(--accent);
+  /* `font: inherit` here used to reset font-size back to the bubble's 14.5px,
+     which made reply quotes as large as the message itself. */
+  font-family: inherit;
+  font-size: 12px;
+  color: inherit;
 }
 
 button.message-reply-preview:hover {
@@ -10879,8 +10926,8 @@ body.theme-dreamcloud {
     display: none !important;
   }
 
-  .qc-shell .message-bubble {
-    max-width: 82%;
+  .qc-shell .message-bubble-wrap {
+    max-width: 85%;
   }
 
   .mobile-back-btn {
