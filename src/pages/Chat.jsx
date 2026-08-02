@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import client from "../api/client.js";
+import client, { muteChat, unmuteChat } from "../api/client.js";
 import ChatShell from "../components/chat/ChatShell.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
@@ -119,6 +119,14 @@ import {
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
+import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
+import {
+  shouldNotify,
+  playNotificationSound,
+  buildNotificationText,
+  showNotificationPopup,
+} from "../utils/notificationDispatch.js";
+import { updateFaviconBadge } from "../utils/faviconBadge.js";
 
 const MAX_VOICE_SECONDS = 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -173,6 +181,7 @@ export default function Chat() {
     updateSessionUser,
   } = useAuth();
   const { showToast } = useToast();
+  const { settings: notifSettings } = useNotificationSettings();
   const navigate = useNavigate();
   const params = useParams();
   const location = useLocation();
@@ -299,6 +308,7 @@ export default function Chat() {
   const recordChunksRef = useRef([]);
   const recordTimerRef = useRef(null);
   const recordStartedAtRef = useRef(0);
+  const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
   const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
@@ -321,7 +331,20 @@ export default function Chat() {
         usersRef.current.find((u) => String(u.id) === String(peerId));
       return peer?.publicKeys || [];
     },
-    onMissed: () => showToast("Call ended or declined", "info"),
+onMissed: (call) => {
+      showToast("Call ended or declined", "info");
+      if (notifSettings?.callNotifications?.missedCallReminders === false) return;
+      if (!shouldNotify(notifSettings, { kind: "call" })) return;
+      const caller =
+        users.find((u) => String(u.id) === String(call?.peerId))?.displayName ||
+        users.find((u) => String(u.id) === String(call?.peerId))?.username ||
+        "Someone";
+      showNotificationPopup(
+        { title: caller, body: "Missed call" },
+        notifSettings,
+        () => {},
+      );
+    },
     onEnd: async (info) => {
       try {
         if (info.role !== "caller") return;
@@ -360,6 +383,36 @@ export default function Chat() {
       }
     },
   });
+  useEffect(() => {
+    const call = webrtc.call;
+    if (!call || call.role !== "callee" || call.status !== "incoming") return;
+    if (notifiedCallIdRef.current === call.callId) return;
+    notifiedCallIdRef.current = call.callId;
+
+    const enabled = call.video
+      ? notifSettings?.callNotifications?.videoCallEnabled !== false
+      : notifSettings?.callNotifications?.voiceCallEnabled !== false;
+    if (!enabled || !shouldNotify(notifSettings, { kind: "call" })) return;
+
+    const caller =
+      users.find((u) => String(u.id) === String(call.peerId))?.displayName ||
+      users.find((u) => String(u.id) === String(call.peerId))?.username ||
+      "Someone";
+
+    playNotificationSound(notifSettings);
+    showNotificationPopup(
+      { title: caller, body: call.video ? "Incoming video call" : "Incoming voice call" },
+      notifSettings,
+      () => {
+        // Clicking the popup just focuses the tab — CallOverlay is already
+        // rendered globally whenever webrtc.call is set, so no navigation needed.
+      },
+    );
+
+    if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
+      navigator.vibrate([200, 100, 200]);
+    }
+  }, [webrtc.call, users, notifSettings]);
 
   const meetingCall = useMeetingCall({
     userId: user?.id,
@@ -668,6 +721,29 @@ export default function Chat() {
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
+useEffect(() => {
+  if (!user?.id || !Array.isArray(user.mutedChats)) return;
+  const now = Date.now();
+  const serverMutedKeys = user.mutedChats
+    .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
+    .map((m) => String(m.conversationKey));
+  const serverSet = new Set(serverMutedKeys);
+
+  // Server is the source of truth once user.mutedChats has loaded — fully replace,
+  // not merge, so unmutes actually take effect (not just adds).
+  setMutedKeys(serverMutedKeys);
+
+  // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
+  // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
+  const localSet = new Set(getMutedChatKeys(user.id).map(String));
+  serverSet.forEach((key) => {
+    if (!localSet.has(key)) toggleMuteChat(user.id, key);
+  });
+  localSet.forEach((key) => {
+    if (!serverSet.has(key)) toggleMuteChat(user.id, key);
+  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user?.id, user?.mutedChats]);
   useEffect(() => {
     if (filter !== "friends") return;
     loadFriendDiscover(search);
@@ -706,15 +782,55 @@ export default function Chat() {
       recordActivityFromMessage(raw);
       if (!isCurrentConversation(raw)) return;
 
-      if (String(raw.from) !== String(user.id)) {
+     if (String(raw.from) !== String(user.id)) {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
               String(raw.from) === String(user.id) ? raw.to : raw.from,
             );
-        if (!isChatMuted(user.id, convKey)) {
-          playReceiveSound();
+        const muted = isChatMuted(user.id, convKey);
+        const isCurrentlyOpen = isCurrentConversation(raw);
+        const isMention = Array.isArray(raw.mentionedUserIds)
+          ? raw.mentionedUserIds.map(String).includes(String(user.id))
+          : false;
+        const notifyOk =
+          !muted &&
+          shouldNotify(notifSettings, {
+            kind: raw.group ? "group" : "dm",
+            isMention,
+          });
+
+        if (notifyOk) {
+          playNotificationSound(notifSettings);
+
+          // Only pop a browser notification if this conversation isn't the one
+          // currently open and focused — matches standard chat-app behavior.
+          if (!isCurrentlyOpen || document.visibilityState === "hidden") {
+            const senderName =
+              users.find((u) => String(u.id) === String(raw.from))?.displayName ||
+              users.find((u) => String(u.id) === String(raw.from))?.username ||
+              "Someone";
+            const groupName = raw.group
+              ? groups.find((g) => String(g.id) === String(raw.group))?.name
+              : null;
+            const { title, body } = buildNotificationText(
+              {
+                senderName,
+                messageText: raw.group ? raw.content : null, // DM text stays encrypted here; see note below
+                isGroup: Boolean(raw.group),
+                groupName,
+              },
+              notifSettings,
+            );
+            showNotificationPopup({ title, body }, notifSettings, () => {
+              const target = raw.group
+                ? { key: convKey, type: "group", id: raw.group }
+                : { key: convKey, type: "dm", id: String(raw.from) === String(user.id) ? raw.to : raw.from };
+              handleSelectConversation(target);
+            });
+          }
         }
+
         if (selectedRef.current?.key) {
           markConversationRead(
             user.id,
@@ -1033,11 +1149,13 @@ export default function Chat() {
     hasLocalKeyring,
     user,
     users,
+    groups,
     decorate,
     scrollToBottom,
     recordActivityFromMessage,
     bumpActivity,
     showToast,
+    notifSettings,
   ]);
 
   const selectedKey = selected?.key;
@@ -1419,16 +1537,19 @@ export default function Chat() {
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
+// Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
       (acc, c) => acc + (c.unread ? 1 : 0),
       0,
     );
-    const prefix = totalUnread > 0 ? `(${totalUnread}) ` : "";
+    const showBadge = notifSettings?.badgeCount !== "hidden";
+    const prefix = showBadge && totalUnread > 0 ? `(${totalUnread}) ` : "";
     document.title = selected
       ? `${prefix}${selected.title} — QuantumChat`
       : `${prefix}QuantumChat`;
-  }, [selected, activityTick, conversations]);
+    updateFaviconBadge(showBadge && totalUnread > 0);
+  }, [selected, activityTick, conversations, notifSettings?.badgeCount]);
 
   // URL deep-link sync — restore selection from /chat/:peerId or /chat/g/:groupId
   useEffect(() => {
@@ -3338,6 +3459,7 @@ export default function Chat() {
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
+         notifSettings={notifSettings}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
@@ -3349,7 +3471,18 @@ export default function Chat() {
         onDiscoverJoin={handleDiscoverJoin}
         onHide={handleHideChat}
         onBlock={handleBlockUser}
-        onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
+        onMute={(c) => {
+  const wasMuted = mutedKeys.map(String).includes(String(c.key));
+  setMutedKeys(toggleMuteChat(user.id, c.key));
+  const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
+  const request = wasMuted
+    ? unmuteChat(payload)
+    : muteChat({ ...payload, duration: "always" });
+  request.catch(() => {
+    // Local toggle already reflects the change; server sync failed silently.
+    // It will resync from server data on next login/session refresh.
+  });
+}}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
@@ -4361,10 +4494,19 @@ export default function Chat() {
             }
           }}
           onMute={() => {
-            const key = conversationKeyForUser(profileUserId);
-            setMutedKeys(toggleMuteChat(user.id, key));
-          }}
-          onArchive={() => {
+  const key = conversationKeyForUser(profileUserId);
+  const wasMuted = mutedKeys.map(String).includes(String(key));
+  setMutedKeys(toggleMuteChat(user.id, key));
+  const request = wasMuted
+    ? unmuteChat({ peerId: profileUserId })
+    : muteChat({ peerId: profileUserId, duration: "always" });
+  request
+    .then((res) => {
+      if (res?.data) updateSessionUser(res.data);
+    })
+    .catch(() => {});
+}}
+       onArchive={() => {
             const key = conversationKeyForUser(profileUserId);
             setArchivedKeys(toggleArchiveChat(user.id, key));
           }}
