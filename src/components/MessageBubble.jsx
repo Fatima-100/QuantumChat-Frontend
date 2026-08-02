@@ -67,14 +67,15 @@ function placePopover(anchorRect, popoverEl, { preferMine }) {
 function formatMessageTime(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  // WhatsApp-style 12-hour clock, e.g. "7:20 pm"
+  // WhatsApp-style 12-hour clock with a non-breaking space so "am"/"pm" never wraps alone
   return d
     .toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
     })
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\s+(am|pm)$/, '\u00a0$1');
 }
 
 function formatVoiceTimer(seconds) {
@@ -460,7 +461,6 @@ const storyReplyPayload = useMemo(() => {
                       : 'Missed call'}
                   </div>
                 </div>
-                <div className="call-message-time">{relativeTime}</div>
               </div>
             ) : meetingMeta ? (
               <div className="call-message">
@@ -473,7 +473,6 @@ const storyReplyPayload = useMemo(() => {
                       : 'No one joined'}
                   </div>
                 </div>
-                <div className="call-message-time">{relativeTime}</div>
               </div>
             ) : message.group && message.text != null ? (
               <GroupMessageContent
@@ -526,7 +525,7 @@ const storyReplyPayload = useMemo(() => {
                 <div>{storyReplyPayload.text}</div>
               </div>
             ) : hasTextContent ? (
-              message.text
+              <span className="message-text">{message.text}</span>
             ) : isDecryptionFail ? (
               <em>[Unable to decrypt message]</em>
             ) : null}

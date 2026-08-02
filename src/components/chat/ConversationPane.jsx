@@ -35,6 +35,12 @@ export default function ConversationPane({
   incomingRequests,
   myFriends = [],
   myFriendsLoading = false,
+  contactQuery = '',
+  onContactQueryChange,
+  contactLookupResult = null,
+  contactLookupLoading = false,
+  contactLookupError = '',
+  onLookupContact,
   onSendFriendRequest,
   onCancelFriendRequest,
   onAcceptFriendRequest,
@@ -101,6 +107,12 @@ export default function ConversationPane({
             incomingRequests={incomingRequests}
             myFriends={myFriends}
             myFriendsLoading={myFriendsLoading}
+            contactQuery={contactQuery}
+            onContactQueryChange={onContactQueryChange}
+            contactLookupResult={contactLookupResult}
+            contactLookupLoading={contactLookupLoading}
+            contactLookupError={contactLookupError}
+            onLookupContact={onLookupContact}
             onSendFriendRequest={onSendFriendRequest}
             onCancelFriendRequest={onCancelFriendRequest}
             onAcceptFriendRequest={onAcceptFriendRequest}

@@ -277,7 +277,7 @@
   --info-panel-width: 320px;
   --header-height: 64px;
   --composer-height: 64px;
-  --bubble-max-width: 68%;
+  --bubble-max-width: 78%;
   --list-row-height: 72px;
   --tap-min: 44px;
   --swipe-threshold: 56px;
@@ -2413,6 +2413,90 @@ input:focus-visible,
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.friend-contact-lookup {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.friend-contact-lookup .friend-requests-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.friend-contact-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 0 4px 8px;
+}
+
+.friend-contact-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.friend-contact-input-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.friend-contact-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 10px 0;
+  outline: none;
+}
+
+.friend-contact-input::placeholder {
+  color: var(--text-muted);
+}
+
+.friend-contact-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--text-inverse, #fff);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.friend-contact-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.friend-contact-submit:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.friend-contact-error {
+  margin: 0 8px 8px;
+  font-size: 0.78rem;
+  color: var(--danger, #ef4444);
+}
+
 .friend-connection-item {
   cursor: pointer;
 }
@@ -3103,10 +3187,10 @@ input:focus-visible,
   flex: 1;
   overflow-y: auto;
   overflow-anchor: none; /* prevent browser scroll-anchoring from fighting chat auto-scroll */
-  padding: 20px 20px 28px;
+  padding: 16px 16px 24px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 /* Message rows & bubbles */
@@ -3156,12 +3240,14 @@ input:focus-visible,
 }
 
 .message-bubble {
-  max-width: 100%;
+  position: relative;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(78%, 460px);
+  min-width: 3.25rem;
   flex: 0 1 auto;
-  min-width: 0;
-  display: flow-root; /* contains the floated timestamp */
-  padding: 7px 11px 8px;
-  border-radius: 16px;
+  padding: 6px 10px 5px;
+  border-radius: 14px 14px 14px 5px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
   color: var(--bubble-theirs-fg, var(--text-primary));
   backdrop-filter: blur(12px);
@@ -3170,56 +3256,56 @@ input:focus-visible,
   font-size: 14.5px;
   font-weight: 450;
   line-height: 1.4;
-  overflow-wrap: break-word;
   word-break: normal;
-  white-space: pre-wrap; /* keep the sender's line breaks */
-}
-
-/* Group messages wrap their body in a div; keep it inline so the floated
-   timestamp can share the last line instead of being pushed underneath. */
-.message-text {
-  display: inline;
-}
-
-/* WhatsApp-style tail corner on the first bubble of each run */
-.message-bubble.theirs:not(.grouped) {
-  border-top-left-radius: 6px;
-}
-
-.message-bubble.mine:not(.grouped) {
-  border-top-right-radius: 6px;
+  overflow-wrap: break-word;
 }
 
 .message-bubble.mine {
+  border-radius: 14px 14px 5px 14px;
   background: var(--accent-gradient);
   color: var(--bubble-mine-fg, #ffffff);
   border-color: transparent;
   box-shadow: var(--shadow-glow);
 }
 
+.message-bubble::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+.message-text {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 /* Call message card */
 .message-bubble:has(.call-message) {
+  display: block;
   flex-shrink: 0;
   min-width: min(220px, 85vw);
   width: max-content;
   max-width: min(320px, 85vw);
   word-break: normal;
   overflow-wrap: normal;
+  padding: 8px 10px 5px;
 }
 
 .call-message {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 200px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-  border: 1px solid var(--border-subtle);
+  gap: 10px;
+  min-width: 180px;
+  padding: 2px 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
 }
 .call-message .call-message-icon {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -3236,27 +3322,20 @@ input:focus-visible,
   white-space: nowrap;
 }
 .call-message .call-message-sub {
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   color: var(--text-secondary);
-  white-space: nowrap;
-}
-.call-message .call-message-time {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  flex-shrink: 0;
   white-space: nowrap;
 }
 
 .message-bubble.mine .call-message {
-  border-color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 22%, transparent);
-  background: color-mix(in srgb, #000 12%, transparent);
+  border: none;
+  background: transparent;
 }
 .message-bubble.mine .call-message-icon {
   background: color-mix(in srgb, #000 18%, transparent);
   color: var(--bubble-mine-fg, #fff);
 }
-.message-bubble.mine .call-message-sub,
-.message-bubble.mine .call-message-time {
+.message-bubble.mine .call-message-sub {
   color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
 }
 
@@ -3295,13 +3374,35 @@ input:focus-visible,
   float: right;
   display: inline-flex;
   align-items: center;
-  gap: 0;
-  margin: 6px 0 0 12px;
+  gap: 3px;
+  margin: 5px 0 -1px 10px;
+  padding: 0;
   font-size: 11px;
   font-weight: 400;
-  line-height: 1;
-  white-space: nowrap;
+  line-height: 1.2;
   color: var(--text-muted);
+  white-space: nowrap;
+  position: relative;
+  top: 3px;
+}
+
+.message-bubble:has(.call-message) .message-time,
+.message-bubble:has(.attachment-chip) .message-time,
+.message-bubble:has(.voice-player) .message-time,
+.message-bubble:has(.story-reply-quote) .message-time {
+  float: none;
+  display: flex;
+  justify-content: flex-end;
+  margin: 6px 0 0;
+  top: 0;
+  clear: both;
+}
+
+.message-text {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .message-more-btn {
@@ -3624,11 +3725,11 @@ input:focus-visible,
 }
 
 .message-bubble.mine.grouped {
-  border-top-right-radius: 4px;
+  border-top-right-radius: 5px;
 }
 
 .message-bubble.theirs.grouped {
-  border-top-left-radius: 4px;
+  border-top-left-radius: 5px;
 }
 
 /* Attachment chips */
@@ -6619,7 +6720,7 @@ body.theme-eyecare .drag-drop-overlay,
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: 6px;
+  margin-left: 2px;
   vertical-align: middle;
 }
 
@@ -10696,8 +10797,8 @@ body.theme-dreamcloud {
   min-width: 0;
 }
 
-.qc-shell .message-bubble-wrap {
-  max-width: var(--bubble-max-width);
+.qc-shell .message-bubble {
+  max-width: min(var(--bubble-max-width), 460px);
 }
 
 .qc-shell .composer-shell {
