@@ -16,6 +16,7 @@ export default function ConversationPane({
   storiesRailRef,
   users,
   onStoriesError,
+   notifSettings,
   search,
   onSearchChange,
   conversations,
@@ -40,6 +41,7 @@ export default function ConversationPane({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onOpenFriend,
+  
 }) {
   return (
     <>
@@ -70,6 +72,7 @@ export default function ConversationPane({
               currentUser={user}
               users={users}
               onError={onStoriesError}
+               notifSettings={notifSettings}
             />
             <div className="sidebar-search">
               <input

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Archive, Ban, BellOff, Check, MoreVertical, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
+import { createPortal } from 'react-dom';
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -61,13 +62,16 @@ export default function ConversationList({
   const [joiningId, setJoiningId] = useState(null);
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const panelRef = useRef(null);
-
+const [menuPos, setMenuPos] = useState(null);
   useEffect(() => {
     if (!openMenuKey) return undefined;
 
     function closeMenu(e) {
-      if (!e.target.closest('.conv-row-menu-wrap')) setOpenMenuKey(null);
-    }
+if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dropdown')) {
+    setOpenMenuKey(null);
+    setMenuPos(null);
+  }
+}
     function closeOnEscape(e) {
       if (e.key === 'Escape') setOpenMenuKey(null);
     }
@@ -428,6 +432,7 @@ export default function ConversationList({
               tabIndex={0}
               onClick={() => {
                 setOpenMenuKey(null);
+                 setMenuPos(null);
                 onSelect(c);
               }}
               onKeyDown={(e) => {
@@ -480,42 +485,55 @@ export default function ConversationList({
                     aria-label={`Options for ${c.title}`}
                     aria-haspopup="menu"
                     aria-expanded={openMenuKey === c.key}
-                    onClick={() => setOpenMenuKey((current) => (current === c.key ? null : c.key))}
+                   onClick={(e) => {
+  if (openMenuKey === c.key) {
+    setOpenMenuKey(null);
+    setMenuPos(null);
+    return;
+  }
+  const rect = e.currentTarget.getBoundingClientRect();
+  setMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+  setOpenMenuKey(c.key);
+}}
                   >
                     <MoreVertical size={16} />
                   </button>
-                  <div
-                    className={`conv-row-dropdown ${openMenuKey === c.key ? 'open' : ''}`}
-                    role="menu"
-                    aria-label={`Conversation options for ${c.title}`}
-                  >
-                    <div className="conv-row-dropdown-title">Conversation options</div>
-                    {onMute && (
-                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
-                        <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
-                      </button>
-                    )}
-                    {onArchive && (
-                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
-                        <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
-                      </button>
-                    )}
-                    {c.type === 'dm' && onHide && (
-                      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
-                        <X size={14} /> Hide chat
-                      </button>
-                    )}
-                    {c.type === 'dm' && onBlock && (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="danger"
-                        onClick={() => runMenuAction(() => onBlock(c.peer || c))}
-                      >
-                        <Ban size={14} /> Block user
-                      </button>
-                    )}
-                  </div>
+                  {openMenuKey === c.key && menuPos && createPortal(
+  <div
+    className="conv-row-dropdown open"
+    role="menu"
+    aria-label={`Conversation options for ${c.title}`}
+    style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' }}
+  >
+    <div className="conv-row-dropdown-title">Conversation options</div>
+    {onMute && (
+      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
+        <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+      </button>
+    )}
+    {onArchive && (
+      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
+        <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+      </button>
+    )}
+    {c.type === 'dm' && onHide && (
+      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
+        <X size={14} /> Hide chat
+      </button>
+    )}
+    {c.type === 'dm' && onBlock && (
+      <button
+        type="button"
+        role="menuitem"
+        className="danger"
+        onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+      >
+        <Ban size={14} /> Block user
+      </button>
+    )}
+  </div>,
+  document.body
+)}
                 </div>
               )}
             </motion.div>
