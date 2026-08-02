@@ -14,4 +14,9 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+export async function updatePrivacySettings(payload) {
+  const { data } = await client.patch('/users/me/privacy', payload);
+  return data;
+}
+
 export default client;

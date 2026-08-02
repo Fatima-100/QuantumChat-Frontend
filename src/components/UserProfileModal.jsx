@@ -5,13 +5,13 @@ import UserAvatar from './UserAvatar.jsx';
 
 function formatPresence(profile, online) {
   if (!profile) return null;
-  const onlineAllowed = (profile.privacy?.online || 'everyone') !== 'nobody';
+  const onlineAllowed = (profile.privacy?.onlineStatus || profile.privacy?.online) !== 'nobody';
   if (onlineAllowed && online) return { label: 'Online', online: true };
 
-  if ((profile.privacy?.lastSeen || 'everyone') === 'nobody') {
+  const lastSeenSetting = profile.privacy?.lastSeen || 'everyone';
+  if (lastSeenSetting === 'nobody' || !profile.lastLoginAt) {
     return { label: 'Last seen hidden', online: false };
   }
-  if (!profile.lastLoginAt) return { label: 'Never logged in', online: false };
   return {
     label: `Last seen ${new Date(profile.lastLoginAt).toLocaleString()}`,
     online: false,

@@ -10889,3 +10889,111 @@ body.theme-dreamcloud {
     animation: none;
   }
 }
+
+/* Granular Privacy Settings */
+.privacy-select-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.privacy-select-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.privacy-select-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.privacy-select-description {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.privacy-select-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.privacy-select-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-surface) 60%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.privacy-select-option:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+}
+
+.privacy-select-option.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.privacy-select-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.privacy-select-option.selected .privacy-select-dot {
+  background: currentColor;
+}
+
+.privacy-friend-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.privacy-friend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.privacy-friend-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.privacy-friend-item input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
