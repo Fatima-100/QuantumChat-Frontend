@@ -844,7 +844,38 @@ useEffect(() => {
       setMessages((prev) => {
         const id = String(raw.id || raw._id);
         if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-        const next = [...prev, decorate(raw)];
+
+        let next;
+        // Replace the oldest optimistic bubble in this conversation (FIFO)
+        // so own sends don't double when the socket arrives before HTTP.
+        if (String(raw.from) === String(user.id)) {
+          let replaced = false;
+          const confirmed = decorate(raw);
+          next = [];
+          for (const m of prev) {
+            if (
+              !replaced &&
+              m._pending &&
+              String(m.from) === String(user.id) &&
+              (raw.group
+                ? String(m.group || "") === String(raw.group)
+                : String(m.to || "") === String(raw.to))
+            ) {
+              next.push({
+                ...confirmed,
+                text: m.text ?? confirmed.text,
+                _pending: undefined,
+                _status: undefined,
+              });
+              replaced = true;
+              continue;
+            }
+            next.push(m);
+          }
+          if (!replaced) next.push(confirmed);
+        } else {
+          next = [...prev, decorate(raw)];
+        }
 
         if (messageListRef.current) {
           const el = messageListRef.current;
@@ -1845,7 +1876,42 @@ useEffect(() => {
     return policy;
   }
 
-  async function sendGroupPayload(plaintext, { kind, mentionedUserIds } = {}) {
+  function mergeConfirmedMessage(prev, { tempId, serverRaw, displayText }) {
+    const serverId = String(serverRaw.id || serverRaw._id);
+    const confirmed = {
+      ...decorate(serverRaw),
+      ...(displayText != null ? { text: displayText } : {}),
+      _pending: undefined,
+      _status: undefined,
+    };
+    let sawServer = false;
+    const next = [];
+    for (const m of prev) {
+      const mid = String(m.id || m._id);
+      if (tempId && mid === String(tempId)) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      if (mid === serverId) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      next.push(m);
+    }
+    if (!sawServer) next.push(confirmed);
+    return next;
+  }
+
+  async function sendGroupPayload(
+    plaintext,
+    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+  ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
     }
@@ -1863,7 +1929,8 @@ useEffect(() => {
       payload.envelopes = sealGroupEnvelopes(plaintext, group);
     }
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
-    if (replyTo) payload.replyTo = replyTo.id || replyTo._id;
+    const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
+    if (reply) payload.replyTo = reply;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -1872,11 +1939,13 @@ useEffect(() => {
       payload,
     );
     recordActivityFromMessage(data.data);
-    setMessages((prev) => {
-      const id = String(data.data.id || data.data._id);
-      if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-      return [...prev, decorate(data.data)];
-    });
+    setMessages((prev) =>
+      mergeConfirmedMessage(prev, {
+        tempId,
+        serverRaw: data.data,
+        displayText: displayText ?? plaintext,
+      }),
+    );
     return data.data;
   }
 
@@ -2354,14 +2423,63 @@ useEffect(() => {
           ? encodeAnnouncement(bodyText)
           : bodyText;
         const mentionedUserIds = extractMentions(bodyText, group.members || []);
-        await sendGroupPayload(plaintext, {
-          kind: asAnnouncement ? "announcement" : "text",
-          mentionedUserIds,
-        });
-        if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
-          await invokeGroupQuantumAI(bodyText, group);
-        }
+        const kind = asAnnouncement ? "announcement" : "text";
+        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const replySnapshot = replyTo;
+        const draftSnapshot = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
         setPendingAnnouncement(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            group: selected.id,
+            text: plaintext,
+            kind,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                  id: replySnapshot.id || replySnapshot._id,
+                  from: replySnapshot.from,
+                  text: replySnapshot.text,
+                }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          await sendGroupPayload(plaintext, {
+            kind,
+            mentionedUserIds,
+            tempId,
+            displayText: plaintext,
+            replyToId: replySnapshot
+              ? replySnapshot.id || replySnapshot._id
+              : null,
+          });
+          if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
+            await invokeGroupQuantumAI(bodyText, group);
+          }
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       } else {
         const peer =
           selected.peer ||
@@ -2372,29 +2490,66 @@ useEffect(() => {
           showToast("Missing encryption keys for this conversation", "error");
           return;
         }
-        const forRecipient = sealMessage(draft, pickRandom(recipientKeys));
-        const forSender = sealMessage(draft, myKey.publicKey);
-        const body = { to: selected.id, forRecipient, forSender };
-        if (replyTo) body.replyTo = replyTo.id || replyTo._id;
-        if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
-        const forwardPolicy = buildForwardPolicy();
-        if (forwardPolicy) body.forwardPolicy = forwardPolicy;
-        const { data } = await client.post("/messages", body);
-        recordActivityFromMessage(data.data);
-        setMessages((prev) => {
-          const id = String(data.data.id || data.data._id);
-          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-          return [...prev, decorate(data.data)];
-        });
+        const draftSnapshot = draft;
+        const replySnapshot = replyTo;
+        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const plaintext = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            to: selected.id,
+            text: plaintext,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                  id: replySnapshot.id || replySnapshot._id,
+                  from: replySnapshot.from,
+                  text: replySnapshot.text,
+                }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          const forRecipient = sealMessage(plaintext, pickRandom(recipientKeys));
+          const forSender = sealMessage(plaintext, myKey.publicKey);
+          const body = { to: selected.id, forRecipient, forSender };
+          if (replySnapshot) body.replyTo = replySnapshot.id || replySnapshot._id;
+          if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
+          const forwardPolicy = buildForwardPolicy();
+          if (forwardPolicy) body.forwardPolicy = forwardPolicy;
+          const { data } = await client.post("/messages", body);
+          recordActivityFromMessage(data.data);
+          setMessages((prev) =>
+            mergeConfirmedMessage(prev, {
+              tempId,
+              serverRaw: data.data,
+              displayText: plaintext,
+            }),
+          );
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       }
-      setDraft("");
-      setReplyTo(null);
-      setMentionOpen(false);
-      playSendSound();
-      markConversationRead(user.id, selected.key);
-      bumpActivity();
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      setTimeout(() => scrollToBottom("smooth"), 50);
     } catch (err) {
       showToast(
         err.response?.data?.error || err.message || "Failed to send message",
