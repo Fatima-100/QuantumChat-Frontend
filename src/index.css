@@ -3153,8 +3153,9 @@ input:focus-visible,
 
 .message-bubble {
   max-width: min(58vw, 440px);
+  min-width: 4.75rem;
   flex: 0 1 auto;
-  padding: 12px 16px;
+  padding: 8px 12px 6px;
   border-radius: 22px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
   color: var(--bubble-theirs-fg, var(--text-primary));
@@ -3165,6 +3166,7 @@ input:focus-visible,
   font-weight: 450;
   line-height: 1.55;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .message-bubble.mine {
@@ -3182,6 +3184,7 @@ input:focus-visible,
   max-width: min(320px, 85vw);
   word-break: normal;
   overflow-wrap: normal;
+  padding: 10px 12px 6px;
 }
 
 .call-message {
@@ -3189,10 +3192,10 @@ input:focus-visible,
   align-items: center;
   gap: 12px;
   min-width: 200px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-  border: 1px solid var(--border-subtle);
+  padding: 4px 2px 2px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
 }
 .call-message .call-message-icon {
   width: 36px;
@@ -3217,23 +3220,16 @@ input:focus-visible,
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.call-message .call-message-time {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
 
 .message-bubble.mine .call-message {
-  border-color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 22%, transparent);
-  background: color-mix(in srgb, #000 12%, transparent);
+  border: none;
+  background: transparent;
 }
 .message-bubble.mine .call-message-icon {
   background: color-mix(in srgb, #000 18%, transparent);
   color: var(--bubble-mine-fg, #fff);
 }
-.message-bubble.mine .call-message-sub,
-.message-bubble.mine .call-message-time {
+.message-bubble.mine .call-message-sub {
   color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
 }
 
@@ -3267,10 +3263,23 @@ input:focus-visible,
 }
 
 .message-time {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
   font-size: 11px;
   font-weight: 400;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.message-text {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-more-btn {
