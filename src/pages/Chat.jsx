@@ -2424,7 +2424,7 @@ useEffect(() => {
           : bodyText;
         const mentionedUserIds = extractMentions(bodyText, group.members || []);
         const kind = asAnnouncement ? "announcement" : "text";
-        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const tempId = `tmp-${crypto.randomUUID()}`;
         const replySnapshot = replyTo;
         const draftSnapshot = draft;
 
@@ -2492,7 +2492,7 @@ useEffect(() => {
         }
         const draftSnapshot = draft;
         const replySnapshot = replyTo;
-        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const tempId = `tmp-${crypto.randomUUID()}`;
         const plaintext = draft;
 
         setDraft("");
@@ -2574,7 +2574,7 @@ useEffect(() => {
       return;
     }
 
-    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const uploadId = crypto.randomUUID();
     const controller = new AbortController();
     setUploads((prev) => [
       ...prev,
