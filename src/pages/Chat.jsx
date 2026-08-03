@@ -222,6 +222,7 @@ export default function Chat() {
   const [friendCandidates, setFriendCandidates] = useState([]);
   const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
   const [incomingRequests, setIncomingRequests] = useState([]);
+  const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [myFriends, setMyFriends] = useState([]);
   const [myFriendsLoading, setMyFriendsLoading] = useState(false);
   const [contactQuery, setContactQuery] = useState("");
@@ -661,6 +662,7 @@ onMissed: (call) => {
     try {
       const { data } = await client.get("/users/friend-requests");
       setIncomingRequests(data.data?.incoming || []);
+      setOutgoingRequests(data.data?.outgoing || []);
     } catch {
       // non-fatal
     }
@@ -1777,12 +1779,17 @@ useEffect(() => {
   async function handleCancelFriendRequest(requestId) {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
+      setOutgoingRequests((prev) =>
+        prev.filter((r) => String(r.id) !== String(requestId)),
+      );
       loadFriendDiscover(search);
+      loadFriendRequests();
       setContactLookupResult((prev) =>
         prev && String(prev.requestId) === String(requestId)
           ? { ...prev, requestStatus: "none", requestId: null }
           : prev,
       );
+      showToast("Friend request cancelled", "success");
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to cancel request",
@@ -3645,6 +3652,7 @@ useEffect(() => {
         friendCandidates={friendCandidates}
         friendCandidatesLoading={friendCandidatesLoading}
         incomingRequests={incomingRequests}
+        outgoingRequests={outgoingRequests}
         myFriends={myFriends}
         myFriendsLoading={myFriendsLoading}
         contactQuery={contactQuery}

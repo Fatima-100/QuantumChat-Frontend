@@ -48,6 +48,7 @@ export default function ConversationList({
   friendCandidates = [],
   friendCandidatesLoading = false,
   incomingRequests = [],
+  outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
   contactQuery = '',
@@ -230,48 +231,75 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
           <div className="friend-requests-incoming">
             <p className="friend-requests-heading">
               Requests
-              {incomingRequests.length > 0 ? (
-                <span className="friend-section-count">{incomingRequests.length}</span>
+              {incomingRequests.length + outgoingRequests.length > 0 ? (
+                <span className="friend-section-count">
+                  {incomingRequests.length + outgoingRequests.length}
+                </span>
               ) : null}
             </p>
-            {incomingRequests.length === 0 ? (
+            {incomingRequests.length === 0 && outgoingRequests.length === 0 ? (
               <div className="friends-empty-card" role="status">
                 <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" />
                 <p className="friends-empty-title">No pending requests</p>
-                <p className="friends-empty-copy">When someone wants to connect, their request shows up here.</p>
+                <p className="friends-empty-copy">
+                  Incoming requests and ones you&apos;ve sent appear here until they&apos;re accepted.
+                </p>
               </div>
             ) : (
-              incomingRequests.map((r) => (
-                <div key={r.id} className="user-list-item friend-request-item">
-                  <UserAvatar
-                    userId={r.user.id}
-                    name={r.user.displayName || r.user.username}
-                    hasAvatar={Boolean(r.user.hasAvatar)}
-                  />
-                  <span className="user-list-meta">
-                    <span className="user-list-name">{r.user.displayName || r.user.username}</span>
-                    <span className="user-list-lastseen">@{r.user.username}</span>
-                  </span>
-                  <div className="friend-request-actions">
+              <>
+                {incomingRequests.map((r) => (
+                  <div key={`in-${r.id}`} className="user-list-item friend-request-item">
+                    <UserAvatar
+                      userId={r.user.id}
+                      name={r.user.displayName || r.user.username}
+                      hasAvatar={Boolean(r.user.hasAvatar)}
+                    />
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                    </span>
+                    <div className="friend-request-actions">
+                      <button
+                        type="button"
+                        className="friend-action-btn accept"
+                        aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onAcceptFriendRequest?.(r.id)}
+                      >
+                        <Check size={15} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        className="friend-action-btn decline"
+                        aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onDeclineFriendRequest?.(r.id)}
+                      >
+                        <X size={15} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {outgoingRequests.map((r) => (
+                  <div key={`out-${r.id}`} className="user-list-item friend-request-item">
+                    <UserAvatar
+                      userId={r.user.id}
+                      name={r.user.displayName || r.user.username}
+                      hasAvatar={Boolean(r.user.hasAvatar)}
+                    />
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Pending · @{r.user.username}</span>
+                    </span>
                     <button
                       type="button"
-                      className="friend-action-btn accept"
-                      aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onAcceptFriendRequest?.(r.id)}
+                      className="friend-action-btn cancel"
+                      aria-label={`Cancel request to ${r.user.displayName || r.user.username}`}
+                      onClick={() => onCancelFriendRequest?.(r.id)}
                     >
-                      <Check size={15} strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
-                      className="friend-action-btn decline"
-                      aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onDeclineFriendRequest?.(r.id)}
-                    >
-                      <X size={15} strokeWidth={2.5} />
+                      Cancel
                     </button>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
 
