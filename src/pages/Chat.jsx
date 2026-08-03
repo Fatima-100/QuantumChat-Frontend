@@ -4479,6 +4479,9 @@ export default function Chat() {
         call={webrtc.call}
         localStream={webrtc.localStream}
         remoteStream={webrtc.remoteStream}
+        screenStream={webrtc.screenStream}
+        screenSharing={webrtc.screenSharing}
+        remoteScreen={webrtc.remoteScreen}
         muted={webrtc.muted}
         cameraOff={webrtc.cameraOff}
         peerLabel={
@@ -4501,6 +4504,14 @@ export default function Chat() {
         onHangup={webrtc.hangup}
         onToggleMute={webrtc.toggleMute}
         onToggleCamera={webrtc.toggleCamera}
+        onToggleScreenShare={() =>
+          webrtc.toggleScreenShare().catch((err) => {
+            // Dismissing the browser's picker isn't an error worth reporting.
+            if (err?.name === "NotAllowedError" || err?.name === "AbortError")
+              return;
+            showToast("Could not share your screen", "error");
+          })
+        }
         minimized={callMinimized}
         onToggleMinimize={() => setCallMinimized((v) => !v)}
       />
