@@ -3487,6 +3487,16 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
   font-size: 12px;
 }
 
+/* Floated so it sits on the last line of text when there is room and drops to
+   its own line only when there isn't - the WhatsApp behaviour. */
+.message-time {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 5px 0 -1px 10px;
+}
+
 /* The timestamp is painted at the bubble's bottom-right, while an invisible
    copy of it (.message-time-spacer) sits inline after the text. The spacer is
    what reserves room on the last line AND what makes the bubble's shrink-to-fit
@@ -3494,9 +3504,6 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
    left short bubbles ("hiiiii") too narrow to hold their own time. */
 .message-time,
 .message-time-spacer {
-  float: right;
-  display: inline-flex;
-  margin: 5px 0 -1px 10px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -10722,6 +10729,7 @@ button.message-reply-preview:hover {
   flex-shrink: 0;
 }
 
+
 .conv-row-menu {
   display: inline-flex;
   align-items: center;
@@ -12538,7 +12546,7 @@ body.theme-nebula {
 
   0%,
   100% {
-    opacity: 0.55;
+  opacity: 0.55;
   }
 
   50% {
