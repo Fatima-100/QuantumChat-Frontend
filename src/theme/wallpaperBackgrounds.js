@@ -11,16 +11,14 @@
 // which looked broken once the app defaulted to a dark theme.
 export const WALLPAPER_BACKGROUNDS = {
   none: 'transparent',
-  'quantum-dots': 'radial-gradient(rgba(148, 163, 253, 0.22) 1.5px, transparent 1.5px) 0 0/16px 16px',
+  'quantum-dots': "url('/wallpapers/quantum-dots.jpg') center/cover no-repeat",
   // These 6 are real photos in public/wallpapers/ (Vite serves anything in
   // public/ from the site root, so the path is just /wallpapers/<file>, no
   // import needed). center/cover/no-repeat is specified explicitly here
   // because .message-list no longer forces a global background-size — see
   // the comment on WALLPAPER_BACKGROUNDS above.
   aurora: "url('/wallpapers/aurora.jpg') center/cover no-repeat",
-  circuit:
-    'linear-gradient(rgba(148, 163, 253, 0.14) 1px, transparent 1px) 0 0/24px 24px, ' +
-    'linear-gradient(90deg, rgba(148, 163, 253, 0.14) 1px, transparent 1px) 0 0/24px 24px',
+  circuit:  "url('/wallpapers/circuit.jpg') center/cover no-repeat",
   floral: "url('/wallpapers/floral.jpg') center/cover no-repeat",
   geometric: "url('/wallpapers/geometric.jpg') center/cover no-repeat",
 
