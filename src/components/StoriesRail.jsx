@@ -13,10 +13,11 @@ import {
 import { getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, pickRandom, KEY_SET_SIZE } from '../crypto/keys.js';
 import UserAvatar from './UserAvatar.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { motion } from 'framer-motion';
 import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
-
+import { shouldNotify, playNotificationSound, showNotificationPopup } from '../utils/notificationDispatch.js';
 const MAX_STORY_SECONDS = 60;
 const TTL_PRESETS = [
   { label: '1 hour', ms: 60 * 60 * 1000 },
@@ -172,9 +173,10 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
-const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError }, ref) {
+const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError, notifSettings }, ref) {
   const { keyringInSync, keyringNeedsResync, refreshUserFromServer, verifyKeySync } = useAuth();
   const [stories, setStories] = useState([]);
+  const [storiesLoading, setStoriesLoading] = useState(true);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState(null);
@@ -204,8 +206,15 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   }, [stories, currentUser?.id]);
 
   async function loadStories() {
-    const { data } = await client.get('/stories');
-    setStories(data.data || []);
+    setStoriesLoading(true);
+    try {
+      const { data } = await client.get('/stories');
+      setStories(data.data || []);
+    } catch {
+      setStories([]);
+    } finally {
+      setStoriesLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -215,13 +224,29 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return undefined;
-    function onNew(payload) {
+  function onNew(payload) {
       if (!payload?.id) return;
       if (!viewerCanSeeStory(payload, currentUser?.id)) return;
+      const isOwn = String(payload.user?.id) === String(currentUser?.id);
       setStories((prev) => {
         if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
         return [payload, ...prev];
       });
+
+      if (!isOwn) {
+        const mode = notifSettings?.statusNotifications;
+        // 'favorites_only' has no dedicated favorites list yet — approximated as friends-only.
+        const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
+        const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
+        if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
+          playNotificationSound(notifSettings);
+          showNotificationPopup(
+            { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
+            notifSettings,
+            () => {},
+          );
+        }
+      }
     }
     function onDeleted({ id } = {}) {
       if (!id) return;
@@ -259,7 +284,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         onError?.(
           'Encryption keys are out of sync with the server. Use Settings → Regenerate & resync keys before posting stories.'
         );
-        return;
+        return false;
       }
 
       let durationMs = 0;
@@ -267,7 +292,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         durationMs = await probeMediaDuration(file);
         if (durationMs > MAX_STORY_SECONDS * 1000) {
           onError?.(`Stories must be ${MAX_STORY_SECONDS} seconds or shorter`);
-          return;
+          return false;
         }
       }
 
@@ -341,8 +366,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
       await client.post('/stories', form);
       await loadStories();
+      return true;
     } catch (err) {
       onError?.(err.response?.data?.error || err.message || 'Failed to upload story');
+      return false;
     } finally {
       setUploading(false);
     }
@@ -356,8 +383,9 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
   async function confirmPostStory(ttlMs) {
     const file = pendingFile;
-    closeComposer();
-    if (file) await uploadStory(file, ttlMs);
+    if (!file || uploading) return;
+    const ok = await uploadStory(file, ttlMs);
+    if (ok) closeComposer();
   }
 
   useImperativeHandle(ref, () => ({
@@ -380,7 +408,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       </p>
       <button
         type="button"
-        className="story-ring add"
+        className={`story-ring add${uploading ? ' uploading' : ''}`}
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
         aria-label="Add story"
@@ -391,7 +419,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           hasAvatar={currentUser?.hasAvatar}
           size="story"
         />
-        <span className="story-add-badge">+</span>
+        <span className="story-add-badge">{uploading ? '…' : '+'}</span>
         <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
       </button>
       <input
@@ -402,27 +430,40 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         onChange={handleFileSelected}
       />
 
-      {grouped
-        .filter((g) => String(g.user?.id) !== String(currentUser?.id) || g.items.length > 0)
-        .map((g) => (
-          <button
-            key={String(g.user?.id)}
-            type="button"
-            className="story-ring"
-            onClick={() => {
-              setUnavailable(false);
-              setViewer({ group: g, index: 0 });
-            }}
-          >
-            <UserAvatar
-              userId={g.user?.id}
-              name={g.user?.username}
-              hasAvatar={g.user?.hasAvatar}
-              size="story"
-            />
-            <span className="story-ring-label">{g.user?.username}</span>
-          </button>
+      {storiesLoading &&
+        [1, 2, 3].map((i) => (
+          <div key={i} className="story-ring story-ring-skeleton" aria-hidden="true">
+            <div className="skeleton skeleton-avatar story-skeleton-avatar" />
+            <span className="skeleton skeleton-line story-skeleton-label" />
+          </div>
         ))}
+
+      {!storiesLoading &&
+        grouped
+          .filter((g) => String(g.user?.id) !== String(currentUser?.id) || g.items.length > 0)
+          .map((g) => {
+            const hasSealed = g.items.some((s) => s.sealed);
+            return (
+              <button
+                key={String(g.user?.id)}
+                type="button"
+                className={`story-ring${hasSealed ? ' sealed' : ''}`}
+                onClick={() => {
+                  setUnavailable(false);
+                  setViewer({ group: g, index: 0 });
+                }}
+              >
+                <UserAvatar
+                  userId={g.user?.id}
+                  name={g.user?.username}
+                  hasAvatar={g.user?.hasAvatar}
+                  size="story"
+                />
+                {hasSealed ? <span className="story-ring-sealed-dot" title="Sealed story" aria-label="Sealed" /> : null}
+                <span className="story-ring-label">{g.user?.username}</span>
+              </button>
+            );
+          })}
 
       {viewer && (
         <StoryViewer
@@ -441,7 +482,8 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       {unavailable && (
         <div className="story-viewer-overlay" onClick={() => setUnavailable(false)}>
           <div className="story-unavailable-card" onClick={(e) => e.stopPropagation()}>
-            <p>This story is no longer available.</p>
+            <p className="story-unavailable-title">Story unavailable</p>
+            <p>This story expired or was deleted.</p>
             <button type="button" onClick={() => setUnavailable(false)}>
               OK
             </button>
@@ -476,6 +518,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionQuery, setReactionQuery] = useState('');
   const [burst, setBurst] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
@@ -560,6 +604,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
   useEffect(() => {
     function onKey(e) {
+      if (confirmDelete) return;
       const tag = document.activeElement?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA';
 
@@ -574,12 +619,25 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [group.items.length, onClose]);
+  }, [group.items.length, onClose, confirmDelete]);
 
   async function handleDelete() {
-    if (!window.confirm('Delete this story?')) return;
-    await client.delete(`/stories/${story.id}`);
-    onDeleted?.();
+    setConfirmDelete(true);
+  }
+
+  async function confirmDeleteStory() {
+    if (deleting) return;
+    try {
+      setDeleting(true);
+      await client.delete(`/stories/${story.id}`);
+      setConfirmDelete(false);
+      onDeleted?.();
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to delete story');
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSendReply() {
@@ -724,8 +782,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           className="story-viewer-media"
           onDoubleClick={() => !isOwn && handleReact('❤️')}
         >
-          {blockedReason && <p className="empty-hint">{blockedReason}</p>}
-          {!blockedReason && !mediaUrl && <p className="empty-hint">Loading…</p>}
+          {blockedReason && (
+            <div className="story-decrypt-error" role="alert">
+              <p className="story-decrypt-error-title">Can’t open this story</p>
+              <p>{blockedReason}</p>
+            </div>
+          )}
+          {!blockedReason && !mediaUrl && (
+            <div className="story-media-loading" aria-live="polite">
+              <div className="skeleton skeleton-line story-media-loading-bar" />
+              <p className="empty-hint">Decrypting…</p>
+            </div>
+          )}
           {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
           {mediaUrl && story.mediaType === 'video' && <video src={mediaUrl} autoPlay controls />}
           {mediaUrl && story.mediaType === 'audio' && <audio src={mediaUrl} autoPlay controls />}
@@ -856,6 +924,20 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           </form>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this story?"
+        message="This story will be removed for everyone who can see it. This can’t be undone."
+        confirmLabel="Delete story"
+        cancelLabel="Keep story"
+        danger
+        busy={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
+        onConfirm={confirmDeleteStory}
+      />
     </div>
   );
 }
@@ -922,13 +1004,14 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
         </div>
 
         <div className="story-composer-ttl">
-          <p className="story-composer-ttl-label">How long should this story last?</p>
-          <div className="story-composer-ttl-presets">
+          <p className="story-composer-ttl-label">Visible for</p>
+          <div className="story-composer-ttl-presets" role="group" aria-label="Story duration">
             {TTL_PRESETS.map((p) => (
               <button
                 key={p.ms}
                 type="button"
                 className={`story-ttl-preset ${!customMode && preset === p.ms ? 'active' : ''}`}
+                disabled={uploading}
                 onClick={() => {
                   setCustomMode(false);
                   setPreset(p.ms);
@@ -940,6 +1023,7 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
             <button
               type="button"
               className={`story-ttl-preset ${customMode ? 'active' : ''}`}
+              disabled={uploading}
               onClick={() => setCustomMode(true)}
             >
               Custom…
@@ -952,11 +1036,13 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
                 type="number"
                 min="1"
                 value={customValue}
+                disabled={uploading}
                 onChange={(e) => setCustomValue(e.target.value)}
                 aria-label="Custom duration value"
               />
               <select
                 value={customUnit}
+                disabled={uploading}
                 onChange={(e) => setCustomUnit(e.target.value)}
                 aria-label="Custom duration unit"
               >
@@ -966,6 +1052,9 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
               </select>
             </div>
           )}
+          <p className="story-composer-ttl-hint">
+            Min 15 minutes · max 7 days. Media is sealed before upload.
+          </p>
         </div>
 
         <div className="story-composer-actions">
@@ -978,7 +1067,7 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
             disabled={uploading}
             onClick={() => onConfirm(computeTtlMs())}
           >
-            {uploading ? 'Posting…' : 'Post story'}
+            {uploading ? 'Encrypting & posting…' : 'Post story'}
           </button>
         </div>
       </div>
