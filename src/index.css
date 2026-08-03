@@ -3414,7 +3414,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
   border-radius: 0;
   background: transparent;
   border: none;
-  
+
 }
 
 .call-message .call-message-icon {
@@ -3443,6 +3443,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
   color: var(--text-secondary);
   white-space: nowrap;
 }
+
 .message-bubble.mine .call-message {
   border: none;
   background: transparent;
@@ -3454,48 +3455,48 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
 }
 
 .message-bubble.mine .call-message-sub {
-    color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
-  }
+  color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
+}
 
-  .message-bubble.mine .message-time {
-    color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
-  }
+.message-bubble.mine .message-time {
+  color: var(--bubble-mine-time, rgba(255, 255, 255, 0.78));
+}
 
-  .message-expiry-badge {
-    display: inline-flex;
-    align-items: center;
-    margin-right: 4px;
-    opacity: 0.85;
-    vertical-align: -1px;
-  }
+.message-expiry-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  opacity: 0.85;
+  vertical-align: -1px;
+}
 
-  .disappear-select-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    opacity: 0.85;
-  }
+.disappear-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+}
 
-  .disappear-select {
-    background: var(--bg-surface, transparent);
-    color: inherit;
-    border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.35));
-    border-radius: 6px;
-    padding: 2px 6px;
-    font-size: 12px;
-  }
+.disappear-select {
+  background: var(--bg-surface, transparent);
+  color: inherit;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.35));
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
 
-<<<<<<< HEAD
-  /* Floated so it sits on the last line of text when there is room and drops to
+/* Floated so it sits on the last line of text when there is room and drops to
    its own line only when there isn't - the WhatsApp behaviour. */
-  .message-time {
-    float: right;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    margin: 5px 0 -1px 10px;
-=======
+.message-time {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 5px 0 -1px 10px;
+}
+
 /* The timestamp is painted at the bubble's bottom-right, while an invisible
    copy of it (.message-time-spacer) sits inline after the text. The spacer is
    what reserves room on the last line AND what makes the bubble's shrink-to-fit
@@ -3856,7 +3857,8 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
 
 /* Message grouping tweaks */
 .message-row.grouped {
-  margin-top: -3px; /* Brings consecutive messages closer */
+  margin-top: -3px;
+  /* Brings consecutive messages closer */
 }
 
 .message-bubble.mine.grouped {
@@ -4368,11 +4370,13 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
 }
 
 @keyframes voice-pulse {
+
   0%,
   100% {
     opacity: 1;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.45;
     transform: scale(0.85);
@@ -4809,6 +4813,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -4956,6 +4961,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -4966,6 +4972,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
     opacity: 0;
     transform: translateY(8px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -4979,7 +4986,6 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
 @media (max-width: 768px) {
   .chat-page {
     gap: 0;
->>>>>>> upstream/main
     padding: 0;
     font-size: 11px;
     font-weight: 400;
@@ -10722,7 +10728,7 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
     flex-shrink: 0;
   }
 
-<<<<<<< HEAD
+
   .conv-row-menu {
     display: inline-flex;
     align-items: center;
@@ -10742,27 +10748,26 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
       border-color 0.16s ease,
       transform 0.16s ease;
   }
-=======
-/* Screen shares are letterboxed — cropping a shared window loses content. */
-.call-video-tile.is-contain {
-  background: #000;
-}
 
-.call-video-tile.is-contain video {
-  object-fit: contain;
-}
+  /* Screen shares are letterboxed — cropping a shared window loses content. */
+  .call-video-tile.is-contain {
+    background: #000;
+  }
 
-.call-video-label {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 0.75rem;
-}
->>>>>>> upstream/main
+  .call-video-tile.is-contain video {
+    object-fit: contain;
+  }
+
+  .call-video-label {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.75rem;
+  }
 
   .user-list-item:hover .conv-row-menu,
   .user-list-item:focus-within .conv-row-menu,
@@ -13682,112 +13687,113 @@ body.low-fx .message-list[data-wallpaper-fx]::after {
       animation: none;
     }
 
-  }  
+  }
 
 
-/* Granular Privacy Settings */
-.privacy-select-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-}
+  /* Granular Privacy Settings */
+  .privacy-select-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
 
-.privacy-select-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+  .privacy-select-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
 
-.privacy-select-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
+  .privacy-select-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
 
-.privacy-select-description {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
+  .privacy-select-description {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
 
-.privacy-select-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
+  .privacy-select-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 
-.privacy-select-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-surface) 60%, transparent);
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
+  .privacy-select-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-surface) 60%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
 
-.privacy-select-option:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
-}
+  .privacy-select-option:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+  }
 
-.privacy-select-option.selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
-}
+  .privacy-select-option.selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
 
-.privacy-select-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1.5px solid currentColor;
-  background: transparent;
-  transition: background 0.2s ease;
-}
+  .privacy-select-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    background: transparent;
+    transition: background 0.2s ease;
+  }
 
-.privacy-select-option.selected .privacy-select-dot {
-  background: currentColor;
-}
+  .privacy-select-option.selected .privacy-select-dot {
+    background: currentColor;
+  }
 
-.privacy-friend-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
-  max-height: 180px;
-  overflow-y: auto;
-}
+  .privacy-friend-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+    max-height: 180px;
+    overflow-y: auto;
+  }
 
-.privacy-friend-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
+  .privacy-friend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
 
-.privacy-friend-item:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
+  .privacy-friend-item:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
 
-.privacy-friend-item input[type='checkbox'] {
-  accent-color: var(--accent);
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
+  .privacy-friend-item input[type='checkbox'] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
 }
