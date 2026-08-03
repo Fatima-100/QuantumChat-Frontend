@@ -213,6 +213,26 @@ const storyReplyPayload = useMemo(() => {
   const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
 
+  // Rendered twice: once as an invisible inline spacer that reserves room on the
+  // last line of text, and once absolutely positioned on top of that space. This
+  // is what lets the timestamp sit on the text's last line (and makes short
+  // bubbles wide enough to hold it) without relying on floats.
+  const timeMeta = (
+    <>
+      {message.expiresAt ? (
+        <span
+          className="message-expiry-badge"
+          title={`Disappears ${new Date(message.expiresAt).toLocaleString()}`}
+        >
+          <Clock size={11} strokeWidth={2.5} aria-hidden="true" />
+        </span>
+      ) : null}
+      {relativeTime}
+      {message.editedAt ? <span className="message-edited"> · edited</span> : null}
+      {isMine && <ReadReceipt status={receiptStatus} />}
+    </>
+  );
+
   function closeAll() {
     setMenuOpen(false);
     setReactOpen(false);
@@ -529,19 +549,10 @@ const storyReplyPayload = useMemo(() => {
             ) : isDecryptionFail ? (
               <em>[Unable to decrypt message]</em>
             ) : null}
-            <div className={`message-time ${isStoryReaction ? 'story-reaction-time' : ''}`} title={fullTime}>
-              {message.expiresAt ? (
-                <span
-                  className="message-expiry-badge"
-                  title={`Disappears ${new Date(message.expiresAt).toLocaleString()}`}
-                >
-                  <Clock size={11} strokeWidth={2.5} aria-hidden="true" />
-                </span>
-              ) : null}
-              {relativeTime}
-              {message.editedAt ? <span className="message-edited"> · edited</span> : null}
-              {isMine && <ReadReceipt status={receiptStatus} />}
-            </div>
+            <span className="message-time-spacer" aria-hidden="true">{timeMeta}</span>
+            <span className={`message-time ${isStoryReaction ? 'story-reaction-time' : ''}`} title={fullTime}>
+              {timeMeta}
+            </span>
           </div>
 
           <div className="message-action-cluster">
