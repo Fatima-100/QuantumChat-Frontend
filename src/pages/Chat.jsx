@@ -28,6 +28,13 @@ import { connectSocket, getSocket } from "../api/socket.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
 import CameraCapture from "../components/CameraCapture.jsx";
+import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
+import ChatShell from "../components/chat/ChatShell.jsx";
+import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
+import ConversationPane from "../components/chat/ConversationPane.jsx";
+import InfoPanel from "../components/chat/InfoPanel.jsx";
+import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
+import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
@@ -44,19 +51,29 @@ import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
 import UserProfileModal from "../components/UserProfileModal.jsx";
-import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
-import ChatShell from "../components/chat/ChatShell.jsx";
-import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
-import ConversationPane from "../components/chat/ConversationPane.jsx";
-import InfoPanel from "../components/chat/InfoPanel.jsx";
-import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
-import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
-import { downloadKeyFile, formatKeyFile, parseKeyFile, } from "../crypto/keyFile.js";
-import { findSecretKeyForPublicKey, getCurrentKeySet, } from "../crypto/keyStorage.js";
-import { pickRandom, sealBytes, sealMessage, secretboxSeal, unsealMessage, } from "../crypto/keys.js";
-import { attachmentIdOf, normalizeAttachment, pickRecorderMimeType, } from "../crypto/voiceCache.js";
+import {
+  downloadKeyFile,
+  formatKeyFile,
+  parseKeyFile,
+} from "../crypto/keyFile.js";
+import {
+  pickRandom,
+  sealBytes,
+  sealMessage,
+  secretboxSeal,
+  unsealMessage,
+} from "../crypto/keys.js";
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+} from "../crypto/keyStorage.js";
+import {
+  attachmentIdOf,
+  normalizeAttachment,
+  pickRecorderMimeType,
+} from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
@@ -71,7 +88,10 @@ import {
   toggleArchiveChat,
   toggleMuteChat,
 } from "../utils/chatPrefs.js";
-import { chatPathForSelection, selectionFromParams, } from "../utils/chatRoutes.js";
+import {
+  chatPathForSelection,
+  selectionFromParams,
+} from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
 import {
   encodeAnnouncement,
@@ -81,7 +101,11 @@ import {
   extractMentions,
   isGroupAdmin,
 } from "../utils/groupPayload.js";
-import { getHiddenChatIds, hideChat, unhideChat, } from "../utils/hiddenChats.js";
+import {
+  getHiddenChatIds,
+  hideChat,
+  unhideChat,
+} from "../utils/hiddenChats.js";
 import {
   deleteMessageForMe,
   getDeletedForMeIds,
@@ -91,9 +115,10 @@ import {
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
 import {
+  buildNotificationText,
   playNotificationSound,
   shouldNotify,
-  showNotificationPopup
+  showNotificationPopup,
 } from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
@@ -277,66 +302,66 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    if (!hasLocalKeyring) return;
-    fetchThemeCatalog()
-      .then(setThemeCatalog)
-      .catch(() => { }); // Non-critical — the picker just won't open without it; chat still works.
-  }, [hasLocalKeyring]);
-
-  useEffect(() => {
-    setThemeModalOpen(false);
-
-    if (!selected || selected.type !== "dm") {
-      setChatTheme(DEFAULT_CHAT_THEME);
-      return;
-    }
-
-    let cancelled = false;
-
-    fetchChatTheme(selected.id).then((theme) => {
-      if (!cancelled) {
-        setChatTheme(theme);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selected]);
-
-  // The custom wallpaper endpoint returns raw bytes (auth-gated, owner-only)
-  // rather than a public URL, so it has to be fetched as a blob and turned
-  // into an object URL, same as attachment previews elsewhere in this app.
-  useEffect(() => {
-    if (
-      !selected ||
-      selected.type !== "dm" ||
-      chatTheme.wallpaperId !== "custom"
-    ) {
-      setCustomWallpaperUrl(null);
-      return;
-    }
-
-    let cancelled = false;
-    let urlToRevoke = null;
-
-    fetchWallpaperImageUrl(selected.id).then((url) => {
-      if (cancelled) {
-        URL.revokeObjectURL(url);
+      if (!hasLocalKeyring) return;
+      fetchThemeCatalog()
+        .then(setThemeCatalog)
+        .catch(() => { }); // Non-critical — the picker just won't open without it; chat still works.
+    }, [hasLocalKeyring]);
+  
+    useEffect(() => {
+      setThemeModalOpen(false);
+  
+      if (!selected || selected.type !== "dm") {
+        setChatTheme(DEFAULT_CHAT_THEME);
         return;
       }
-
-      urlToRevoke = url;
-      setCustomWallpaperUrl(url);
-    });
-
-    return () => {
-      cancelled = true;
-      if (urlToRevoke) {
-        URL.revokeObjectURL(urlToRevoke);
+  
+      let cancelled = false;
+  
+      fetchChatTheme(selected.id).then((theme) => {
+        if (!cancelled) {
+          setChatTheme(theme);
+        }
+      });
+  
+      return () => {
+        cancelled = true;
+      };
+    }, [selected]);
+  
+    // The custom wallpaper endpoint returns raw bytes (auth-gated, owner-only)
+    // rather than a public URL, so it has to be fetched as a blob and turned
+    // into an object URL, same as attachment previews elsewhere in this app.
+    useEffect(() => {
+      if (
+        !selected ||
+        selected.type !== "dm" ||
+        chatTheme.wallpaperId !== "custom"
+      ) {
+        setCustomWallpaperUrl(null);
+        return;
       }
-    };
-  }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
+  
+      let cancelled = false;
+      let urlToRevoke = null;
+  
+      fetchWallpaperImageUrl(selected.id).then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+  
+        urlToRevoke = url;
+        setCustomWallpaperUrl(url);
+      });
+  
+      return () => {
+        cancelled = true;
+        if (urlToRevoke) {
+          URL.revokeObjectURL(urlToRevoke);
+        }
+      };
+    }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
@@ -377,7 +402,7 @@ export default function Chat() {
         usersRef.current.find((u) => String(u.id) === String(peerId));
       return peer?.publicKeys || [];
     },
-    onMissed: (call) => {
+onMissed: (call) => {
       showToast("Call ended or declined", "info");
       if (notifSettings?.callNotifications?.missedCallReminders === false) return;
       if (!shouldNotify(notifSettings, { kind: "call" })) return;
@@ -388,7 +413,7 @@ export default function Chat() {
       showNotificationPopup(
         { title: caller, body: "Missed call" },
         notifSettings,
-        () => { },
+        () => {},
       );
     },
     onEnd: async (info) => {
@@ -599,36 +624,36 @@ export default function Chat() {
         reactions,
         replyTo: raw.replyTo
           ? (() => {
-            const parent = raw.replyTo;
-            const parentMine = String(parent.from) === String(user.id);
-            let parentText = null;
-            if (
-              parent.group &&
-              typeof parent.content === "string" &&
-              parent.content.length > 0
-            ) {
-              parentText = parent.content;
-            } else if (parent.group && Array.isArray(parent.envelopes)) {
-              const mine = parent.envelopes.find(
-                (e) => String(e.user) === String(user.id),
-              );
-              if (mine?.targetPublicKey) {
-                const sk = resolveMySecretKey(mine.targetPublicKey);
-                parentText = sk ? unsealMessage(mine, sk) : null;
+              const parent = raw.replyTo;
+              const parentMine = String(parent.from) === String(user.id);
+              let parentText = null;
+              if (
+                parent.group &&
+                typeof parent.content === "string" &&
+                parent.content.length > 0
+              ) {
+                parentText = parent.content;
+              } else if (parent.group && Array.isArray(parent.envelopes)) {
+                const mine = parent.envelopes.find(
+                  (e) => String(e.user) === String(user.id),
+                );
+                if (mine?.targetPublicKey) {
+                  const sk = resolveMySecretKey(mine.targetPublicKey);
+                  parentText = sk ? unsealMessage(mine, sk) : null;
+                }
+              } else {
+                const env = parentMine ? parent.forSender : parent.forRecipient;
+                if (env?.targetPublicKey) {
+                  const sk = resolveMySecretKey(env.targetPublicKey);
+                  parentText = sk ? unsealMessage(env, sk) : null;
+                }
               }
-            } else {
-              const env = parentMine ? parent.forSender : parent.forRecipient;
-              if (env?.targetPublicKey) {
-                const sk = resolveMySecretKey(env.targetPublicKey);
-                parentText = sk ? unsealMessage(env, sk) : null;
-              }
-            }
-            return {
-              id: parent.id || parent._id,
-              from: parent.from,
-              text: parentText,
-            };
-          })()
+              return {
+                id: parent.id || parent._id,
+                from: parent.from,
+                text: parentText,
+              };
+            })()
           : null,
       };
     },
@@ -767,29 +792,29 @@ export default function Chat() {
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
-  useEffect(() => {
-    if (!user?.id || !Array.isArray(user.mutedChats)) return;
-    const now = Date.now();
-    const serverMutedKeys = user.mutedChats
-      .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
-      .map((m) => String(m.conversationKey));
-    const serverSet = new Set(serverMutedKeys);
+useEffect(() => {
+  if (!user?.id || !Array.isArray(user.mutedChats)) return;
+  const now = Date.now();
+  const serverMutedKeys = user.mutedChats
+    .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
+    .map((m) => String(m.conversationKey));
+  const serverSet = new Set(serverMutedKeys);
 
-    // Server is the source of truth once user.mutedChats has loaded — fully replace,
-    // not merge, so unmutes actually take effect (not just adds).
-    setMutedKeys(serverMutedKeys);
+  // Server is the source of truth once user.mutedChats has loaded — fully replace,
+  // not merge, so unmutes actually take effect (not just adds).
+  setMutedKeys(serverMutedKeys);
 
-    // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
-    // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
-    const localSet = new Set(getMutedChatKeys(user.id).map(String));
-    serverSet.forEach((key) => {
-      if (!localSet.has(key)) toggleMuteChat(user.id, key);
-    });
-    localSet.forEach((key) => {
-      if (!serverSet.has(key)) toggleMuteChat(user.id, key);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.mutedChats]);
+  // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
+  // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
+  const localSet = new Set(getMutedChatKeys(user.id).map(String));
+  serverSet.forEach((key) => {
+    if (!localSet.has(key)) toggleMuteChat(user.id, key);
+  });
+  localSet.forEach((key) => {
+    if (!serverSet.has(key)) toggleMuteChat(user.id, key);
+  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user?.id, user?.mutedChats]);
   useEffect(() => {
     if (filter !== "friends") return;
     loadFriendDiscover(search);
@@ -828,17 +853,16 @@ export default function Chat() {
       recordActivityFromMessage(raw);
       if (!isCurrentConversation(raw)) return;
 
-      if (String(raw.from) !== String(user.id)) {
+     if (String(raw.from) !== String(user.id)) {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
-            String(raw.from) === String(user.id) ? raw.to : raw.from,
-          );
+              String(raw.from) === String(user.id) ? raw.to : raw.from,
+            );
         const muted = isChatMuted(user.id, convKey);
-        if (!muted) {
-          playReceiveSound();
-        }
-
+                if (!muted) {
+                  playReceiveSound();
+                }
         const isCurrentlyOpen = isCurrentConversation(raw);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
@@ -879,128 +903,160 @@ export default function Chat() {
               handleSelectConversation(target);
             });
           }
-
-          if (selectedRef.current?.key) {
-            markConversationRead(
-              user.id,
-              selectedRef.current.key,
-              raw.createdAt || new Date().toISOString(),
-            );
-            bumpActivity();
-          }
         }
 
-        setMessages((prev) => {
-          const id = String(raw.id || raw._id);
-          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-          const next = [...prev, decorate(raw)];
+        if (selectedRef.current?.key) {
+          markConversationRead(
+            user.id,
+            selectedRef.current.key,
+            raw.createdAt || new Date().toISOString(),
+          );
+          bumpActivity();
+        }
+      }
 
-          if (messageListRef.current) {
-            const el = messageListRef.current;
-            const isUp = el.scrollHeight - el.scrollTop - el.clientHeight > 150;
-            if (isUp) {
-              setHasUnread(true);
-            } else {
-              setTimeout(() => scrollToBottom("smooth"), 50);
+      setMessages((prev) => {
+        const id = String(raw.id || raw._id);
+        if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+
+        let next;
+        // Replace the oldest optimistic bubble in this conversation (FIFO)
+        // so own sends don't double when the socket arrives before HTTP.
+        if (String(raw.from) === String(user.id)) {
+          let replaced = false;
+          const confirmed = decorate(raw);
+          next = [];
+          for (const m of prev) {
+            if (
+              !replaced &&
+              m._pending &&
+              String(m.from) === String(user.id) &&
+              (raw.group
+                ? String(m.group || "") === String(raw.group)
+                : String(m.to || "") === String(raw.to))
+            ) {
+              next.push({
+                ...confirmed,
+                text: m.text ?? confirmed.text,
+                _pending: undefined,
+                _status: undefined,
+              });
+              replaced = true;
+              continue;
             }
+            next.push(m);
           }
-          return next;
-        });
-
-        if (String(raw.from) !== String(user.id) && !raw.group) {
-          const socket = getSocket();
-          socket?.emit("message:delivered", { messageId: raw.id || raw._id });
-        }
-      }
-
-      function handleDeleted(payload) {
-        const id = String(payload?.id || "");
-        if (!id) return;
-        setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
-      }
-
-      function handleExpired(payload) {
-        const id = String(payload?.id || "");
-        if (!id) return;
-        setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
-      }
-
-      function handleReaction(raw) {
-        const id = String(raw?.id || raw?._id || "");
-        if (!id) return;
-        if (!isCurrentConversation(raw)) return;
-        setMessages((prev) =>
-          prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-        );
-      }
-
-      function handleEdited(raw) {
-        const id = String(raw?.id || raw?._id || "");
-        if (!id) return;
-        if (!isCurrentConversation(raw)) return;
-        setMessages((prev) =>
-          prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-        );
-      }
-
-      function handleGroupNew(group) {
-        setGroups((prev) => {
-          if (prev.some((g) => String(g.id) === String(group.id))) {
-            return prev.map((g) =>
-              String(g.id) === String(group.id) ? group : g,
-            );
-          }
-          return [group, ...prev];
-        });
-      }
-      async function handleFriendRequestNew() {
-        loadFriendRequests();
-        showToast("New friend request", "info");
-      }
-      async function handleFriendRequestAccepted() {
-        try {
-          const { data } = await client.get("/users/me");
-          if (data?.data) updateSessionUser(data.data);
-        } catch {
-          // non-fatal
+          if (!replaced) next.push(confirmed);
+        } else {
+          next = [...prev, decorate(raw)];
         }
 
-        loadDirectory();
-        loadFriendRequests();
-        loadMyFriends();
-        loadFriendDiscover();
-      }
-      async function handleFriendRemoved() {
-        try {
-          const { data } = await client.get("/users/me");
-          if (data?.data) updateSessionUser(data.data);
-        } catch {
-          // non-fatal
+        if (messageListRef.current) {
+          const el = messageListRef.current;
+          const isUp = el.scrollHeight - el.scrollTop - el.clientHeight > 150;
+          if (isUp) {
+            setHasUnread(true);
+          } else {
+            setTimeout(() => scrollToBottom("smooth"), 50);
+          }
         }
-        loadDirectory();
-        loadMyFriends();
+        return next;
+      });
+
+      if (String(raw.from) !== String(user.id) && !raw.group) {
+        const socket = getSocket();
+        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
+      }
+    }
+
+    function handleDeleted(payload) {
+      const id = String(payload?.id || "");
+      if (!id) return;
+      setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
+    }
+
+    function handleExpired(payload) {
+      const id = String(payload?.id || "");
+      if (!id) return;
+      setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
+    }
+
+    function handleReaction(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      if (!isCurrentConversation(raw)) return;
+      setMessages((prev) =>
+        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
+      );
+    }
+
+    function handleEdited(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      if (!isCurrentConversation(raw)) return;
+      setMessages((prev) =>
+        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
+      );
+    }
+
+    function handleGroupNew(group) {
+      setGroups((prev) => {
+        if (prev.some((g) => String(g.id) === String(group.id))) {
+          return prev.map((g) =>
+            String(g.id) === String(group.id) ? group : g,
+          );
+        }
+        return [group, ...prev];
+      });
+    }
+    async function handleFriendRequestNew() {
+      loadFriendRequests();
+      showToast("New friend request", "info");
+    }
+    async function handleFriendRequestAccepted() {
+      try {
+        const { data } = await client.get("/users/me");
+        if (data?.data) updateSessionUser(data.data);
+      } catch {
+        // non-fatal
       }
 
-      function handleGroupUpdated(payload) {
-        if (!payload?.id) return;
-        setGroups((prev) => {
-          if (prev.some((g) => String(g.id) === String(payload.id))) {
-            return prev.map((g) =>
-              String(g.id) === String(payload.id) ? payload : g,
-            );
-          }
-          return [payload, ...prev];
-        });
-        const current = selectedRef.current;
-        if (
-          current?.type === "group" &&
-          String(current.id) === String(payload.id)
-        ) {
-          const memberCount = (payload.members || []).length;
-          const desc = (payload.description || "").trim();
-          setSelected((prev) =>
-            prev
-              ? {
+      loadDirectory();
+      loadFriendRequests();
+      loadMyFriends();
+      loadFriendDiscover();
+    }
+    async function handleFriendRemoved() {
+      try {
+        const { data } = await client.get("/users/me");
+        if (data?.data) updateSessionUser(data.data);
+      } catch {
+        // non-fatal
+      }
+      loadDirectory();
+      loadMyFriends();
+    }
+
+    function handleGroupUpdated(payload) {
+      if (!payload?.id) return;
+      setGroups((prev) => {
+        if (prev.some((g) => String(g.id) === String(payload.id))) {
+          return prev.map((g) =>
+            String(g.id) === String(payload.id) ? payload : g,
+          );
+        }
+        return [payload, ...prev];
+      });
+      const current = selectedRef.current;
+      if (
+        current?.type === "group" &&
+        String(current.id) === String(payload.id)
+      ) {
+        const memberCount = (payload.members || []).length;
+        const desc = (payload.description || "").trim();
+        setSelected((prev) =>
+          prev
+            ? {
                 ...prev,
                 group: payload,
                 title: payload.name || prev.title,
@@ -1008,125 +1064,125 @@ export default function Chat() {
                   ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
                   : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
               }
-              : prev,
-          );
-          setPinnedIds((payload.pinnedMessageIds || []).map(String));
-        }
+            : prev,
+        );
+        setPinnedIds((payload.pinnedMessageIds || []).map(String));
       }
+    }
 
-      function handleGroupDeleted({ id } = {}) {
-        if (!id) return;
-        setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
-        const current = selectedRef.current;
-        if (current?.type === "group" && String(current.id) === String(id)) {
-          setSelected(null);
-          setMessages([]);
-          setShowGroupSettings(false);
-          if (location.pathname !== "/chat") navigate("/chat");
-        }
+    function handleGroupDeleted({ id } = {}) {
+      if (!id) return;
+      setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
+      const current = selectedRef.current;
+      if (current?.type === "group" && String(current.id) === String(id)) {
+        setSelected(null);
+        setMessages([]);
+        setShowGroupSettings(false);
+        if (location.pathname !== "/chat") navigate("/chat");
       }
+    }
 
-      function handlePollUpdate(raw) {
-        const id = String(raw?.id || raw?._id || "");
-        if (!id) return;
-        if (!isCurrentConversation(raw)) return;
-        setMessages((prev) =>
-          prev.map((m) =>
-            String(m.id || m._id) === id
-              ? { ...decorate(raw), pollVotes: raw.pollVotes || [] }
-              : m,
+    function handlePollUpdate(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      if (!isCurrentConversation(raw)) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === id
+            ? { ...decorate(raw), pollVotes: raw.pollVotes || [] }
+            : m,
+        ),
+      );
+    }
+
+    function handleMentionNew({ from } = {}) {
+      const username =
+        String(from) === String(user.id)
+          ? user.username
+          : users.find((u) => String(u.id) === String(from))?.username;
+      showToast(`${username || "Someone"} mentioned you`);
+    }
+
+    function handleTypingStart({ from, groupId } = {}) {
+      const current = selectedRef.current;
+      if (!current) return;
+      if (
+        groupId &&
+        current.type === "group" &&
+        String(groupId) === String(current.id)
+      ) {
+        if (String(from) === String(user.id)) return;
+        const name =
+          users.find((u) => String(u.id) === String(from))?.username ||
+          (current.group?.members || []).find(
+            (m) => String(m.id || m._id) === String(from),
+          )?.username ||
+          "Someone";
+        setGroupTypingNames((prev) =>
+          prev.includes(name) ? prev : [...prev, name].slice(-3),
+        );
+        clearTimeout(typingPeerTimeoutRef.current);
+        typingPeerTimeoutRef.current = setTimeout(
+          () => setGroupTypingNames([]),
+          3000,
+        );
+        return;
+      }
+      if (current.type !== "dm") return;
+      if (String(from) !== String(current.id)) return;
+      setPeerTyping(true);
+      clearTimeout(typingPeerTimeoutRef.current);
+      typingPeerTimeoutRef.current = setTimeout(
+        () => setPeerTyping(false),
+        3000,
+      );
+    }
+
+    function handleTypingStop({ from, groupId } = {}) {
+      const current = selectedRef.current;
+      if (!current) return;
+      if (
+        groupId &&
+        current.type === "group" &&
+        String(groupId) === String(current.id)
+      ) {
+        const name = users.find((u) => String(u.id) === String(from))?.username;
+        if (name) setGroupTypingNames((prev) => prev.filter((n) => n !== name));
+        return;
+      }
+      if (current.type !== "dm") return;
+      if (String(from) !== String(current.id)) return;
+      setPeerTyping(false);
+    }
+
+    function handlePresenceSnapshot({ onlineUserIds: ids } = {}) {
+      setOnlineUserIds(new Set((ids || []).map(String)));
+    }
+
+    function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (online) next.add(String(userId));
+        else next.delete(String(userId));
+        return next;
+      });
+      if (!online && lastLoginAt) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
           ),
         );
       }
+    }
 
-      function handleMentionNew({ from } = {}) {
-        const username =
-          String(from) === String(user.id)
-            ? user.username
-            : users.find((u) => String(u.id) === String(from))?.username;
-        showToast(`${username || "Someone"} mentioned you`);
-      }
-
-      function handleTypingStart({ from, groupId } = {}) {
-        const current = selectedRef.current;
-        if (!current) return;
-        if (
-          groupId &&
-          current.type === "group" &&
-          String(groupId) === String(current.id)
-        ) {
-          if (String(from) === String(user.id)) return;
-          const name =
-            users.find((u) => String(u.id) === String(from))?.username ||
-            (current.group?.members || []).find(
-              (m) => String(m.id || m._id) === String(from),
-            )?.username ||
-            "Someone";
-          setGroupTypingNames((prev) =>
-            prev.includes(name) ? prev : [...prev, name].slice(-3),
-          );
-          clearTimeout(typingPeerTimeoutRef.current);
-          typingPeerTimeoutRef.current = setTimeout(
-            () => setGroupTypingNames([]),
-            3000,
-          );
-          return;
-        }
-        if (current.type !== "dm") return;
-        if (String(from) !== String(current.id)) return;
-        setPeerTyping(true);
-        clearTimeout(typingPeerTimeoutRef.current);
-        typingPeerTimeoutRef.current = setTimeout(
-          () => setPeerTyping(false),
-          3000,
-        );
-      }
-
-      function handleTypingStop({ from, groupId } = {}) {
-        const current = selectedRef.current;
-        if (!current) return;
-        if (
-          groupId &&
-          current.type === "group" &&
-          String(groupId) === String(current.id)
-        ) {
-          const name = users.find((u) => String(u.id) === String(from))?.username;
-          if (name) setGroupTypingNames((prev) => prev.filter((n) => n !== name));
-          return;
-        }
-        if (current.type !== "dm") return;
-        if (String(from) !== String(current.id)) return;
-        setPeerTyping(false);
-      }
-
-      function handlePresenceSnapshot({ onlineUserIds: ids } = {}) {
-        setOnlineUserIds(new Set((ids || []).map(String)));
-      }
-
-      function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
-        setOnlineUserIds((prev) => {
-          const next = new Set(prev);
-          if (online) next.add(String(userId));
-          else next.delete(String(userId));
-          return next;
-        });
-        if (!online && lastLoginAt) {
-          setUsers((prev) =>
-            prev.map((u) =>
-              String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
-            ),
-          );
-        }
-      }
-
-      function handleMessageStatus(payload) {
-        if (!payload) return;
-        if (payload.bulk && payload.conversationWith) {
-          const peer = String(payload.conversationWith);
-          setMessages((prev) =>
-            prev.map((m) =>
-              String(m.to) === peer || String(m.from) === peer
-                ? {
+    function handleMessageStatus(payload) {
+      if (!payload) return;
+      if (payload.bulk && payload.conversationWith) {
+        const peer = String(payload.conversationWith);
+        setMessages((prev) =>
+          prev.map((m) =>
+            String(m.to) === peer || String(m.from) === peer
+              ? {
                   ...m,
                   deliveredAt: m.deliveredAt || payload.readAt,
                   readAt:
@@ -1134,66 +1190,65 @@ export default function Chat() {
                       ? payload.readAt || m.readAt
                       : m.readAt,
                 }
-                : m,
-            ),
-          );
-          return;
-        }
-        const id = String(payload.id || "");
-        if (!id) return;
-        setMessages((prev) =>
-          prev.map((m) =>
-            String(m.id || m._id) === id
-              ? {
+              : m,
+          ),
+        );
+        return;
+      }
+      const id = String(payload.id || "");
+      if (!id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === id
+            ? {
                 ...m,
                 deliveredAt: payload.deliveredAt || m.deliveredAt,
                 readAt: payload.readAt || m.readAt,
                 _status: undefined,
               }
-              : m,
-          ),
-        );
-      }
+            : m,
+        ),
+      );
+    }
 
-      socket.on("message:new", handleIncoming);
-      socket.on("message:deleted", handleDeleted);
-      socket.on("message:expired", handleExpired);
-      socket.on("message:reaction", handleReaction);
-      socket.on("message:edited", handleEdited);
-      socket.on("group:new", handleGroupNew);
-      socket.on("group:updated", handleGroupUpdated);
-      socket.on("group:deleted", handleGroupDeleted);
-      socket.on("message:poll", handlePollUpdate);
-      socket.on("mention:new", handleMentionNew);
-      socket.on("typing:start", handleTypingStart);
-      socket.on("typing:stop", handleTypingStop);
-      socket.on("presence:snapshot", handlePresenceSnapshot);
-      socket.on("presence:update", handlePresenceUpdate);
-      socket.on("message:status", handleMessageStatus);
-      socket.on("friend:request:new", handleFriendRequestNew);
-      socket.on("friend:request:accepted", handleFriendRequestAccepted);
-      socket.on("friend:removed", handleFriendRemoved);
-      return () => {
-        socket.off("message:new", handleIncoming);
-        socket.off("message:deleted", handleDeleted);
-        socket.off("message:expired", handleExpired);
-        socket.off("message:reaction", handleReaction);
-        socket.off("message:edited", handleEdited);
-        socket.off("group:new", handleGroupNew);
-        socket.off("group:updated", handleGroupUpdated);
-        socket.off("group:deleted", handleGroupDeleted);
-        socket.off("message:poll", handlePollUpdate);
-        socket.off("mention:new", handleMentionNew);
-        socket.off("typing:start", handleTypingStart);
-        socket.off("typing:stop", handleTypingStop);
-        socket.off("presence:snapshot", handlePresenceSnapshot);
-        socket.off("presence:update", handlePresenceUpdate);
-        socket.off("message:status", handleMessageStatus);
-        socket.off("friend:request:new", handleFriendRequestNew);
-        socket.off("friend:request:accepted", handleFriendRequestAccepted);
-        socket.off("friend:removed", handleFriendRemoved);
-        clearTimeout(typingPeerTimeoutRef.current);
-      };
+    socket.on("message:new", handleIncoming);
+    socket.on("message:deleted", handleDeleted);
+    socket.on("message:expired", handleExpired);
+    socket.on("message:reaction", handleReaction);
+    socket.on("message:edited", handleEdited);
+    socket.on("group:new", handleGroupNew);
+    socket.on("group:updated", handleGroupUpdated);
+    socket.on("group:deleted", handleGroupDeleted);
+    socket.on("message:poll", handlePollUpdate);
+    socket.on("mention:new", handleMentionNew);
+    socket.on("typing:start", handleTypingStart);
+    socket.on("typing:stop", handleTypingStop);
+    socket.on("presence:snapshot", handlePresenceSnapshot);
+    socket.on("presence:update", handlePresenceUpdate);
+    socket.on("message:status", handleMessageStatus);
+    socket.on("friend:request:new", handleFriendRequestNew);
+    socket.on("friend:request:accepted", handleFriendRequestAccepted);
+    socket.on("friend:removed", handleFriendRemoved);
+    return () => {
+      socket.off("message:new", handleIncoming);
+      socket.off("message:deleted", handleDeleted);
+      socket.off("message:expired", handleExpired);
+      socket.off("message:reaction", handleReaction);
+      socket.off("message:edited", handleEdited);
+      socket.off("group:new", handleGroupNew);
+      socket.off("group:updated", handleGroupUpdated);
+      socket.off("group:deleted", handleGroupDeleted);
+      socket.off("message:poll", handlePollUpdate);
+      socket.off("mention:new", handleMentionNew);
+      socket.off("typing:start", handleTypingStart);
+      socket.off("typing:stop", handleTypingStop);
+      socket.off("presence:snapshot", handlePresenceSnapshot);
+      socket.off("presence:update", handlePresenceUpdate);
+      socket.off("message:status", handleMessageStatus);
+      socket.off("friend:request:new", handleFriendRequestNew);
+      socket.off("friend:request:accepted", handleFriendRequestAccepted);
+      socket.off("friend:removed", handleFriendRemoved);
+      clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [
     hasLocalKeyring,
@@ -1271,7 +1326,7 @@ export default function Chat() {
         markConversationRead(user.id, threadKey);
         bumpActivityRef.current();
         if (threadType === "dm") {
-          client.post(`/messages/${threadId}/read`).catch(() => { });
+          client.post(`/messages/${threadId}/read`).catch(() => {});
         }
         setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
@@ -1471,7 +1526,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => { });
+    enablePushNotifications().catch(() => {});
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -1587,7 +1642,7 @@ export default function Chat() {
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
-  // Update browser tab unread count prefix (must run after conversations is defined)
+// Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
       (acc, c) => acc + (c.unread ? 1 : 0),
@@ -1625,11 +1680,11 @@ export default function Chat() {
             prev.peer?.hasAvatar === fromUrl.peer?.hasAvatar;
           const sameGroup =
             String(prev.group?.id || prev.group?._id || "") ===
-            String(fromUrl.group?.id || fromUrl.group?._id || "") &&
+              String(fromUrl.group?.id || fromUrl.group?._id || "") &&
             prev.group?.name === fromUrl.group?.name &&
             prev.group?.updatedAt === fromUrl.group?.updatedAt &&
             String(prev.group?.pinnedMessageIds || "") ===
-            String(fromUrl.group?.pinnedMessageIds || "");
+              String(fromUrl.group?.pinnedMessageIds || "");
           if (
             prev.title === fromUrl.title &&
             prev.subtitle === fromUrl.subtitle &&
@@ -1781,11 +1836,11 @@ export default function Chat() {
       setContactLookupResult((prev) =>
         prev && String(prev.id) === String(userId)
           ? {
-            ...prev,
-            requestStatus:
-              data?.data?.status === "accepted" ? "friends" : "pending_sent",
-            requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
-          }
+              ...prev,
+              requestStatus:
+                data?.data?.status === "accepted" ? "friends" : "pending_sent",
+              requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
+            }
           : prev,
       );
     } catch (err) {
@@ -1895,7 +1950,42 @@ export default function Chat() {
     return policy;
   }
 
-  async function sendGroupPayload(plaintext, { kind, mentionedUserIds } = {}) {
+  function mergeConfirmedMessage(prev, { tempId, serverRaw, displayText }) {
+    const serverId = String(serverRaw.id || serverRaw._id);
+    const confirmed = {
+      ...decorate(serverRaw),
+      ...(displayText != null ? { text: displayText } : {}),
+      _pending: undefined,
+      _status: undefined,
+    };
+    let sawServer = false;
+    const next = [];
+    for (const m of prev) {
+      const mid = String(m.id || m._id);
+      if (tempId && mid === String(tempId)) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      if (mid === serverId) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      next.push(m);
+    }
+    if (!sawServer) next.push(confirmed);
+    return next;
+  }
+
+  async function sendGroupPayload(
+    plaintext,
+    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+  ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
     }
@@ -1913,7 +2003,8 @@ export default function Chat() {
       payload.envelopes = sealGroupEnvelopes(plaintext, group);
     }
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
-    if (replyTo) payload.replyTo = replyTo.id || replyTo._id;
+    const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
+    if (reply) payload.replyTo = reply;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -1922,11 +2013,13 @@ export default function Chat() {
       payload,
     );
     recordActivityFromMessage(data.data);
-    setMessages((prev) => {
-      const id = String(data.data.id || data.data._id);
-      if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-      return [...prev, decorate(data.data)];
-    });
+    setMessages((prev) =>
+      mergeConfirmedMessage(prev, {
+        tempId,
+        serverRaw: data.data,
+        displayText: displayText ?? plaintext,
+      }),
+    );
     return data.data;
   }
 
@@ -2178,10 +2271,10 @@ export default function Chat() {
           current.map((message) =>
             message.id === assistantMessageId
               ? {
-                ...message,
-                text: finalPayload.content,
-                kind: "ai",
-              }
+                  ...message,
+                  text: finalPayload.content,
+                  kind: "ai",
+                }
               : message,
           ),
         );
@@ -2205,10 +2298,10 @@ export default function Chat() {
         current.map((message) =>
           message.id === assistantMessageId
             ? {
-              ...message,
-              text: message.text?.trim() || fallback,
-              failed: true,
-            }
+                ...message,
+                text: message.text?.trim() || fallback,
+                failed: true,
+              }
             : message,
         ),
       );
@@ -2347,7 +2440,7 @@ export default function Chat() {
           setMessages((prev) =>
             prev.map((m) =>
               String(m.id || m._id) ===
-                String(editingMessage.id || editingMessage._id)
+              String(editingMessage.id || editingMessage._id)
                 ? decorate(data.data)
                 : m,
             ),
@@ -2374,7 +2467,7 @@ export default function Chat() {
           setMessages((prev) =>
             prev.map((m) =>
               String(m.id || m._id) ===
-                String(editingMessage.id || editingMessage._id)
+              String(editingMessage.id || editingMessage._id)
                 ? decorate(data.data)
                 : m,
             ),
@@ -2404,14 +2497,63 @@ export default function Chat() {
           ? encodeAnnouncement(bodyText)
           : bodyText;
         const mentionedUserIds = extractMentions(bodyText, group.members || []);
-        await sendGroupPayload(plaintext, {
-          kind: asAnnouncement ? "announcement" : "text",
-          mentionedUserIds,
-        });
-        if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
-          await invokeGroupQuantumAI(bodyText, group);
-        }
+        const kind = asAnnouncement ? "announcement" : "text";
+        const tempId = `tmp-${crypto.randomUUID()}`;
+        const replySnapshot = replyTo;
+        const draftSnapshot = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
         setPendingAnnouncement(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            group: selected.id,
+            text: plaintext,
+            kind,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                  id: replySnapshot.id || replySnapshot._id,
+                  from: replySnapshot.from,
+                  text: replySnapshot.text,
+                }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          await sendGroupPayload(plaintext, {
+            kind,
+            mentionedUserIds,
+            tempId,
+            displayText: plaintext,
+            replyToId: replySnapshot
+              ? replySnapshot.id || replySnapshot._id
+              : null,
+          });
+          if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
+            await invokeGroupQuantumAI(bodyText, group);
+          }
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       } else {
         const peer =
           selected.peer ||
@@ -2422,29 +2564,66 @@ export default function Chat() {
           showToast("Missing encryption keys for this conversation", "error");
           return;
         }
-        const forRecipient = sealMessage(draft, pickRandom(recipientKeys));
-        const forSender = sealMessage(draft, myKey.publicKey);
-        const body = { to: selected.id, forRecipient, forSender };
-        if (replyTo) body.replyTo = replyTo.id || replyTo._id;
-        if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
-        const forwardPolicy = buildForwardPolicy();
-        if (forwardPolicy) body.forwardPolicy = forwardPolicy;
-        const { data } = await client.post("/messages", body);
-        recordActivityFromMessage(data.data);
-        setMessages((prev) => {
-          const id = String(data.data.id || data.data._id);
-          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-          return [...prev, decorate(data.data)];
-        });
+        const draftSnapshot = draft;
+        const replySnapshot = replyTo;
+        const tempId = `tmp-${crypto.randomUUID()}`;
+        const plaintext = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            to: selected.id,
+            text: plaintext,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                  id: replySnapshot.id || replySnapshot._id,
+                  from: replySnapshot.from,
+                  text: replySnapshot.text,
+                }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          const forRecipient = sealMessage(plaintext, pickRandom(recipientKeys));
+          const forSender = sealMessage(plaintext, myKey.publicKey);
+          const body = { to: selected.id, forRecipient, forSender };
+          if (replySnapshot) body.replyTo = replySnapshot.id || replySnapshot._id;
+          if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
+          const forwardPolicy = buildForwardPolicy();
+          if (forwardPolicy) body.forwardPolicy = forwardPolicy;
+          const { data } = await client.post("/messages", body);
+          recordActivityFromMessage(data.data);
+          setMessages((prev) =>
+            mergeConfirmedMessage(prev, {
+              tempId,
+              serverRaw: data.data,
+              displayText: plaintext,
+            }),
+          );
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       }
-      setDraft("");
-      setReplyTo(null);
-      setMentionOpen(false);
-      playSendSound();
-      markConversationRead(user.id, selected.key);
-      bumpActivity();
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      setTimeout(() => scrollToBottom("smooth"), 50);
     } catch (err) {
       showToast(
         err.response?.data?.error || err.message || "Failed to send message",
@@ -2469,7 +2648,7 @@ export default function Chat() {
       return;
     }
 
-    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const uploadId = crypto.randomUUID();
     const controller = new AbortController();
     setUploads((prev) => [
       ...prev,
@@ -2647,8 +2826,8 @@ export default function Chat() {
         failed += 1;
         showToast(
           err.response?.data?.error ||
-          err.message ||
-          `Failed to send ${file.name}`,
+            err.message ||
+            `Failed to send ${file.name}`,
           "error",
         );
       }
@@ -2693,8 +2872,8 @@ export default function Chat() {
             file.name && file.name !== "image.png"
               ? file
               : new File([file], `paste-${Date.now()}.png`, {
-                type: file.type || "image/png",
-              });
+                  type: file.type || "image/png",
+                });
           imageFiles.push(named);
         }
       }
@@ -3008,7 +3187,7 @@ export default function Chat() {
           if (check.data?.data?.allowed === false) {
             showToast(
               check.data.data.reason ||
-              "Forwarding not allowed for this message",
+                "Forwarding not allowed for this message",
               "error",
             );
             return;
@@ -3141,8 +3320,8 @@ export default function Chat() {
         const targetId =
           String(existing?.from) === String(user.id)
             ? (group?.members || [])
-              .map((m) => String(m.id || m._id))
-              .find((id) => id !== String(user.id))
+                .map((m) => String(m.id || m._id))
+                .find((id) => id !== String(user.id))
             : existing?.from;
         const member = (group?.members || []).find(
           (m) => String(m.id || m._id) === String(targetId),
@@ -3250,8 +3429,8 @@ export default function Chat() {
     } catch (err) {
       showToast(
         err.response?.data?.error ||
-        err.message ||
-        "Could not start the call. Check your connection and try again.",
+          err.message ||
+          "Could not start the call. Check your connection and try again.",
         "error",
       );
     }
@@ -3267,39 +3446,40 @@ export default function Chat() {
     } catch (err) {
       showToast(
         err.response?.data?.error ||
-        err.message ||
-        "Could not start the meeting. Check your connection and try again.",
+          err.message ||
+          "Could not start the meeting. Check your connection and try again.",
         "error",
       );
     }
   }
+
   // Only sent-bubble color and wallpaper vary by theme — received bubbles
-  // stay the default white so text stays readable regardless of which
-  // theme color is picked. When the theme is 'default', the var is left
-  // unset so the original hardcoded CSS (gradient bubble, transparent
-  // background) shows through untouched.
-  const themeStyle = useMemo(() => {
-    const vars = {};
-    if (themeCatalog && chatTheme.bubbleColorId && chatTheme.bubbleColorId !== 'default') {
-      const bubble = themeCatalog.bubbleColors.find((b) => b.id === chatTheme.bubbleColorId);
-      if (bubble) {
-        vars['--bubble-mine'] = bubble.mine;
-        // `fg` is optional on older catalog responses — falls back to the
-        // app theme's default (white in dark/eyecare, dark text in light)
-        // via the CSS `var(--bubble-mine-fg, ...)` fallback if omitted.
-        if (bubble.fg) {
-          vars['--bubble-mine-fg'] = bubble.fg;
-          vars['--bubble-mine-time'] = `color-mix(in srgb, ${bubble.fg} 78%, transparent)`;
+    // stay the default white so text stays readable regardless of which
+    // theme color is picked. When the theme is 'default', the var is left
+    // unset so the original hardcoded CSS (gradient bubble, transparent
+    // background) shows through untouched.
+    const themeStyle = useMemo(() => {
+      const vars = {};
+      if (themeCatalog && chatTheme.bubbleColorId && chatTheme.bubbleColorId !== 'default') {
+        const bubble = themeCatalog.bubbleColors.find((b) => b.id === chatTheme.bubbleColorId);
+        if (bubble) {
+          vars['--bubble-mine'] = bubble.mine;
+          // `fg` is optional on older catalog responses — falls back to the
+          // app theme's default (white in dark/eyecare, dark text in light)
+          // via the CSS `var(--bubble-mine-fg, ...)` fallback if omitted.
+          if (bubble.fg) {
+            vars['--bubble-mine-fg'] = bubble.fg;
+            vars['--bubble-mine-time'] = `color-mix(in srgb, ${bubble.fg} 78%, transparent)`;
+          }
         }
       }
-    }
-    if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
-      vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
-    } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
-      vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
-    }
-    return vars;
-  }, [themeCatalog, chatTheme, customWallpaperUrl]);
+      if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
+        vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
+      } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
+        vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
+      }
+      return vars;
+    }, [themeCatalog, chatTheme, customWallpaperUrl]);
 
   const title = useMemo(() => {
     if (!selected) return "Select a conversation";
@@ -3536,7 +3716,7 @@ export default function Chat() {
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
-        notifSettings={notifSettings}
+         notifSettings={notifSettings}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
@@ -3549,17 +3729,17 @@ export default function Chat() {
         onHide={handleHideChat}
         onBlock={handleBlockUser}
         onMute={(c) => {
-          const wasMuted = mutedKeys.map(String).includes(String(c.key));
-          setMutedKeys(toggleMuteChat(user.id, c.key));
-          const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
-          const request = wasMuted
-            ? unmuteChat(payload)
-            : muteChat({ ...payload, duration: "always" });
-          request.catch(() => {
-            // Local toggle already reflects the change; server sync failed silently.
-            // It will resync from server data on next login/session refresh.
-          });
-        }}
+  const wasMuted = mutedKeys.map(String).includes(String(c.key));
+  setMutedKeys(toggleMuteChat(user.id, c.key));
+  const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
+  const request = wasMuted
+    ? unmuteChat(payload)
+    : muteChat({ ...payload, duration: "always" });
+  request.catch(() => {
+    // Local toggle already reflects the change; server sync failed silently.
+    // It will resync from server data on next login/session refresh.
+  });
+}}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
@@ -3603,29 +3783,29 @@ export default function Chat() {
         className="chat-main"
         onDragEnter={
           canChat &&
-            selected &&
-            (selected.type === "dm" || selected.type === "group")
+          selected &&
+          (selected.type === "dm" || selected.type === "group")
             ? handleDragEnter
             : undefined
         }
         onDragLeave={
           canChat &&
-            selected &&
-            (selected.type === "dm" || selected.type === "group")
+          selected &&
+          (selected.type === "dm" || selected.type === "group")
             ? handleDragLeave
             : undefined
         }
         onDragOver={
           canChat &&
-            selected &&
-            (selected.type === "dm" || selected.type === "group")
+          selected &&
+          (selected.type === "dm" || selected.type === "group")
             ? handleDragOver
             : undefined
         }
         onDrop={
           canChat &&
-            selected &&
-            (selected.type === "dm" || selected.type === "group")
+          selected &&
+          (selected.type === "dm" || selected.type === "group")
             ? handleDrop
             : undefined
         }
@@ -3741,7 +3921,7 @@ export default function Chat() {
                       } catch (err) {
                         showToast(
                           err.response?.data?.error ||
-                          "Could not resend verification",
+                            "Could not resend verification",
                           "error",
                         );
                       }
@@ -3799,13 +3979,13 @@ export default function Chat() {
                     onKeyDown={
                       selected.type === "group" || selected.type === "dm"
                         ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            if (selected.type === "group")
-                              setShowGroupSettings(true);
-                            else setProfileUserId(selected.id);
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              if (selected.type === "group")
+                                setShowGroupSettings(true);
+                              else setProfileUserId(selected.id);
+                            }
                           }
-                        }
                         : undefined
                     }
                     title={
@@ -3860,6 +4040,7 @@ export default function Chat() {
                   !selected?.peer?.isSystemUser &&
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
+                    
                       {selected && themeCatalog && (
                         <button
                           type="button"
@@ -4112,18 +4293,22 @@ export default function Chat() {
                         const m = item.data;
                         const prevMsg =
                           index > 0 &&
-                            messagesWithSeparators[index - 1].type === "message"
+                          messagesWithSeparators[index - 1].type === "message"
                             ? messagesWithSeparators[index - 1].data
                             : null;
                         const isGrouped =
                           prevMsg &&
                           String(prevMsg.from) === String(m.from) &&
                           new Date(m.createdAt) - new Date(prevMsg.createdAt) <
-                          120000;
+                            120000;
                         const mid = String(m.id || m._id);
 
                         return (
-                          <div key={item.key} id={`msg-${mid}`}>
+                          <div
+                            key={item.key}
+                            id={`msg-${mid}`}
+                            className="message-item"
+                          >
                             <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}
@@ -4156,12 +4341,12 @@ export default function Chat() {
                               replyPreview={
                                 m.replyTo
                                   ? {
-                                    label:
-                                      usernameById.get(
-                                        String(m.replyTo.from),
-                                      ) || "Message",
-                                    text: m.replyTo.text || "[encrypted]",
-                                  }
+                                      label:
+                                        usernameById.get(
+                                          String(m.replyTo.from),
+                                        ) || "Message",
+                                      text: m.replyTo.text || "[encrypted]",
+                                    }
                                   : null
                               }
                               onDelete={handleDeleteMessage}
@@ -4185,12 +4370,12 @@ export default function Chat() {
                               }
                               onEdit={
                                 m.text &&
-                                  !String(m.text).trim().startsWith('{"__qc')
+                                !String(m.text).trim().startsWith('{"__qc')
                                   ? (msg) => {
-                                    setReplyTo(null);
-                                    setEditingMessage(msg);
-                                    setDraft(msg.text || "");
-                                  }
+                                      setReplyTo(null);
+                                      setEditingMessage(msg);
+                                      setDraft(msg.text || "");
+                                    }
                                   : undefined
                               }
                             />
@@ -4440,15 +4625,14 @@ export default function Chat() {
           </>
         )}
       </main>
-
       {themeModalOpen && selected && (
-        <ChatThemeModal
-          peerId={selected.id}
-          theme={chatTheme}
-          onApplied={(updated) => setChatTheme(updated)}
-          onClose={() => setThemeModalOpen(false)}
-        />
-      )}
+              <ChatThemeModal
+                peerId={selected.id}
+                theme={chatTheme}
+                onApplied={(updated) => setChatTheme(updated)}
+                onClose={() => setThemeModalOpen(false)}
+              />
+            )}
 
       {aiPanelOpen && (
         <AIAssistantPanel
@@ -4487,10 +4671,10 @@ export default function Chat() {
         peerLabel={
           webrtc.call
             ? users.find((u) => String(u.id) === String(webrtc.call.peerId))
-              ?.displayName ||
-            users.find((u) => String(u.id) === String(webrtc.call.peerId))
-              ?.username ||
-            webrtc.call.peerName
+                ?.displayName ||
+              users.find((u) => String(u.id) === String(webrtc.call.peerId))
+                ?.username ||
+              webrtc.call.peerName
             : ""
         }
         onAccept={() =>
@@ -4603,19 +4787,19 @@ export default function Chat() {
             }
           }}
           onMute={() => {
-            const key = conversationKeyForUser(profileUserId);
-            const wasMuted = mutedKeys.map(String).includes(String(key));
-            setMutedKeys(toggleMuteChat(user.id, key));
-            const request = wasMuted
-              ? unmuteChat({ peerId: profileUserId })
-              : muteChat({ peerId: profileUserId, duration: "always" });
-            request
-              .then((res) => {
-                if (res?.data) updateSessionUser(res.data);
-              })
-              .catch(() => { });
-          }}
-          onArchive={() => {
+  const key = conversationKeyForUser(profileUserId);
+  const wasMuted = mutedKeys.map(String).includes(String(key));
+  setMutedKeys(toggleMuteChat(user.id, key));
+  const request = wasMuted
+    ? unmuteChat({ peerId: profileUserId })
+    : muteChat({ peerId: profileUserId, duration: "always" });
+  request
+    .then((res) => {
+      if (res?.data) updateSessionUser(res.data);
+    })
+    .catch(() => {});
+}}
+       onArchive={() => {
             const key = conversationKeyForUser(profileUserId);
             setArchivedKeys(toggleArchiveChat(user.id, key));
           }}
@@ -4832,8 +5016,9 @@ export default function Chat() {
                   String(m.from) === String(user.id)
                     ? "You"
                     : usernameById.get(String(m.from)) || "User";
-                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? "[attachment]" : "[encrypted]")
-                  }`;
+                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${
+                  m.text || (m.attachment ? "[attachment]" : "[encrypted]")
+                }`;
               })
               .join("\n");
             const blob = new Blob([lines], { type: "text/plain" });
@@ -4933,25 +5118,25 @@ export default function Chat() {
         starred={
           actionSheetMessage
             ? starredIds
-              .map(String)
-              .includes(
-                String(actionSheetMessage.id || actionSheetMessage._id),
-              )
+                .map(String)
+                .includes(
+                  String(actionSheetMessage.id || actionSheetMessage._id),
+                )
             : false
         }
         pinned={
           actionSheetMessage
             ? pinnedIds
-              .map(String)
-              .includes(
-                String(actionSheetMessage.id || actionSheetMessage._id),
-              )
+                .map(String)
+                .includes(
+                  String(actionSheetMessage.id || actionSheetMessage._id),
+                )
             : false
         }
         canEdit={Boolean(
           actionSheetMessage?.text &&
-          !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
-          String(actionSheetMessage.from) === String(user.id),
+            !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
+            String(actionSheetMessage.from) === String(user.id),
         )}
         canForward={actionSheetMessage?.allowForward !== false}
         onReply={(msg) => {

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import {
   Mic,
   MicOff,
@@ -9,6 +8,7 @@ import {
   Video,
   VideoOff,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 function attachStream(el, stream, { muted = false } = {}) {
   if (!el) return;
@@ -133,6 +133,7 @@ export default function CallOverlay({
                 stream={remoteStream}
                 contain={remoteScreen}
                 label={remoteScreen ? `${name}'s screen` : name}
+                muted
               />
             ) : (
               <VideoTile stream={screenStream} muted contain label="Your screen" />

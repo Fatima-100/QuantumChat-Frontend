@@ -243,7 +243,7 @@ export default function useWebRTCCall({
 
   const attachLocalMedia = useCallback(async (video) => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: Boolean(video),
     });
     localStreamRef.current = stream;
