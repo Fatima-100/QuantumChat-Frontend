@@ -3187,10 +3187,23 @@ input:focus-visible,
   flex: 1;
   overflow-y: auto;
   overflow-anchor: none; /* prevent browser scroll-anchoring from fighting chat auto-scroll */
-  padding: 16px 16px 24px;
+  /* Generous side inset — mine bubbles were flush/clipped against the pane edge */
+  padding: 18px 28px 32px 18px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.message-list > .message-item,
+.message-list > .qc-swipe-reply-wrap {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.message-item + .message-item {
+  margin-top: 0;
 }
 
 /* Message rows & bubbles */
@@ -3201,6 +3214,7 @@ input:focus-visible,
   gap: 4px;
   position: relative;
   z-index: 1;
+  max-width: 100%;
 }
 
 .message-row.mine {
@@ -3223,20 +3237,24 @@ input:focus-visible,
   }
 }
 
-/* The width cap lives here, not on .message-bubble: the wrap is a child of the
-   full-width .message-row, so a percentage resolves against the row. Putting it
-   on the bubble made it a percentage of its own shrink-to-fit parent, which
-   clamped every bubble to ~68% of its natural width and wrapped text early. */
+/* Width cap on the wrap (child of full-width .message-row). Keep the bubble at
+   max-width: 100% only — a % max-width on the bubble itself resolves against a
+   fit-content parent and shrinks/wraps text too early. */
 .message-bubble-wrap {
   position: relative;
   display: flex;
   align-items: flex-start;
   width: fit-content;
-  max-width: min(78%, 560px);
+  max-width: min(var(--bubble-max-width, 78%), 560px);
 }
 
 .message-bubble-wrap.mine {
   flex-direction: row-reverse;
+  margin-right: 2px;
+}
+
+.message-bubble-wrap.theirs {
+  margin-left: 2px;
 }
 
 .message-bubble {
@@ -3252,22 +3270,22 @@ input:focus-visible,
   border-radius: 14px 14px 14px 5px;
   background: var(--bubble-theirs-bg, var(--bg-elevated));
   color: var(--bubble-theirs-fg, var(--text-primary));
-  backdrop-filter: blur(12px);
   border: 1px solid var(--bubble-theirs-border, var(--border-glass));
   box-shadow: var(--shadow-sm);
   font-size: 14.5px;
   font-weight: 450;
-  line-height: 1.4;
+  line-height: 1.45;
   word-break: normal;
   overflow-wrap: break-word;
+  overflow: visible;
 }
 
 .message-bubble.mine {
-  border-radius: 14px 14px 5px 14px;
+  border-radius: 16px 16px 6px 16px;
   background: var(--accent-gradient);
   color: var(--bubble-mine-fg, #ffffff);
   border-color: transparent;
-  box-shadow: var(--shadow-glow);
+  box-shadow: none;
 }
 
 /* Call message card */
@@ -3715,9 +3733,9 @@ input:focus-visible,
   opacity: 0.9;
 }
 
-/* Message grouping tweaks */
+/* Message grouping tweaks — keep air between stacked bubbles */
 .message-row.grouped {
-  margin-top: -3px; /* Brings consecutive messages closer */
+  margin-top: 2px;
 }
 
 .message-bubble.mine.grouped {
@@ -4891,7 +4909,7 @@ input:focus-visible,
   }
 
   .message-list {
-    padding: 16px;
+    padding: 14px 20px 28px 12px;
   }
 
   .scroll-bottom-pill {
@@ -10802,8 +10820,12 @@ body.theme-dreamcloud {
   min-width: 0;
 }
 
+.qc-shell .message-bubble-wrap {
+  max-width: min(var(--bubble-max-width, 78%), 560px);
+}
+
 .qc-shell .message-bubble {
-  max-width: min(var(--bubble-max-width), 460px);
+  max-width: 100%;
 }
 
 .qc-shell .composer-shell {
@@ -10813,6 +10835,9 @@ body.theme-dreamcloud {
 .qc-swipe-reply-wrap {
   position: relative;
   touch-action: pan-y;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .qc-swipe-reply-hint {
@@ -10831,7 +10856,9 @@ body.theme-dreamcloud {
 }
 
 .qc-msg-row {
-  will-change: transform;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .call-overlay.is-minimized {
@@ -11001,14 +11028,17 @@ body.theme-dreamcloud {
   pointer-events: none;
 }
 
-/* Perf: skip offscreen layout for long conversation lists */
-.user-list-item,
-.qc-msg-row {
+/* Perf: skip offscreen layout for long conversation lists.
+   Do NOT apply content-visibility to message rows — paint containment clips
+   bubble shadows/corners and makes sent messages look cut off on the right. */
+.user-list-item {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;
 }
-.message-list .qc-msg-row {
-  contain-intrinsic-size: auto 88px;
+
+.qc-swipe-reply-wrap,
+.qc-msg-row {
+  max-width: 100%;
 }
 
 .story-viewer-overlay {
