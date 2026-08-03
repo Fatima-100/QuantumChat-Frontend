@@ -17,7 +17,7 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import { motion } from 'framer-motion';
 import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
-
+import { shouldNotify, playNotificationSound, showNotificationPopup } from '../utils/notificationDispatch.js';
 const MAX_STORY_SECONDS = 60;
 const TTL_PRESETS = [
   { label: '1 hour', ms: 60 * 60 * 1000 },
@@ -173,7 +173,7 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
-const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError }, ref) {
+const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError, notifSettings }, ref) {
   const { keyringInSync, keyringNeedsResync, refreshUserFromServer, verifyKeySync } = useAuth();
   const [stories, setStories] = useState([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
@@ -224,13 +224,29 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return undefined;
-    function onNew(payload) {
+  function onNew(payload) {
       if (!payload?.id) return;
       if (!viewerCanSeeStory(payload, currentUser?.id)) return;
+      const isOwn = String(payload.user?.id) === String(currentUser?.id);
       setStories((prev) => {
         if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
         return [payload, ...prev];
       });
+
+      if (!isOwn) {
+        const mode = notifSettings?.statusNotifications;
+        // 'favorites_only' has no dedicated favorites list yet — approximated as friends-only.
+        const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
+        const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
+        if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
+          playNotificationSound(notifSettings);
+          showNotificationPopup(
+            { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
+            notifSettings,
+            () => {},
+          );
+        }
+      }
     }
     function onDeleted({ id } = {}) {
       if (!id) return;

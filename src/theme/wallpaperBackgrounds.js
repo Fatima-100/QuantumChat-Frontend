@@ -12,28 +12,26 @@
 export const WALLPAPER_BACKGROUNDS = {
   none: 'transparent',
   'quantum-dots': 'radial-gradient(rgba(148, 163, 253, 0.22) 1.5px, transparent 1.5px) 0 0/16px 16px',
-  aurora:
-    'radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.22), transparent 45%), ' +
-    'radial-gradient(circle at 85% 15%, rgba(217, 70, 239, 0.18), transparent 45%), ' +
-    'radial-gradient(circle at 50% 90%, rgba(168, 85, 247, 0.16), transparent 50%)',
+  // These 6 are real photos in public/wallpapers/ (Vite serves anything in
+  // public/ from the site root, so the path is just /wallpapers/<file>, no
+  // import needed). center/cover/no-repeat is specified explicitly here
+  // because .message-list no longer forces a global background-size — see
+  // the comment on WALLPAPER_BACKGROUNDS above.
+  aurora: "url('/wallpapers/aurora.jpg') center/cover no-repeat",
   circuit:
     'linear-gradient(rgba(148, 163, 253, 0.14) 1px, transparent 1px) 0 0/24px 24px, ' +
     'linear-gradient(90deg, rgba(148, 163, 253, 0.14) 1px, transparent 1px) 0 0/24px 24px',
-  floral:
-    'radial-gradient(circle at 20% 30%, rgba(236, 72, 153, 0.2) 8px, transparent 9px), ' +
-    'radial-gradient(circle at 70% 60%, rgba(217, 70, 239, 0.16) 10px, transparent 11px), ' +
-    'radial-gradient(circle at 40% 80%, rgba(129, 140, 248, 0.16) 6px, transparent 7px)',
-  geometric: 'repeating-linear-gradient(135deg, rgba(148, 163, 253, 0.12) 0 10px, transparent 10px 20px)',
+  floral: "url('/wallpapers/floral.jpg') center/cover no-repeat",
+  geometric: "url('/wallpapers/geometric.jpg') center/cover no-repeat",
 
-  // --- New: animated wallpapers (base gradient here; the moving/glowing
-  // part is a CSS-animated pseudo-element, wired up via WALLPAPER_FX below
-  // and the matching keyframes in index.css) ---
-  stardust: 'radial-gradient(circle at 30% 70%, rgba(129, 140, 248, 0.18), transparent 60%)',
-  nebula:
-    'radial-gradient(circle at 25% 30%, rgba(217, 70, 239, 0.2), transparent 55%), ' +
-    'radial-gradient(circle at 75% 70%, rgba(56, 189, 248, 0.18), transparent 55%)',
-  prism:
-    'linear-gradient(120deg, rgba(99, 102, 241, 0.16), rgba(217, 70, 239, 0.12), rgba(56, 189, 248, 0.16))',
+  // --- Animated wallpapers: the photo is the base layer here; the
+  // moving/glowing part is a separate CSS-animated pseudo-element on top,
+  // wired up via WALLPAPER_FX below and the matching keyframes in
+  // index.css — so the sparkle/glow/prism-shift effect still layers
+  // correctly over these photos, same as it did over the old gradients. ---
+  stardust: "url('/wallpapers/stardust.jpg') center/cover no-repeat",
+  nebula: "url('/wallpapers/nebula.jpg') center/cover no-repeat",
+  prism: "url('/wallpapers/prism.jpg') center/cover no-repeat",
 };
 
 // Maps a wallpaper id to the animation variant applied via the

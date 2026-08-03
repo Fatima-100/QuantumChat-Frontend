@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
-import client from "../api/client.js";
+import client, { muteChat, unmuteChat } from "../api/client.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
@@ -52,6 +52,7 @@ import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
 import { downloadKeyFile, formatKeyFile, parseKeyFile, } from "../crypto/keyFile.js";
 import { findSecretKeyForPublicKey, getCurrentKeySet, } from "../crypto/keyStorage.js";
 import { pickRandom, sealBytes, sealMessage, secretboxSeal, unsealMessage, } from "../crypto/keys.js";
@@ -71,6 +72,7 @@ import {
   toggleMuteChat,
 } from "../utils/chatPrefs.js";
 import { chatPathForSelection, selectionFromParams, } from "../utils/chatRoutes.js";
+import { updateFaviconBadge } from "../utils/faviconBadge.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -88,6 +90,11 @@ import {
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
+import {
+  playNotificationSound,
+  shouldNotify,
+  showNotificationPopup
+} from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -154,6 +161,7 @@ export default function Chat() {
     updateSessionUser,
   } = useAuth();
   const { showToast } = useToast();
+  const { settings: notifSettings } = useNotificationSettings();
   const navigate = useNavigate();
   const params = useParams();
   const location = useLocation();
@@ -196,6 +204,10 @@ export default function Chat() {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [myFriends, setMyFriends] = useState([]);
   const [myFriendsLoading, setMyFriendsLoading] = useState(false);
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactLookupResult, setContactLookupResult] = useState(null);
+  const [contactLookupLoading, setContactLookupLoading] = useState(false);
+  const [contactLookupError, setContactLookupError] = useState("");
   // Custom UI feature states
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -342,6 +354,7 @@ export default function Chat() {
   const recordChunksRef = useRef([]);
   const recordTimerRef = useRef(null);
   const recordStartedAtRef = useRef(0);
+  const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
   const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
@@ -364,7 +377,20 @@ export default function Chat() {
         usersRef.current.find((u) => String(u.id) === String(peerId));
       return peer?.publicKeys || [];
     },
-    onMissed: () => showToast("Call ended or declined", "info"),
+    onMissed: (call) => {
+      showToast("Call ended or declined", "info");
+      if (notifSettings?.callNotifications?.missedCallReminders === false) return;
+      if (!shouldNotify(notifSettings, { kind: "call" })) return;
+      const caller =
+        users.find((u) => String(u.id) === String(call?.peerId))?.displayName ||
+        users.find((u) => String(u.id) === String(call?.peerId))?.username ||
+        "Someone";
+      showNotificationPopup(
+        { title: caller, body: "Missed call" },
+        notifSettings,
+        () => { },
+      );
+    },
     onEnd: async (info) => {
       try {
         if (info.role !== "caller") return;
@@ -403,6 +429,36 @@ export default function Chat() {
       }
     },
   });
+  useEffect(() => {
+    const call = webrtc.call;
+    if (!call || call.role !== "callee" || call.status !== "incoming") return;
+    if (notifiedCallIdRef.current === call.callId) return;
+    notifiedCallIdRef.current = call.callId;
+
+    const enabled = call.video
+      ? notifSettings?.callNotifications?.videoCallEnabled !== false
+      : notifSettings?.callNotifications?.voiceCallEnabled !== false;
+    if (!enabled || !shouldNotify(notifSettings, { kind: "call" })) return;
+
+    const caller =
+      users.find((u) => String(u.id) === String(call.peerId))?.displayName ||
+      users.find((u) => String(u.id) === String(call.peerId))?.username ||
+      "Someone";
+
+    playNotificationSound(notifSettings);
+    showNotificationPopup(
+      { title: caller, body: call.video ? "Incoming video call" : "Incoming voice call" },
+      notifSettings,
+      () => {
+        // Clicking the popup just focuses the tab — CallOverlay is already
+        // rendered globally whenever webrtc.call is set, so no navigation needed.
+      },
+    );
+
+    if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
+      navigator.vibrate([200, 100, 200]);
+    }
+  }, [webrtc.call, users, notifSettings]);
 
   const meetingCall = useMeetingCall({
     userId: user?.id,
@@ -668,9 +724,72 @@ export default function Chat() {
     }
   }, []);
 
+  const handleLookupContact = useCallback(async () => {
+    const raw = contactQuery.trim();
+    setContactLookupError("");
+    setContactLookupResult(null);
+    if (!raw) {
+      setContactLookupError("Enter an email or phone number");
+      return;
+    }
+
+    const looksEmail = raw.includes("@");
+    const looksPhone = /^[\d\s+\-().]{7,}$/.test(raw);
+    if (!looksEmail && !looksPhone) {
+      setContactLookupError("Enter a valid email or phone number");
+      return;
+    }
+
+    setContactLookupLoading(true);
+    try {
+      const params = looksEmail
+        ? { email: raw.toLowerCase() }
+        : { phone: raw };
+      const { data } = await client.get("/users/lookup", { params });
+      if (!data.data) {
+        setContactLookupError(
+          looksEmail
+            ? "No verified account found for that email"
+            : "No account found for that phone number",
+        );
+        return;
+      }
+      setContactLookupResult(data.data);
+    } catch (err) {
+      setContactLookupError(
+        err.response?.data?.error || "Lookup failed — try again",
+      );
+    } finally {
+      setContactLookupLoading(false);
+    }
+  }, [contactQuery]);
+
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
+  useEffect(() => {
+    if (!user?.id || !Array.isArray(user.mutedChats)) return;
+    const now = Date.now();
+    const serverMutedKeys = user.mutedChats
+      .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
+      .map((m) => String(m.conversationKey));
+    const serverSet = new Set(serverMutedKeys);
+
+    // Server is the source of truth once user.mutedChats has loaded — fully replace,
+    // not merge, so unmutes actually take effect (not just adds).
+    setMutedKeys(serverMutedKeys);
+
+    // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
+    // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
+    const localSet = new Set(getMutedChatKeys(user.id).map(String));
+    serverSet.forEach((key) => {
+      if (!localSet.has(key)) toggleMuteChat(user.id, key);
+    });
+    localSet.forEach((key) => {
+      if (!serverSet.has(key)) toggleMuteChat(user.id, key);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.mutedChats]);
   useEffect(() => {
     if (filter !== "friends") return;
     loadFriendDiscover(search);
@@ -715,332 +834,378 @@ export default function Chat() {
           : conversationKeyForUser(
             String(raw.from) === String(user.id) ? raw.to : raw.from,
           );
-        if (!isChatMuted(user.id, convKey)) {
+        const muted = isChatMuted(user.id, convKey);
+        if (!muted) {
           playReceiveSound();
         }
-        if (selectedRef.current?.key) {
-          markConversationRead(
-            user.id,
-            selectedRef.current.key,
-            raw.createdAt || new Date().toISOString(),
-          );
-          bumpActivity();
-        }
-      }
 
-      setMessages((prev) => {
-        const id = String(raw.id || raw._id);
-        if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-        const next = [...prev, decorate(raw)];
+        const isCurrentlyOpen = isCurrentConversation(raw);
+        const isMention = Array.isArray(raw.mentionedUserIds)
+          ? raw.mentionedUserIds.map(String).includes(String(user.id))
+          : false;
+        const notifyOk =
+          !muted &&
+          shouldNotify(notifSettings, {
+            kind: raw.group ? "group" : "dm",
+            isMention,
+          });
 
-        if (messageListRef.current) {
-          const el = messageListRef.current;
-          const isUp = el.scrollHeight - el.scrollTop - el.clientHeight > 150;
-          if (isUp) {
-            setHasUnread(true);
-          } else {
-            setTimeout(() => scrollToBottom("smooth"), 50);
+        if (notifyOk) {
+          playNotificationSound(notifSettings);
+
+          // Only pop a browser notification if this conversation isn't the one
+          // currently open and focused — matches standard chat-app behavior.
+          if (!isCurrentlyOpen || document.visibilityState === "hidden") {
+            const senderName =
+              users.find((u) => String(u.id) === String(raw.from))?.displayName ||
+              users.find((u) => String(u.id) === String(raw.from))?.username ||
+              "Someone";
+            const groupName = raw.group
+              ? groups.find((g) => String(g.id) === String(raw.group))?.name
+              : null;
+            const { title, body } = buildNotificationText(
+              {
+                senderName,
+                messageText: raw.group ? raw.content : null, // DM text stays encrypted here; see note below
+                isGroup: Boolean(raw.group),
+                groupName,
+              },
+              notifSettings,
+            );
+            showNotificationPopup({ title, body }, notifSettings, () => {
+              const target = raw.group
+                ? { key: convKey, type: "group", id: raw.group }
+                : { key: convKey, type: "dm", id: String(raw.from) === String(user.id) ? raw.to : raw.from };
+              handleSelectConversation(target);
+            });
+          }
+
+          if (selectedRef.current?.key) {
+            markConversationRead(
+              user.id,
+              selectedRef.current.key,
+              raw.createdAt || new Date().toISOString(),
+            );
+            bumpActivity();
           }
         }
-        return next;
-      });
 
-      if (String(raw.from) !== String(user.id) && !raw.group) {
-        const socket = getSocket();
-        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
-      }
-    }
+        setMessages((prev) => {
+          const id = String(raw.id || raw._id);
+          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+          const next = [...prev, decorate(raw)];
 
-    function handleDeleted(payload) {
-      const id = String(payload?.id || "");
-      if (!id) return;
-      setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
-    }
-
-    function handleExpired(payload) {
-      const id = String(payload?.id || "");
-      if (!id) return;
-      setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
-    }
-
-    function handleReaction(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-      );
-    }
-
-    function handleEdited(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-      );
-    }
-
-    function handleGroupNew(group) {
-      setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(group.id))) {
-          return prev.map((g) =>
-            String(g.id) === String(group.id) ? group : g,
-          );
-        }
-        return [group, ...prev];
-      });
-    }
-    async function handleFriendRequestNew() {
-      loadFriendRequests();
-      showToast("New friend request", "info");
-    }
-    async function handleFriendRequestAccepted() {
-      try {
-        const { data } = await client.get("/users/me");
-        if (data?.data) updateSessionUser(data.data);
-      } catch {
-        // non-fatal
-      }
-
-      loadDirectory();
-      loadFriendRequests();
-      loadMyFriends();
-      loadFriendDiscover();
-    }
-    async function handleFriendRemoved() {
-      try {
-        const { data } = await client.get("/users/me");
-        if (data?.data) updateSessionUser(data.data);
-      } catch {
-        // non-fatal
-      }
-      loadDirectory();
-      loadMyFriends();
-    }
-
-    function handleGroupUpdated(payload) {
-      if (!payload?.id) return;
-      setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(payload.id))) {
-          return prev.map((g) =>
-            String(g.id) === String(payload.id) ? payload : g,
-          );
-        }
-        return [payload, ...prev];
-      });
-      const current = selectedRef.current;
-      if (
-        current?.type === "group" &&
-        String(current.id) === String(payload.id)
-      ) {
-        const memberCount = (payload.members || []).length;
-        const desc = (payload.description || "").trim();
-        setSelected((prev) =>
-          prev
-            ? {
-              ...prev,
-              group: payload,
-              title: payload.name || prev.title,
-              subtitle: desc
-                ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
-                : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
+          if (messageListRef.current) {
+            const el = messageListRef.current;
+            const isUp = el.scrollHeight - el.scrollTop - el.clientHeight > 150;
+            if (isUp) {
+              setHasUnread(true);
+            } else {
+              setTimeout(() => scrollToBottom("smooth"), 50);
             }
-            : prev,
+          }
+          return next;
+        });
+
+        if (String(raw.from) !== String(user.id) && !raw.group) {
+          const socket = getSocket();
+          socket?.emit("message:delivered", { messageId: raw.id || raw._id });
+        }
+      }
+
+      function handleDeleted(payload) {
+        const id = String(payload?.id || "");
+        if (!id) return;
+        setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
+      }
+
+      function handleExpired(payload) {
+        const id = String(payload?.id || "");
+        if (!id) return;
+        setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
+      }
+
+      function handleReaction(raw) {
+        const id = String(raw?.id || raw?._id || "");
+        if (!id) return;
+        if (!isCurrentConversation(raw)) return;
+        setMessages((prev) =>
+          prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
         );
-        setPinnedIds((payload.pinnedMessageIds || []).map(String));
       }
-    }
 
-    function handleGroupDeleted({ id } = {}) {
-      if (!id) return;
-      setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
-      const current = selectedRef.current;
-      if (current?.type === "group" && String(current.id) === String(id)) {
-        setSelected(null);
-        setMessages([]);
-        setShowGroupSettings(false);
-        if (location.pathname !== "/chat") navigate("/chat");
-      }
-    }
-
-    function handlePollUpdate(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          String(m.id || m._id) === id
-            ? { ...decorate(raw), pollVotes: raw.pollVotes || [] }
-            : m,
-        ),
-      );
-    }
-
-    function handleMentionNew({ from } = {}) {
-      const username =
-        String(from) === String(user.id)
-          ? user.username
-          : users.find((u) => String(u.id) === String(from))?.username;
-      showToast(`${username || "Someone"} mentioned you`);
-    }
-
-    function handleTypingStart({ from, groupId } = {}) {
-      const current = selectedRef.current;
-      if (!current) return;
-      if (
-        groupId &&
-        current.type === "group" &&
-        String(groupId) === String(current.id)
-      ) {
-        if (String(from) === String(user.id)) return;
-        const name =
-          users.find((u) => String(u.id) === String(from))?.username ||
-          (current.group?.members || []).find(
-            (m) => String(m.id || m._id) === String(from),
-          )?.username ||
-          "Someone";
-        setGroupTypingNames((prev) =>
-          prev.includes(name) ? prev : [...prev, name].slice(-3),
+      function handleEdited(raw) {
+        const id = String(raw?.id || raw?._id || "");
+        if (!id) return;
+        if (!isCurrentConversation(raw)) return;
+        setMessages((prev) =>
+          prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
         );
-        clearTimeout(typingPeerTimeoutRef.current);
-        typingPeerTimeoutRef.current = setTimeout(
-          () => setGroupTypingNames([]),
-          3000,
-        );
-        return;
       }
-      if (current.type !== "dm") return;
-      if (String(from) !== String(current.id)) return;
-      setPeerTyping(true);
-      clearTimeout(typingPeerTimeoutRef.current);
-      typingPeerTimeoutRef.current = setTimeout(
-        () => setPeerTyping(false),
-        3000,
-      );
-    }
 
-    function handleTypingStop({ from, groupId } = {}) {
-      const current = selectedRef.current;
-      if (!current) return;
-      if (
-        groupId &&
-        current.type === "group" &&
-        String(groupId) === String(current.id)
-      ) {
-        const name = users.find((u) => String(u.id) === String(from))?.username;
-        if (name) setGroupTypingNames((prev) => prev.filter((n) => n !== name));
-        return;
+      function handleGroupNew(group) {
+        setGroups((prev) => {
+          if (prev.some((g) => String(g.id) === String(group.id))) {
+            return prev.map((g) =>
+              String(g.id) === String(group.id) ? group : g,
+            );
+          }
+          return [group, ...prev];
+        });
       }
-      if (current.type !== "dm") return;
-      if (String(from) !== String(current.id)) return;
-      setPeerTyping(false);
-    }
+      async function handleFriendRequestNew() {
+        loadFriendRequests();
+        showToast("New friend request", "info");
+      }
+      async function handleFriendRequestAccepted() {
+        try {
+          const { data } = await client.get("/users/me");
+          if (data?.data) updateSessionUser(data.data);
+        } catch {
+          // non-fatal
+        }
 
-    function handlePresenceSnapshot({ onlineUserIds: ids } = {}) {
-      setOnlineUserIds(new Set((ids || []).map(String)));
-    }
+        loadDirectory();
+        loadFriendRequests();
+        loadMyFriends();
+        loadFriendDiscover();
+      }
+      async function handleFriendRemoved() {
+        try {
+          const { data } = await client.get("/users/me");
+          if (data?.data) updateSessionUser(data.data);
+        } catch {
+          // non-fatal
+        }
+        loadDirectory();
+        loadMyFriends();
+      }
 
-    function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
-      setOnlineUserIds((prev) => {
-        const next = new Set(prev);
-        if (online) next.add(String(userId));
-        else next.delete(String(userId));
-        return next;
-      });
-      if (!online && lastLoginAt) {
-        setUsers((prev) =>
-          prev.map((u) =>
-            String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
+      function handleGroupUpdated(payload) {
+        if (!payload?.id) return;
+        setGroups((prev) => {
+          if (prev.some((g) => String(g.id) === String(payload.id))) {
+            return prev.map((g) =>
+              String(g.id) === String(payload.id) ? payload : g,
+            );
+          }
+          return [payload, ...prev];
+        });
+        const current = selectedRef.current;
+        if (
+          current?.type === "group" &&
+          String(current.id) === String(payload.id)
+        ) {
+          const memberCount = (payload.members || []).length;
+          const desc = (payload.description || "").trim();
+          setSelected((prev) =>
+            prev
+              ? {
+                ...prev,
+                group: payload,
+                title: payload.name || prev.title,
+                subtitle: desc
+                  ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
+                  : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
+              }
+              : prev,
+          );
+          setPinnedIds((payload.pinnedMessageIds || []).map(String));
+        }
+      }
+
+      function handleGroupDeleted({ id } = {}) {
+        if (!id) return;
+        setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
+        const current = selectedRef.current;
+        if (current?.type === "group" && String(current.id) === String(id)) {
+          setSelected(null);
+          setMessages([]);
+          setShowGroupSettings(false);
+          if (location.pathname !== "/chat") navigate("/chat");
+        }
+      }
+
+      function handlePollUpdate(raw) {
+        const id = String(raw?.id || raw?._id || "");
+        if (!id) return;
+        if (!isCurrentConversation(raw)) return;
+        setMessages((prev) =>
+          prev.map((m) =>
+            String(m.id || m._id) === id
+              ? { ...decorate(raw), pollVotes: raw.pollVotes || [] }
+              : m,
           ),
         );
       }
-    }
 
-    function handleMessageStatus(payload) {
-      if (!payload) return;
-      if (payload.bulk && payload.conversationWith) {
-        const peer = String(payload.conversationWith);
+      function handleMentionNew({ from } = {}) {
+        const username =
+          String(from) === String(user.id)
+            ? user.username
+            : users.find((u) => String(u.id) === String(from))?.username;
+        showToast(`${username || "Someone"} mentioned you`);
+      }
+
+      function handleTypingStart({ from, groupId } = {}) {
+        const current = selectedRef.current;
+        if (!current) return;
+        if (
+          groupId &&
+          current.type === "group" &&
+          String(groupId) === String(current.id)
+        ) {
+          if (String(from) === String(user.id)) return;
+          const name =
+            users.find((u) => String(u.id) === String(from))?.username ||
+            (current.group?.members || []).find(
+              (m) => String(m.id || m._id) === String(from),
+            )?.username ||
+            "Someone";
+          setGroupTypingNames((prev) =>
+            prev.includes(name) ? prev : [...prev, name].slice(-3),
+          );
+          clearTimeout(typingPeerTimeoutRef.current);
+          typingPeerTimeoutRef.current = setTimeout(
+            () => setGroupTypingNames([]),
+            3000,
+          );
+          return;
+        }
+        if (current.type !== "dm") return;
+        if (String(from) !== String(current.id)) return;
+        setPeerTyping(true);
+        clearTimeout(typingPeerTimeoutRef.current);
+        typingPeerTimeoutRef.current = setTimeout(
+          () => setPeerTyping(false),
+          3000,
+        );
+      }
+
+      function handleTypingStop({ from, groupId } = {}) {
+        const current = selectedRef.current;
+        if (!current) return;
+        if (
+          groupId &&
+          current.type === "group" &&
+          String(groupId) === String(current.id)
+        ) {
+          const name = users.find((u) => String(u.id) === String(from))?.username;
+          if (name) setGroupTypingNames((prev) => prev.filter((n) => n !== name));
+          return;
+        }
+        if (current.type !== "dm") return;
+        if (String(from) !== String(current.id)) return;
+        setPeerTyping(false);
+      }
+
+      function handlePresenceSnapshot({ onlineUserIds: ids } = {}) {
+        setOnlineUserIds(new Set((ids || []).map(String)));
+      }
+
+      function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+        setOnlineUserIds((prev) => {
+          const next = new Set(prev);
+          if (online) next.add(String(userId));
+          else next.delete(String(userId));
+          return next;
+        });
+        if (!online && lastLoginAt) {
+          setUsers((prev) =>
+            prev.map((u) =>
+              String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
+            ),
+          );
+        }
+      }
+
+      function handleMessageStatus(payload) {
+        if (!payload) return;
+        if (payload.bulk && payload.conversationWith) {
+          const peer = String(payload.conversationWith);
+          setMessages((prev) =>
+            prev.map((m) =>
+              String(m.to) === peer || String(m.from) === peer
+                ? {
+                  ...m,
+                  deliveredAt: m.deliveredAt || payload.readAt,
+                  readAt:
+                    String(m.from) === String(user.id)
+                      ? payload.readAt || m.readAt
+                      : m.readAt,
+                }
+                : m,
+            ),
+          );
+          return;
+        }
+        const id = String(payload.id || "");
+        if (!id) return;
         setMessages((prev) =>
           prev.map((m) =>
-            String(m.to) === peer || String(m.from) === peer
+            String(m.id || m._id) === id
               ? {
                 ...m,
-                deliveredAt: m.deliveredAt || payload.readAt,
-                readAt:
-                  String(m.from) === String(user.id)
-                    ? payload.readAt || m.readAt
-                    : m.readAt,
+                deliveredAt: payload.deliveredAt || m.deliveredAt,
+                readAt: payload.readAt || m.readAt,
+                _status: undefined,
               }
               : m,
           ),
         );
-        return;
       }
-      const id = String(payload.id || "");
-      if (!id) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          String(m.id || m._id) === id
-            ? {
-              ...m,
-              deliveredAt: payload.deliveredAt || m.deliveredAt,
-              readAt: payload.readAt || m.readAt,
-              _status: undefined,
-            }
-            : m,
-        ),
-      );
-    }
 
-    socket.on("message:new", handleIncoming);
-    socket.on("message:deleted", handleDeleted);
-    socket.on("message:expired", handleExpired);
-    socket.on("message:reaction", handleReaction);
-    socket.on("message:edited", handleEdited);
-    socket.on("group:new", handleGroupNew);
-    socket.on("group:updated", handleGroupUpdated);
-    socket.on("group:deleted", handleGroupDeleted);
-    socket.on("message:poll", handlePollUpdate);
-    socket.on("mention:new", handleMentionNew);
-    socket.on("typing:start", handleTypingStart);
-    socket.on("typing:stop", handleTypingStop);
-    socket.on("presence:snapshot", handlePresenceSnapshot);
-    socket.on("presence:update", handlePresenceUpdate);
-    socket.on("message:status", handleMessageStatus);
-    socket.on("friend:request:new", handleFriendRequestNew);
-    socket.on("friend:request:accepted", handleFriendRequestAccepted);
-    socket.on("friend:removed", handleFriendRemoved);
-    return () => {
-      socket.off("message:new", handleIncoming);
-      socket.off("message:deleted", handleDeleted);
-      socket.off("message:expired", handleExpired);
-      socket.off("message:reaction", handleReaction);
-      socket.off("message:edited", handleEdited);
-      socket.off("group:new", handleGroupNew);
-      socket.off("group:updated", handleGroupUpdated);
-      socket.off("group:deleted", handleGroupDeleted);
-      socket.off("message:poll", handlePollUpdate);
-      socket.off("mention:new", handleMentionNew);
-      socket.off("typing:start", handleTypingStart);
-      socket.off("typing:stop", handleTypingStop);
-      socket.off("presence:snapshot", handlePresenceSnapshot);
-      socket.off("presence:update", handlePresenceUpdate);
-      socket.off("message:status", handleMessageStatus);
-      socket.off("friend:request:new", handleFriendRequestNew);
-      socket.off("friend:request:accepted", handleFriendRequestAccepted);
-      socket.off("friend:removed", handleFriendRemoved);
-      clearTimeout(typingPeerTimeoutRef.current);
+      socket.on("message:new", handleIncoming);
+      socket.on("message:deleted", handleDeleted);
+      socket.on("message:expired", handleExpired);
+      socket.on("message:reaction", handleReaction);
+      socket.on("message:edited", handleEdited);
+      socket.on("group:new", handleGroupNew);
+      socket.on("group:updated", handleGroupUpdated);
+      socket.on("group:deleted", handleGroupDeleted);
+      socket.on("message:poll", handlePollUpdate);
+      socket.on("mention:new", handleMentionNew);
+      socket.on("typing:start", handleTypingStart);
+      socket.on("typing:stop", handleTypingStop);
+      socket.on("presence:snapshot", handlePresenceSnapshot);
+      socket.on("presence:update", handlePresenceUpdate);
+      socket.on("message:status", handleMessageStatus);
+      socket.on("friend:request:new", handleFriendRequestNew);
+      socket.on("friend:request:accepted", handleFriendRequestAccepted);
+      socket.on("friend:removed", handleFriendRemoved);
+      return () => {
+        socket.off("message:new", handleIncoming);
+        socket.off("message:deleted", handleDeleted);
+        socket.off("message:expired", handleExpired);
+        socket.off("message:reaction", handleReaction);
+        socket.off("message:edited", handleEdited);
+        socket.off("group:new", handleGroupNew);
+        socket.off("group:updated", handleGroupUpdated);
+        socket.off("group:deleted", handleGroupDeleted);
+        socket.off("message:poll", handlePollUpdate);
+        socket.off("mention:new", handleMentionNew);
+        socket.off("typing:start", handleTypingStart);
+        socket.off("typing:stop", handleTypingStop);
+        socket.off("presence:snapshot", handlePresenceSnapshot);
+        socket.off("presence:update", handlePresenceUpdate);
+        socket.off("message:status", handleMessageStatus);
+        socket.off("friend:request:new", handleFriendRequestNew);
+        socket.off("friend:request:accepted", handleFriendRequestAccepted);
+        socket.off("friend:removed", handleFriendRemoved);
+        clearTimeout(typingPeerTimeoutRef.current);
+      };
     };
   }, [
     hasLocalKeyring,
     user,
     users,
+    groups,
     decorate,
     scrollToBottom,
     recordActivityFromMessage,
     bumpActivity,
     showToast,
+    notifSettings,
   ]);
 
   const selectedKey = selected?.key;
@@ -1422,16 +1587,19 @@ export default function Chat() {
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
+  // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
       (acc, c) => acc + (c.unread ? 1 : 0),
       0,
     );
-    const prefix = totalUnread > 0 ? `(${totalUnread}) ` : "";
+    const showBadge = notifSettings?.badgeCount !== "hidden";
+    const prefix = showBadge && totalUnread > 0 ? `(${totalUnread}) ` : "";
     document.title = selected
       ? `${prefix}${selected.title} — QuantumChat`
       : `${prefix}QuantumChat`;
-  }, [selected, activityTick, conversations]);
+    updateFaviconBadge(showBadge && totalUnread > 0);
+  }, [selected, activityTick, conversations, notifSettings?.badgeCount]);
 
   // URL deep-link sync — restore selection from /chat/:peerId or /chat/g/:groupId
   useEffect(() => {
@@ -1610,6 +1778,16 @@ export default function Chat() {
       }
       loadFriendDiscover(search);
       loadFriendRequests();
+      setContactLookupResult((prev) =>
+        prev && String(prev.id) === String(userId)
+          ? {
+            ...prev,
+            requestStatus:
+              data?.data?.status === "accepted" ? "friends" : "pending_sent",
+            requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
+          }
+          : prev,
+      );
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to send request", "error");
     }
@@ -1619,6 +1797,11 @@ export default function Chat() {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
       loadFriendDiscover(search);
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "none", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to cancel request",
@@ -1649,6 +1832,11 @@ export default function Chat() {
       loadDirectory();
       loadFriendDiscover(search);
       loadMyFriends();
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "friends", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to accept request",
@@ -1664,6 +1852,11 @@ export default function Chat() {
         prev.filter((r) => String(r.id) !== String(requestId)),
       );
       loadFriendDiscover(search);
+      setContactLookupResult((prev) =>
+        prev && String(prev.requestId) === String(requestId)
+          ? { ...prev, requestStatus: "none", requestId: null }
+          : prev,
+      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to decline request",
@@ -3343,6 +3536,7 @@ export default function Chat() {
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
+        notifSettings={notifSettings}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
@@ -3354,7 +3548,18 @@ export default function Chat() {
         onDiscoverJoin={handleDiscoverJoin}
         onHide={handleHideChat}
         onBlock={handleBlockUser}
-        onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
+        onMute={(c) => {
+          const wasMuted = mutedKeys.map(String).includes(String(c.key));
+          setMutedKeys(toggleMuteChat(user.id, c.key));
+          const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
+          const request = wasMuted
+            ? unmuteChat(payload)
+            : muteChat({ ...payload, duration: "always" });
+          request.catch(() => {
+            // Local toggle already reflects the change; server sync failed silently.
+            // It will resync from server data on next login/session refresh.
+          });
+        }}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
@@ -3364,6 +3569,16 @@ export default function Chat() {
         incomingRequests={incomingRequests}
         myFriends={myFriends}
         myFriendsLoading={myFriendsLoading}
+        contactQuery={contactQuery}
+        onContactQueryChange={(value) => {
+          setContactQuery(value);
+          setContactLookupError("");
+          if (contactLookupResult) setContactLookupResult(null);
+        }}
+        contactLookupResult={contactLookupResult}
+        contactLookupLoading={contactLookupLoading}
+        contactLookupError={contactLookupError}
+        onLookupContact={handleLookupContact}
         onSendFriendRequest={handleSendFriendRequest}
         onCancelFriendRequest={handleCancelFriendRequest}
         onAcceptFriendRequest={handleAcceptFriendRequest}
@@ -4378,7 +4593,16 @@ export default function Chat() {
           }}
           onMute={() => {
             const key = conversationKeyForUser(profileUserId);
+            const wasMuted = mutedKeys.map(String).includes(String(key));
             setMutedKeys(toggleMuteChat(user.id, key));
+            const request = wasMuted
+              ? unmuteChat({ peerId: profileUserId })
+              : muteChat({ peerId: profileUserId, duration: "always" });
+            request
+              .then((res) => {
+                if (res?.data) updateSessionUser(res.data);
+              })
+              .catch(() => { });
           }}
           onArchive={() => {
             const key = conversationKeyForUser(profileUserId);
