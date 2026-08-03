@@ -133,6 +133,7 @@ export default function CallOverlay({
                 stream={remoteStream}
                 contain={remoteScreen}
                 label={remoteScreen ? `${name}'s screen` : name}
+                muted
               />
             ) : (
               <VideoTile stream={screenStream} muted contain label="Your screen" />
