@@ -53,10 +53,6 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
       setError('Group name must be at least 2 characters');
       return;
     }
-    if (visibility === 'private' && selected.size < 1) {
-      setError('Pick at least one member');
-      return;
-    }
     setSubmitting(true);
     try {
       await onCreate({
@@ -74,7 +70,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
   }
 
   const memberCount = selected.size + 1;
-  const canSubmit = visibility === 'public' || selected.size >= 1;
+  const canSubmit = name.trim().length >= 2;
 
   return (
     <div
@@ -102,7 +98,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           </div>
           <div className="create-group-modal-heading">
             <h2 id="create-group-title">Create group</h2>
-            <p>Choose private (encrypted) or public (open messages).</p>
+            <p>Pick a group type first, then create it.</p>
           </div>
           <button
             type="button"
@@ -117,6 +113,38 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
             </svg>
           </button>
         </div>
+
+        <fieldset className="create-group-field create-group-visibility create-group-type-switcher" disabled={submitting}>
+          <legend className="create-group-label">Group type</legend>
+          <div className="create-group-type-grid">
+            <label className={`create-group-choice ${visibility === 'private' ? 'selected' : ''}`}>
+              <input
+                type="radio"
+                name="visibility"
+                value="private"
+                checked={visibility === 'private'}
+                onChange={() => setVisibility('private')}
+              />
+              <span>
+                <strong>Normal group</strong>
+                <small>Private, encrypted, and invite-only.</small>
+              </span>
+            </label>
+            <label className={`create-group-choice ${visibility === 'public' ? 'selected' : ''}`}>
+              <input
+                type="radio"
+                name="visibility"
+                value="public"
+                checked={visibility === 'public'}
+                onChange={() => setVisibility('public')}
+              />
+              <span>
+                <strong>Public group</strong>
+                <small>Open to everyone and discoverable.</small>
+              </span>
+            </label>
+          </div>
+        </fieldset>
 
         <div className="create-group-body">
         <div className="create-group-field">
@@ -135,36 +163,6 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
             disabled={submitting}
           />
         </div>
-
-        <fieldset className="create-group-field create-group-visibility" disabled={submitting}>
-          <legend className="create-group-label">Visibility</legend>
-          <label className={`create-group-choice ${visibility === 'private' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="visibility"
-              value="private"
-              checked={visibility === 'private'}
-              onChange={() => setVisibility('private')}
-            />
-            <span>
-              <strong>Private</strong>
-              <small>End-to-end encrypted. Invite-only.</small>
-            </span>
-          </label>
-          <label className={`create-group-choice ${visibility === 'public' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="visibility"
-              value="public"
-              checked={visibility === 'public'}
-              onChange={() => setVisibility('public')}
-            />
-            <span>
-              <strong>Public</strong>
-              <small>Messages are not encrypted. Discoverable in Discover.</small>
-            </span>
-          </label>
-        </fieldset>
 
         {visibility === 'public' && (
           <fieldset className="create-group-field create-group-visibility" disabled={submitting}>
@@ -201,7 +199,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
         <div className="create-group-field">
           <div className="create-group-label-row">
             <label className="create-group-label" htmlFor="group-member-search">
-              Members {visibility === 'public' ? '(optional)' : ''}
+              Members (optional)
             </label>
             <span className="create-group-count">
               {selected.size === 0 ? 'None selected' : `${selected.size} selected`}

@@ -2095,10 +2095,14 @@ input:focus-visible,
   display: flex;
   gap: 8px;
   padding: 0 16px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .sidebar-filter-btn {
-  flex: 1;
+  flex: 0 0 auto;
   padding: 9px 10px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border-subtle);
@@ -2109,6 +2113,15 @@ input:focus-visible,
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sidebar-filters::-webkit-scrollbar {
+  height: 6px;
+}
+
+.sidebar-filters::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .sidebar-filter-btn:hover {
@@ -2210,6 +2223,32 @@ input:focus-visible,
   padding-right: 4px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.create-group-type-switcher {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.create-group-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.create-group-type-grid .create-group-choice {
+  min-height: 74px;
+}
+
+@media (max-width: 520px) {
+  .create-group-type-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .create-group-modal-icon {
