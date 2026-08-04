@@ -4315,7 +4315,8 @@ useEffect(() => {
                               starred={starredIds.map(String).includes(mid)}
                               pinned={pinnedIds.map(String).includes(mid)}
                               showReadReceipts={
-                                user.privacy?.readReceipts !== false
+                                user.privacy?.readReceipts !== false &&
+                                user.privacy?.readReceipts !== 'nobody'
                               }
                               senderLabel={
                                 isGroupChat
