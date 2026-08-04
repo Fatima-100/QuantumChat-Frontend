@@ -624,9 +624,14 @@ input:focus-visible,
   justify-content: center;
   padding: 24px;
   position: relative;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% -10%, var(--bg-auth-glow), transparent 55%),
-    var(--bg-body);
+  /* Sit above fun-theme FX layers (fixed, z-index: 1) so login/signup stay visible */
+  z-index: 2;
+  /* Keep page clear so theme FX can show through; the card itself is opaque glass */
+  background: radial-gradient(
+    ellipse 80% 60% at 50% -10%,
+    var(--bg-auth-glow),
+    transparent 55%
+  );
   transition: background-color var(--transition-theme);
 }
 
@@ -634,9 +639,12 @@ input:focus-visible,
   position: absolute;
   top: 20px;
   right: 20px;
+  z-index: 3;
 }
 
 .auth-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 400px;
   background: var(--bg-glass);

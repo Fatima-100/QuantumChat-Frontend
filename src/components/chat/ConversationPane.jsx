@@ -34,6 +34,7 @@ export default function ConversationPane({
   friendCandidates,
   friendCandidatesLoading,
   incomingRequests,
+  outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
   contactQuery = '',
@@ -108,6 +109,7 @@ export default function ConversationPane({
             friendCandidates={friendCandidates}
             friendCandidatesLoading={friendCandidatesLoading}
             incomingRequests={incomingRequests}
+            outgoingRequests={outgoingRequests}
             myFriends={myFriends}
             myFriendsLoading={myFriendsLoading}
             contactQuery={contactQuery}
