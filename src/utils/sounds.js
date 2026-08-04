@@ -1,4 +1,5 @@
 let audioCtx = null;
+let unlocked = false;
 
 function getCtx() {
   if (typeof window === 'undefined') return null;
@@ -9,6 +10,32 @@ function getCtx() {
     audioCtx.resume().catch(() => {});
   }
   return audioCtx;
+}
+
+/** Call once after a user gesture so later background sounds are allowed. */
+export function unlockAudio() {
+  if (typeof window === 'undefined' || unlocked) return;
+  try {
+    const ctx = getCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume()
+        .then(() => {
+          unlocked = true;
+        })
+        .catch(() => {});
+    } else {
+      unlocked = true;
+    }
+    // Tiny silent buffer helps some browsers keep the context alive.
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  } catch {
+    // ignore
+  }
 }
 
 function tone({ frequency, duration, type = 'sine', volume = 0.08, stagger = 0 }) {
@@ -32,6 +59,7 @@ function tone({ frequency, duration, type = 'sine', volume = 0.08, stagger = 0 }
 /** Soft rising blip after a successful send. */
 export function playSendSound() {
   try {
+    unlockAudio();
     tone({ frequency: 660, duration: 0.07, type: 'triangle', volume: 0.06 });
     tone({ frequency: 880, duration: 0.09, type: 'triangle', volume: 0.05, stagger: 0.06 });
   } catch {
@@ -39,23 +67,25 @@ export function playSendSound() {
   }
 }
 
-/** Soft two-tone chime for an incoming message. */
 /** Soft two-tone chime for an incoming message. volumeScale is 0–1 (defaults to full volume). */
 export function playReceiveSound(volumeScale = 1) {
   const scale = Number.isFinite(volumeScale) ? Math.max(0, Math.min(1, volumeScale)) : 1;
   if (scale <= 0) return;
   try {
+    unlockAudio();
     tone({ frequency: 520, duration: 0.09, type: 'sine', volume: 0.07 * scale });
     tone({ frequency: 780, duration: 0.12, type: 'sine', volume: 0.06 * scale, stagger: 0.08 });
   } catch {
     // ignore
   }
 }
+
 /**
  * Starts a soft repeating ringback tone while an outgoing call is dialing.
  * Returns a cleanup function that immediately silences every active tone.
  */
 export function startDialingSound() {
+  unlockAudio();
   const ctx = getCtx();
   if (!ctx) return () => {};
 
@@ -107,6 +137,67 @@ export function startDialingSound() {
         high.stop(now + 0.05);
       } catch {
         // Nodes may already have stopped naturally.
+      }
+    }
+    active.clear();
+  };
+}
+
+/**
+ * Repeating ringtone for an incoming call (callee side).
+ * Returns a cleanup function.
+ */
+export function startIncomingRingSound(volumeScale = 0.8) {
+  unlockAudio();
+  const ctx = getCtx();
+  if (!ctx) return () => {};
+
+  const scale = Number.isFinite(volumeScale) ? Math.max(0, Math.min(1, volumeScale)) : 0.8;
+  if (scale <= 0) return () => {};
+
+  let stopped = false;
+  let timer = null;
+  const active = new Set();
+
+  function ringBurst() {
+    if (stopped) return;
+    const now = ctx.currentTime;
+    const vol = 0.055 * scale;
+
+    for (let i = 0; i < 3; i += 1) {
+      const start = now + i * 0.22;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(i % 2 === 0 ? 660 : 840, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(vol, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.2);
+      const nodes = { osc, gain };
+      active.add(nodes);
+      osc.onended = () => active.delete(nodes);
+    }
+
+    timer = window.setTimeout(ringBurst, 2_400);
+  }
+
+  ringBurst();
+
+  return () => {
+    stopped = true;
+    if (timer) window.clearTimeout(timer);
+    for (const { osc, gain } of active) {
+      try {
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setTargetAtTime(0.0001, now, 0.01);
+        osc.stop(now + 0.05);
+      } catch {
+        // ignore
       }
     }
     active.clear();

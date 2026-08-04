@@ -130,7 +130,7 @@ import {
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
-import { playReceiveSound, playSendSound } from "../utils/sounds.js";
+import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
@@ -460,8 +460,6 @@ onMissed: (call) => {
   useEffect(() => {
     const call = webrtc.call;
     if (!call || call.role !== "callee" || call.status !== "incoming") return;
-    if (notifiedCallIdRef.current === call.callId) return;
-    notifiedCallIdRef.current = call.callId;
 
     const enabled = call.video
       ? notifSettings?.callNotifications?.videoCallEnabled !== false
@@ -473,24 +471,53 @@ onMissed: (call) => {
       users.find((u) => String(u.id) === String(call.peerId))?.username ||
       "Someone";
 
-    playNotificationSound(notifSettings);
-    showNotificationPopup(
-      { title: caller, body: call.video ? "Incoming video call" : "Incoming voice call" },
-      notifSettings,
-      () => {
-        // Clicking the popup just focuses the tab — CallOverlay is already
-        // rendered globally whenever webrtc.call is set, so no navigation needed.
-      },
-    );
-
-    if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
-      navigator.vibrate([200, 100, 200]);
+    if (notifiedCallIdRef.current !== call.callId) {
+      notifiedCallIdRef.current = call.callId;
+      showNotificationPopup(
+        {
+          title: caller,
+          body: call.video ? "Incoming video call" : "Incoming voice call",
+          requireInteraction: true,
+        },
+        notifSettings,
+        () => {
+          window.focus();
+        },
+      );
+      if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 200]);
+      }
     }
+
+    const volumeScale =
+      typeof notifSettings?.soundVolume === "number"
+        ? notifSettings.soundVolume / 100
+        : 0.8;
+    const stopRing =
+      notifSettings?.soundEnabled === false
+        ? () => {}
+        : startIncomingRingSound(volumeScale);
+
+    return () => {
+      stopRing();
+    };
   }, [webrtc.call, users, notifSettings]);
 
   useEffect(() => {
     if (!webrtc.call) setCallMinimized(false);
   }, [webrtc.call]);
+
+  // Unlock Web Audio after the first user gesture so later alerts can play
+  // even when QuantumChat is in a background tab.
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock, { once: true, passive: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   const meetingCall = useMeetingCall({
     userId: user?.id,
@@ -859,19 +886,17 @@ useEffect(() => {
       }
 
       recordActivityFromMessage(raw);
-      if (!isCurrentConversation(raw)) return;
 
-     if (String(raw.from) !== String(user.id)) {
+      const isCurrent = isCurrentConversation(raw);
+      const fromSelf = String(raw.from) === String(user.id);
+
+      if (!fromSelf) {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
               String(raw.from) === String(user.id) ? raw.to : raw.from,
             );
         const muted = isChatMuted(user.id, convKey);
-                if (!muted) {
-                  playReceiveSound();
-                }
-        const isCurrentlyOpen = isCurrentConversation(raw);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
           : false;
@@ -883,11 +908,12 @@ useEffect(() => {
           });
 
         if (notifyOk) {
-          playNotificationSound(notifSettings);
+          const tabHidden = document.visibilityState === "hidden";
+          // Alert when another chat arrives, or when this tab is in the background.
+          const shouldAlert = !isCurrent || tabHidden;
 
-          // Only pop a browser notification if this conversation isn't the one
-          // currently open and focused — matches standard chat-app behavior.
-          if (!isCurrentlyOpen || document.visibilityState === "hidden") {
+          if (shouldAlert) {
+            playNotificationSound(notifSettings);
             const senderName =
               users.find((u) => String(u.id) === String(raw.from))?.displayName ||
               users.find((u) => String(u.id) === String(raw.from))?.username ||
@@ -898,7 +924,7 @@ useEffect(() => {
             const { title, body } = buildNotificationText(
               {
                 senderName,
-                messageText: raw.group ? raw.content : null, // DM text stays encrypted here; see note below
+                messageText: raw.group ? raw.content : null,
                 isGroup: Boolean(raw.group),
                 groupName,
               },
@@ -907,20 +933,35 @@ useEffect(() => {
             showNotificationPopup({ title, body }, notifSettings, () => {
               const target = raw.group
                 ? { key: convKey, type: "group", id: raw.group }
-                : { key: convKey, type: "dm", id: String(raw.from) === String(user.id) ? raw.to : raw.from };
+                : {
+                    key: convKey,
+                    type: "dm",
+                    id:
+                      String(raw.from) === String(user.id) ? raw.to : raw.from,
+                  };
               handleSelectConversation(target);
             });
+          } else if (!muted) {
+            // Soft in-app sound for the open, focused conversation.
+            playReceiveSound(
+              typeof notifSettings?.soundVolume === "number"
+                ? notifSettings.soundVolume / 100
+                : 1,
+            );
           }
         }
+      }
 
-        if (selectedRef.current?.key) {
-          markConversationRead(
-            user.id,
-            selectedRef.current.key,
-            raw.createdAt || new Date().toISOString(),
-          );
-          bumpActivity();
-        }
+      // Only mutate the open thread for the active conversation.
+      if (!isCurrent) return;
+
+      if (!fromSelf && selectedRef.current?.key) {
+        markConversationRead(
+          user.id,
+          selectedRef.current.key,
+          raw.createdAt || new Date().toISOString(),
+        );
+        bumpActivity();
       }
 
       setMessages((prev) => {
