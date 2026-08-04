@@ -13,14 +13,327 @@
 
 /* QuantumAI companion: a focused third pane, not a detached dashboard card. */
 .quantum-ai-panel {
+  --ai-panel-fg: var(--text-primary);
+  --ai-panel-muted: var(--text-secondary);
+  --ai-panel-input: var(--bg-input);
+  --ai-panel-elevated: var(--bg-elevated);
+  --ai-panel-border: var(--border-subtle);
+  position: relative;
+  isolation: isolate;
   width: min(390px, 36vw);
   min-width: 320px;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   padding: 1.1rem;
-  border-left: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--ai-panel-border);
   background: var(--bg-surface);
+  color: var(--ai-panel-fg);
+  overflow: hidden;
+}
+
+.quantum-ai-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.quantum-ai-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Studio backgrounds — calm desks, not chat fun themes */
+.quantum-ai-panel[data-ai-bg='studio'] {
+  background: var(--bg-surface);
+}
+.quantum-ai-panel[data-ai-bg='studio']::before {
+  opacity: 0;
+}
+
+.quantum-ai-panel[data-ai-bg='graphite'] {
+  --ai-panel-fg: #e8eaed;
+  --ai-panel-muted: #9aa3ad;
+  --ai-panel-input: rgba(255, 255, 255, 0.06);
+  --ai-panel-elevated: rgba(255, 255, 255, 0.08);
+  --ai-panel-border: rgba(255, 255, 255, 0.1);
+  background: #1a1d21;
+  color: var(--ai-panel-fg);
+  border-left-color: var(--ai-panel-border);
+}
+.quantum-ai-panel[data-ai-bg='graphite']::before {
+  background:
+    radial-gradient(ellipse 70% 50% at 100% 0%, rgba(120, 140, 160, 0.12), transparent 55%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.03) 0%, transparent 40%),
+    repeating-linear-gradient(
+      -18deg,
+      transparent,
+      transparent 11px,
+      rgba(255, 255, 255, 0.015) 11px,
+      rgba(255, 255, 255, 0.015) 12px
+    );
+}
+
+.quantum-ai-panel[data-ai-bg='vellum'] {
+  --ai-panel-fg: #2c2418;
+  --ai-panel-muted: #6f6252;
+  --ai-panel-input: rgba(255, 252, 245, 0.85);
+  --ai-panel-elevated: rgba(232, 220, 198, 0.55);
+  --ai-panel-border: rgba(90, 70, 40, 0.16);
+  background: #f3ead8;
+  color: var(--ai-panel-fg);
+  border-left-color: var(--ai-panel-border);
+}
+.quantum-ai-panel[data-ai-bg='vellum']::before {
+  background:
+    radial-gradient(ellipse 80% 45% at 0% 100%, rgba(180, 140, 90, 0.14), transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, transparent 35%);
+}
+
+.quantum-ai-panel[data-ai-bg='glacier'] {
+  --ai-panel-fg: #1c2a33;
+  --ai-panel-muted: #5a6d78;
+  --ai-panel-input: rgba(255, 255, 255, 0.72);
+  --ai-panel-elevated: rgba(200, 220, 230, 0.55);
+  --ai-panel-border: rgba(60, 90, 110, 0.16);
+  background: #e4eef3;
+  color: var(--ai-panel-fg);
+  border-left-color: var(--ai-panel-border);
+}
+.quantum-ai-panel[data-ai-bg='glacier']::before {
+  background:
+    radial-gradient(ellipse 90% 55% at 80% -10%, rgba(140, 190, 210, 0.35), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 10% 90%, rgba(180, 210, 220, 0.25), transparent 50%);
+}
+
+.quantum-ai-panel[data-ai-bg='cedar'] {
+  --ai-panel-fg: #e7ebe4;
+  --ai-panel-muted: #a3b0a0;
+  --ai-panel-input: rgba(255, 255, 255, 0.07);
+  --ai-panel-elevated: rgba(255, 255, 255, 0.09);
+  --ai-panel-border: rgba(200, 220, 190, 0.12);
+  background: #1c241c;
+  color: var(--ai-panel-fg);
+  border-left-color: var(--ai-panel-border);
+}
+.quantum-ai-panel[data-ai-bg='cedar']::before {
+  background:
+    radial-gradient(ellipse 65% 50% at 0% 0%, rgba(90, 120, 80, 0.2), transparent 55%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.04), transparent 45%);
+}
+
+.quantum-ai-panel[data-ai-bg='inkwell'] {
+  --ai-panel-fg: #e6eaf2;
+  --ai-panel-muted: #8b95a8;
+  --ai-panel-input: rgba(255, 255, 255, 0.06);
+  --ai-panel-elevated: rgba(255, 255, 255, 0.08);
+  --ai-panel-border: rgba(160, 180, 220, 0.12);
+  background: #12151c;
+  color: var(--ai-panel-fg);
+  border-left-color: var(--ai-panel-border);
+}
+.quantum-ai-panel[data-ai-bg='inkwell']::before {
+  background:
+    radial-gradient(ellipse 60% 45% at 100% 100%, rgba(70, 90, 130, 0.22), transparent 55%),
+    radial-gradient(ellipse 40% 30% at 0% 20%, rgba(50, 60, 90, 0.18), transparent 50%);
+}
+
+.ai-bg-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-bg-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.ai-bg-swatch:hover {
+  transform: scale(1.08);
+}
+
+.ai-bg-swatch.is-active {
+  box-shadow:
+    0 0 0 2px var(--bg-surface, #fff),
+    0 0 0 3.5px var(--accent, #3b82f6);
+}
+
+.ai-bg-swatch--studio {
+  background: linear-gradient(135deg, #16263d, #3b82f6);
+}
+.ai-bg-swatch--graphite {
+  background: linear-gradient(135deg, #2a2e34, #6b7580);
+}
+.ai-bg-swatch--vellum {
+  background: linear-gradient(135deg, #efe4cf, #c4a574);
+}
+.ai-bg-swatch--glacier {
+  background: linear-gradient(135deg, #d7e8f0, #7a98a8);
+}
+.ai-bg-swatch--cedar {
+  background: linear-gradient(135deg, #2a3828, #7a9470);
+}
+.ai-bg-swatch--inkwell {
+  background: linear-gradient(135deg, #1a1f2a, #5c6d8c);
+}
+
+.quantum-ai-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.quantum-ai-panel > header div,
+.ai-context-control {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--ai-panel-fg, var(--text-primary));
+}
+
+.quantum-ai-panel > header strong {
+  color: var(--accent);
+  font-size: 1.35rem;
+}
+
+.quantum-ai-panel small,
+.ai-privacy-preview {
+  color: var(--ai-panel-muted, var(--text-secondary));
+  font-size: 0.78rem;
+}
+
+.quantum-ai-panel select,
+.quantum-ai-panel textarea,
+.quantum-ai-panel input[type='text'] {
+  width: 100%;
+  border: 1px solid var(--ai-panel-border, var(--border-subtle));
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.7rem;
+  background: var(--ai-panel-input, var(--bg-input));
+  color: var(--ai-panel-fg, var(--text-primary));
+}
+
+.ai-pick-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 10rem;
+  overflow: auto;
+  padding: 0.35rem 0;
+}
+
+.ai-pick-item {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  font-size: 0.78rem;
+  color: var(--ai-panel-fg, var(--text-primary));
+  cursor: pointer;
+}
+
+.ai-pick-item input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.ai-capsule-receipt {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ai-panel-muted, var(--text-muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.ai-panel-answer {
+  flex: 1;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: var(--ai-panel-fg, var(--text-primary));
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--ai-panel-elevated, var(--bg-elevated)) 70%, transparent);
+  border: 1px solid var(--ai-panel-border, var(--border-subtle));
+}
+
+.quantum-ai-panel form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.quantum-ai-panel button {
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.65rem 0.85rem;
+  background: var(--ai-panel-elevated, var(--bg-elevated));
+  color: var(--ai-panel-fg, var(--text-primary));
+  cursor: pointer;
+}
+
+.quantum-ai-panel button:hover {
+  filter: brightness(1.06);
+}
+
+.quantum-ai-panel form button[type='submit'],
+.ai-insert-draft {
+  background: var(--accent);
+  color: var(--text-inverse);
+  filter: none;
+}
+
+.quantum-ai-panel form button[type='submit']:hover,
+.ai-insert-draft:hover {
+  background: var(--accent-hover);
+  filter: none;
+}
+
+.quantum-ai-panel .ai-bg-swatch {
+  background-clip: padding-box;
+}
+
+.quantum-ai-panel .ai-bg-swatch:hover {
+  filter: none;
+  background: revert-layer;
+}
+
+/* Keep swatch fills from being overridden by generic panel button styles */
+.quantum-ai-panel .ai-bg-swatch--studio {
+  background: linear-gradient(135deg, #16263d, #3b82f6);
+}
+.quantum-ai-panel .ai-bg-swatch--graphite {
+  background: linear-gradient(135deg, #2a2e34, #6b7580);
+}
+.quantum-ai-panel .ai-bg-swatch--vellum {
+  background: linear-gradient(135deg, #efe4cf, #c4a574);
+}
+.quantum-ai-panel .ai-bg-swatch--glacier {
+  background: linear-gradient(135deg, #d7e8f0, #7a98a8);
+}
+.quantum-ai-panel .ai-bg-swatch--cedar {
+  background: linear-gradient(135deg, #2a3828, #7a9470);
+}
+.quantum-ai-panel .ai-bg-swatch--inkwell {
+  background: linear-gradient(135deg, #1a1f2a, #5c6d8c);
+}
+
+@media (max-width: 900px) {
+  .quantum-ai-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .message-bubble.story-reaction-pill {
@@ -60,117 +373,7 @@
   opacity: 0.85;
   font-style: normal;
 }
-.quantum-ai-panel > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
 
-.quantum-ai-panel > header div,
-.ai-context-control {
-  display: grid;
-  gap: 0.3rem;
-  color: var(--text-primary);
-}
-
-.quantum-ai-panel > header strong {
-  color: var(--accent);
-  font-size: 1.35rem;
-}
-
-.quantum-ai-panel small,
-.ai-privacy-preview {
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-}
-
-.quantum-ai-panel select,
-.quantum-ai-panel textarea,
-.quantum-ai-panel input[type='text'] {
-  width: 100%;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 8px);
-  padding: 0.7rem;
-  background: var(--bg-input);
-  color: var(--text-primary);
-}
-
-.ai-pick-list {
-  display: grid;
-  gap: 0.35rem;
-  max-height: 10rem;
-  overflow: auto;
-  padding: 0.35rem 0;
-}
-
-.ai-pick-item {
-  display: flex;
-  gap: 0.45rem;
-  align-items: flex-start;
-  font-size: 0.78rem;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.ai-pick-item input {
-  margin-top: 0.15rem;
-  flex-shrink: 0;
-}
-
-.ai-capsule-receipt {
-  margin: 0;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  word-break: break-all;
-}
-
-.ai-panel-answer {
-  flex: 1;
-  overflow: auto;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  color: var(--text-primary);
-}
-
-.quantum-ai-panel form {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.quantum-ai-panel button {
-  border: 0;
-  border-radius: var(--radius-sm, 8px);
-  padding: 0.65rem 0.85rem;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.quantum-ai-panel button:hover {
-  background: var(--bg-input);
-}
-
-.quantum-ai-panel form button[type='submit'],
-.ai-insert-draft {
-  background: var(--accent);
-  color: var(--text-inverse);
-}
-
-.quantum-ai-panel form button[type='submit']:hover,
-.ai-insert-draft:hover {
-  background: var(--accent-hover);
-}
-
-@media (max-width: 900px) {
-  .quantum-ai-panel {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    width: 100%;
-    min-width: 0;
-  }
-}
 /* ================================================================
    QuantumChat ??? Premium Design System
    Soft glass, deep-navy dark, sky-blue light. Not Telegram/WhatsApp.
