@@ -250,7 +250,10 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
     setOk('');
     try {
       const res = await updatePrivacySettings(updated);
-      onUserUpdated?.(res.user || { ...user, privacy: res.data });
+      if (res?.data && typeof res.data === 'object') {
+        setPrivacy((prev) => ({ ...prev, ...res.data }));
+      }
+      onUserUpdated?.(res.user || { ...user, privacy: res.data || updated });
       setOk('Privacy settings saved');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save privacy');
