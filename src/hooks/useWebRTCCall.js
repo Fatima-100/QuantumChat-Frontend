@@ -176,8 +176,10 @@ export default function useWebRTCCall({
       };
 
       pc.ontrack = (e) => {
-        // Prefer the browser-provided remote stream; otherwise accumulate tracks.
-        let stream = e.streams?.[0] || remoteStreamRef.current;
+        // Always accumulate onto one remote stream. Screen share is added with
+        // addTrack(track, displayStream) — e.streams[0] is video-only. Switching
+        // to that stream would drop the peer's mic and silence the call.
+        let stream = remoteStreamRef.current;
         if (!stream) {
           stream = new MediaStream();
         }
@@ -187,6 +189,12 @@ export default function useWebRTCCall({
           .getTracks()
           .filter((t) => t.readyState === "ended")
           .forEach((t) => stream.removeTrack(t));
+        // New outbound screen (voice call) or camera swap: keep a single live video.
+        if (e.track?.kind === "video") {
+          stream.getVideoTracks().forEach((t) => {
+            if (t.id !== e.track.id) stream.removeTrack(t);
+          });
+        }
         if (e.track && !stream.getTracks().some((t) => t.id === e.track.id)) {
           stream.addTrack(e.track);
         }
