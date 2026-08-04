@@ -46,18 +46,28 @@ function RemoteAudio({ stream }) {
     attachStream(ref.current, stream, { muted: false });
   }, [stream]);
 
-  // Also retry play when tracks unmute/start after ICE finishes.
+  // Retry play when tracks unmute/start after ICE finishes, or when a screen
+  // share rebuilds the MediaStream and audio must reattach.
   useEffect(() => {
     if (!stream) return undefined;
     const onLive = () => attachStream(ref.current, stream, { muted: false });
     const tracks = stream.getAudioTracks();
     for (const track of tracks) {
       track.addEventListener('unmute', onLive);
+      track.addEventListener('mute', onLive);
     }
+    stream.addEventListener?.('addtrack', onLive);
+    stream.addEventListener?.('removetrack', onLive);
+    // Kick play once more on the next frame — covers layout switches to video.
+    const raf = requestAnimationFrame(onLive);
     return () => {
+      cancelAnimationFrame(raf);
       for (const track of tracks) {
         track.removeEventListener('unmute', onLive);
+        track.removeEventListener('mute', onLive);
       }
+      stream.removeEventListener?.('addtrack', onLive);
+      stream.removeEventListener?.('removetrack', onLive);
     };
   }, [stream]);
 
