@@ -172,19 +172,24 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
         <button type="button" onClick={onClose} aria-label="Close QuantumAI">×</button>
       </header>
 
-      <div className="ai-bg-picker" role="radiogroup" aria-label="Assistant background">
-        {AI_BG_THEMES.map((theme) => (
-          <button
-            key={theme.id}
-            type="button"
-            role="radio"
-            aria-checked={aiBg === theme.id}
-            aria-label={theme.label}
-            title={theme.label}
-            className={`ai-bg-swatch ai-bg-swatch--${theme.id}${aiBg === theme.id ? ' is-active' : ''}`}
-            onClick={() => setAiBg(theme.id)}
-          />
-        ))}
+      <div className="ai-bg-control">
+        <span className="ai-bg-control-label">Background</span>
+        <div className="ai-bg-picker" role="radiogroup" aria-label="Assistant background">
+          {AI_BG_THEMES.map((theme) => (
+            <button
+              key={theme.id}
+              type="button"
+              role="radio"
+              aria-checked={aiBg === theme.id}
+              aria-label={theme.label}
+              title={theme.label}
+              className={`ai-bg-swatch ai-bg-swatch--${theme.id}${aiBg === theme.id ? ' is-active' : ''}`}
+              onClick={() => setAiBg(theme.id)}
+            >
+              <span className="ai-bg-swatch-name">{theme.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <label className="ai-context-control">

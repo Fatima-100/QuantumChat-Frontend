@@ -141,6 +141,18 @@
     radial-gradient(ellipse 40% 30% at 0% 20%, rgba(50, 60, 90, 0.18), transparent 50%);
 }
 
+.ai-bg-control {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-bg-control-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ai-panel-muted, var(--text-secondary));
+  letter-spacing: 0.02em;
+}
+
 .ai-bg-picker {
   display: flex;
   flex-wrap: wrap;
@@ -149,43 +161,63 @@
 }
 
 .ai-bg-swatch {
-  width: 22px;
-  height: 22px;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px 4px 4px;
   border-radius: 999px;
-  border: 1px solid rgba(127, 127, 127, 0.35);
+  border: 1px solid var(--ai-panel-border, rgba(127, 127, 127, 0.35));
   cursor: pointer;
   flex-shrink: 0;
+  background: var(--ai-panel-elevated, rgba(127, 127, 127, 0.12)) !important;
+  color: var(--ai-panel-fg, var(--text-primary)) !important;
+  box-shadow: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.ai-bg-swatch::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid rgba(127, 127, 127, 0.35);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.ai-bg-swatch-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .ai-bg-swatch:hover {
-  transform: scale(1.08);
+  transform: translateY(-1px);
+  filter: none !important;
 }
 
 .ai-bg-swatch.is-active {
-  box-shadow:
-    0 0 0 2px var(--bg-surface, #fff),
-    0 0 0 3.5px var(--accent, #3b82f6);
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 45%, transparent);
 }
 
-.ai-bg-swatch--studio {
+.ai-bg-swatch--studio::before {
   background: linear-gradient(135deg, #16263d, #3b82f6);
 }
-.ai-bg-swatch--graphite {
+.ai-bg-swatch--graphite::before {
   background: linear-gradient(135deg, #2a2e34, #6b7580);
 }
-.ai-bg-swatch--vellum {
+.ai-bg-swatch--vellum::before {
   background: linear-gradient(135deg, #efe4cf, #c4a574);
 }
-.ai-bg-swatch--glacier {
+.ai-bg-swatch--glacier::before {
   background: linear-gradient(135deg, #d7e8f0, #7a98a8);
 }
-.ai-bg-swatch--cedar {
+.ai-bg-swatch--cedar::before {
   background: linear-gradient(135deg, #2a3828, #7a9470);
 }
-.ai-bg-swatch--inkwell {
+.ai-bg-swatch--inkwell::before {
   background: linear-gradient(135deg, #1a1f2a, #5c6d8c);
 }
 
@@ -295,35 +327,6 @@
 .ai-insert-draft:hover {
   background: var(--accent-hover);
   filter: none;
-}
-
-.quantum-ai-panel .ai-bg-swatch {
-  background-clip: padding-box;
-}
-
-.quantum-ai-panel .ai-bg-swatch:hover {
-  filter: none;
-  background: revert-layer;
-}
-
-/* Keep swatch fills from being overridden by generic panel button styles */
-.quantum-ai-panel .ai-bg-swatch--studio {
-  background: linear-gradient(135deg, #16263d, #3b82f6);
-}
-.quantum-ai-panel .ai-bg-swatch--graphite {
-  background: linear-gradient(135deg, #2a2e34, #6b7580);
-}
-.quantum-ai-panel .ai-bg-swatch--vellum {
-  background: linear-gradient(135deg, #efe4cf, #c4a574);
-}
-.quantum-ai-panel .ai-bg-swatch--glacier {
-  background: linear-gradient(135deg, #d7e8f0, #7a98a8);
-}
-.quantum-ai-panel .ai-bg-swatch--cedar {
-  background: linear-gradient(135deg, #2a3828, #7a9470);
-}
-.quantum-ai-panel .ai-bg-swatch--inkwell {
-  background: linear-gradient(135deg, #1a1f2a, #5c6d8c);
 }
 
 @media (max-width: 900px) {
