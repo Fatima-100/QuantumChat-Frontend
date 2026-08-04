@@ -46,7 +46,7 @@ export default function ForwardModal({ conversations = [], onClose, onForward, b
                 disabled={busy}
                 onClick={() => onForward(c)}
               >
-                <span className="avatar">{(c.title || '?').slice(0, 2).toUpperCase()}</span>
+                <span className="avatar">{c.isSelfChat ? 'Me' : (c.title || '?').slice(0, 2).toUpperCase()}</span>
                 <span className="user-list-name">{c.title}</span>
               </button>
             ))

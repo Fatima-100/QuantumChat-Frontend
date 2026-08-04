@@ -17,6 +17,7 @@ import {
   Settings2,
   Smile,
   Square,
+  Bookmark,
   Users,
   Video,
   X,
@@ -325,6 +326,7 @@ export default function Chat() {
   const webrtc = useWebRTCCall({
     userId: user?.id,
     resolvePeerPublicKeys: async (peerId) => {
+      if (String(peerId) === String(user?.id)) return user?.publicKeys || [];
       const peer =
         (selectedRef.current?.type === "dm" &&
           String(selectedRef.current.id) === String(peerId) &&
@@ -1470,6 +1472,33 @@ useEffect(() => {
     return map;
   }, [users, groups, user]);
 
+  const selfPeer = useMemo(() => {
+    if (!user?.id) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username,
+      avatarUrl: user.avatarUrl || null,
+      hasAvatar: Boolean(user.hasAvatar || user.avatarUrl),
+      publicKeys: user.publicKeys || [],
+      lastLoginAt: user.lastLoginAt || null,
+      isSelfChat: true,
+    };
+  }, [user]);
+
+  const resolveDmPeer = useCallback(
+    (conversation) => {
+      if (!conversation || conversation.type === "group") return null;
+      if (String(conversation.id) === String(user?.id)) return selfPeer;
+      return (
+        conversation.peer ||
+        users.find((u) => String(u.id) === String(conversation.id)) ||
+        null
+      );
+    },
+    [user?.id, selfPeer, users],
+  );
+
   const conversations = useMemo(() => {
     const q = search.trim().toLowerCase();
     const hidden = new Set(hiddenChatIds);
@@ -1478,7 +1507,36 @@ useEffect(() => {
     const muted = new Set(mutedKeys.map(String));
     const archived = new Set(archivedKeys.map(String));
 
+    if (user?.id && selfPeer) {
+      const key = conversationKeyForUser(user.id);
+      const activity = getConversationActivity(user.id, key);
+      const unread = isUnreadConversation(
+        user.id,
+        key,
+        activity?.at,
+        activity?.from,
+      );
+      items.push({
+        key,
+        type: "dm",
+        id: user.id,
+        title: "Message yourself",
+        subtitle: "Notes to self",
+        searchText:
+          `message yourself notes to self ${user.username || ""}`.toLowerCase(),
+        lastLoginAt: activity?.at || null,
+        unread,
+        sortAt: activity?.at || "",
+        peer: selfPeer,
+        muted: muted.has(String(key)),
+        archived: archived.has(String(key)),
+        online: false,
+        isSelfChat: true,
+      });
+    }
+
     for (const u of users) {
+      if (String(u.id) === String(user.id)) continue;
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
       const unread = isUnreadConversation(
@@ -1539,12 +1597,14 @@ useEffect(() => {
     }
 
     items.sort((a, b) => {
+      if (a.isSelfChat !== b.isSelfChat) return a.isSelfChat ? -1 : 1;
       if (a.unread !== b.unread) return a.unread ? -1 : 1;
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
 
     return items.filter((c) => {
-      if (c.type === "dm" && !q && hidden.has(String(c.id))) return false;
+      if (c.type === "dm" && !q && !c.isSelfChat && hidden.has(String(c.id)))
+        return false;
       if (filter === "archived") {
         if (!archived.has(String(c.key))) return false;
       } else if (archived.has(String(c.key))) {
@@ -1560,6 +1620,8 @@ useEffect(() => {
     users,
     groups,
     user.id,
+    user.username,
+    selfPeer,
     search,
     filter,
     activityTick,
@@ -1591,8 +1653,21 @@ useEffect(() => {
       return;
     }
     if (!params.peerId && !params.groupId) return;
-    const fromUrl = selectionFromParams(params, conversations);
+    let fromUrl = selectionFromParams(params, conversations);
     if (!fromUrl) return;
+    if (
+      fromUrl.type === "dm" &&
+      String(fromUrl.id) === String(user.id) &&
+      selfPeer
+    ) {
+      fromUrl = {
+        ...fromUrl,
+        title: "Message yourself",
+        subtitle: "Notes to self",
+        peer: selfPeer,
+        isSelfChat: true,
+      };
+    }
     if (
       selected &&
       selected.type === fromUrl.type &&
@@ -1628,7 +1703,7 @@ useEffect(() => {
     }
     applyConversationSelection(fromUrl, { syncUrl: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.peerId, params.groupId, conversations, isSettingsRoute]);
+  }, [params.peerId, params.groupId, conversations, isSettingsRoute, selfPeer, user.id]);
 
   function applyConversationSelection(c, { syncUrl = true } = {}) {
     if (!c) {
@@ -1962,11 +2037,7 @@ useEffect(() => {
       if (selected.type === "group") {
         await sendGroupPayload(text, { kind: "ai_note" });
       } else {
-        const peer =
-          selected.peer ||
-          users.find(
-            (candidate) => String(candidate.id) === String(selected.id),
-          );
+        const peer = resolveDmPeer(selected);
         const myKey = pickRandom(getCurrentKeySet(user.id));
         const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
         if (!myKey?.publicKey || !recipientKeys.length)
@@ -2073,6 +2144,11 @@ useEffect(() => {
     }
 
     if (!selected || selected.peer?.isSystemUser) return;
+    if (
+      selected.type === "dm" &&
+      (selected.isSelfChat || String(selected.id) === String(user.id))
+    )
+      return;
     const socket = getSocket();
     if (!socket) return;
 
@@ -2114,9 +2190,7 @@ useEffect(() => {
   }
 
   async function sendPrivateQuantumAIMessage(text) {
-    const peer =
-      selected.peer ||
-      users.find((candidate) => String(candidate.id) === String(selected.id));
+    const peer = resolveDmPeer(selected);
     const myKeys = getCurrentKeySet(user.id);
     const myKey = pickRandom(myKeys);
     const quantumAIKey = pickRandom((peer?.publicKeys || []).filter(Boolean));
@@ -2379,9 +2453,7 @@ useEffect(() => {
             ),
           );
         } else {
-          const peer =
-            selected.peer ||
-            users.find((u) => String(u.id) === String(selected.id));
+          const peer = resolveDmPeer(selected);
           const myKey = pickRandom(getCurrentKeySet(user.id));
           const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
           if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -2488,9 +2560,7 @@ useEffect(() => {
           throw err;
         }
       } else {
-        const peer =
-          selected.peer ||
-          users.find((u) => String(u.id) === String(selected.id));
+        const peer = resolveDmPeer(selected);
         const myKey = pickRandom(getCurrentKeySet(user.id));
         const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
         if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -2634,9 +2704,7 @@ useEffect(() => {
         return;
       }
 
-      const peer =
-        selected.peer ||
-        users.find((u) => String(u.id) === String(selected.id));
+      const peer = resolveDmPeer(selected);
       const myKey = pickRandom(getCurrentKeySet(user.id));
       const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -3141,8 +3209,7 @@ useEffect(() => {
         }
       }
 
-      const peer =
-        target.peer || users.find((u) => String(u.id) === String(target.id));
+      const peer = resolveDmPeer(target);
       const myKey = pickRandom(getCurrentKeySet(user.id));
       const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -3261,9 +3328,7 @@ useEffect(() => {
         );
         recipientKeys = (member?.publicKeys || []).filter(Boolean);
       } else {
-        const peer =
-          selected.peer ||
-          users.find((u) => String(u.id) === String(selected.id));
+        const peer = resolveDmPeer(selected);
         recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       }
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -3353,6 +3418,7 @@ useEffect(() => {
 
   async function handleStartCall(video) {
     if (!selected || selected.type !== "dm") return;
+    if (selected.isSelfChat || String(selected.id) === String(user.id)) return;
     try {
       await webrtc.startCall({
         peerId: selected.id,
@@ -3413,8 +3479,8 @@ useEffect(() => {
       const base = count ? `${count} members` : "Group chat";
       return publicHint ? `${publicHint} · ${base}` : base;
     }
-    const peer =
-      selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    const peer = resolveDmPeer(selected);
+    if (selected.isSelfChat || peer?.isSelfChat) return "Notes to self";
     if (peer?.systemRole === "quantum_ai")
       return aiBusy ? "generating…" : "AI Assistant";
     const onlineAllowed = (peer?.privacy?.online || "everyone") !== "nobody";
@@ -3425,7 +3491,7 @@ useEffect(() => {
   }, [
     selected,
     groups,
-    users,
+    resolveDmPeer,
     onlineUserIds,
     peerTyping,
     groupTypingNames,
@@ -3543,12 +3609,13 @@ useEffect(() => {
 
   const headerOnline = useMemo(() => {
     if (!selected || selected.type !== "dm") return false;
-    const peer =
-      selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    if (selected.isSelfChat || String(selected.id) === String(user.id))
+      return false;
+    const peer = resolveDmPeer(selected);
     if ((peer?.privacy?.online || "everyone") === "nobody") return false;
     if (onlineUserIds.has(String(selected.id))) return true;
     return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, users, onlineUserIds]);
+  }, [selected, resolveDmPeer, onlineUserIds, user.id]);
 
   const visibleMessages = useMemo(() => {
     const deleted = new Set(deletedForMeIds.map(String));
@@ -3864,26 +3931,44 @@ useEffect(() => {
                 </button>
                 {selected ? (
                   <div
-                    className={`chat-header-peer${selected.type === "group" || selected.type === "dm" ? " clickable" : ""}`}
+                    className={`chat-header-peer${
+                      selected.type === "group" ||
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
+                        ? " clickable"
+                        : ""
+                    }`}
                     role={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
                         ? "button"
                         : undefined
                     }
                     tabIndex={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
                         ? 0
                         : undefined
                     }
                     onClick={
                       selected.type === "group"
                         ? () => setShowGroupSettings(true)
-                        : selected.type === "dm"
+                        : selected.type === "dm" &&
+                            !selected.isSelfChat &&
+                            String(selected.id) !== String(user.id)
                           ? () => setProfileUserId(selected.id)
                           : undefined
                     }
                     onKeyDown={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
                         ? (e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
@@ -3895,7 +3980,9 @@ useEffect(() => {
                         : undefined
                     }
                     title={
-                      selected.type === "dm"
+                      selected.type === "dm" &&
+                      !selected.isSelfChat &&
+                      String(selected.id) !== String(user.id)
                         ? "View profile"
                         : selected.type === "group"
                           ? "Group settings"
@@ -3906,19 +3993,21 @@ useEffect(() => {
                       <span className="avatar group-avatar chat-header-avatar">
                         <Users size={18} strokeWidth={2} aria-hidden="true" />
                       </span>
+                    ) : selected.isSelfChat ||
+                      String(selected.id) === String(user.id) ? (
+                      <span className="avatar group-avatar chat-header-avatar self-chat-avatar">
+                        <Bookmark
+                          size={18}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />
+                      </span>
                     ) : (
                       <span className="chat-header-avatar-wrap">
                         <UserAvatar
                           userId={selected.id}
                           name={title}
-                          hasAvatar={Boolean(
-                            (
-                              selected.peer ||
-                              users.find(
-                                (u) => String(u.id) === String(selected.id),
-                              )
-                            )?.hasAvatar,
-                          )}
+                          hasAvatar={Boolean(resolveDmPeer(selected)?.hasAvatar)}
                           className="chat-header-avatar"
                         />
                         {headerOnline && (
@@ -3943,6 +4032,8 @@ useEffect(() => {
               </div>
               <div className="chat-header-actions">
                 {selected?.type === "dm" &&
+                  !selected?.isSelfChat &&
+                  String(selected?.id) !== String(user.id) &&
                   !selected?.peer?.isSystemUser &&
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
@@ -4479,7 +4570,10 @@ useEffect(() => {
                                 ? "Write an announcement…"
                                 : isGroupChat
                                   ? "Type an encrypted group message… @mention"
-                                  : "Type an encrypted message…"
+                                  : selected?.isSelfChat ||
+                                      String(selected?.id) === String(user.id)
+                                    ? "Write a note to yourself…"
+                                    : "Type an encrypted message…"
                         }
                         value={draft}
                         onChange={handleDraftChange}
@@ -4697,6 +4791,7 @@ useEffect(() => {
             setProfileUserId(null);
             handleBlockUser(peer);
           }}
+          onOpenAiPanel={() => setAiPanelOpen(true)}
           onClose={() => setProfileUserId(null)}
           onLoaded={(data) => {
             if (!data?.id) return;

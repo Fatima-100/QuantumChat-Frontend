@@ -3,31 +3,15 @@ import { streamQuantumAI } from '../api/aiClient.js';
 import client from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { buildCapsule, getLocalConsentLog, saveLocalConsentLog } from '../utils/aiCapsule.js';
-
-const AI_BG_STORAGE_KEY = 'qc-ai-panel-bg';
-
-/** Quiet studio skins — not the same as QuantumChat fun themes. */
-const AI_BG_THEMES = [
-  { id: 'studio', label: 'Studio' },
-  { id: 'graphite', label: 'Graphite' },
-  { id: 'vellum', label: 'Vellum' },
-  { id: 'glacier', label: 'Glacier' },
-  { id: 'cedar', label: 'Cedar' },
-  { id: 'inkwell', label: 'Inkwell' },
-];
+import {
+  AI_BG_STORAGE_KEY,
+  AI_BG_THEMES,
+  readStoredAiBg,
+  writeStoredAiBg,
+} from '../utils/aiPanelBg.js';
 
 function messageKey(message, index) {
   return String(message.id || message._id || `idx-${index}`);
-}
-
-function readStoredAiBg() {
-  try {
-    const stored = localStorage.getItem(AI_BG_STORAGE_KEY);
-    if (AI_BG_THEMES.some((t) => t.id === stored)) return stored;
-  } catch {
-    // ignore
-  }
-  return 'studio';
 }
 
 export default function AIAssistantPanel({ conversation, messages, onClose, onInsertDraft, onSaveEncryptedNote }) {
@@ -49,12 +33,28 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
   const rafRef = useRef(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(AI_BG_STORAGE_KEY, aiBg);
-    } catch {
-      // ignore
-    }
+    writeStoredAiBg(aiBg);
   }, [aiBg]);
+
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key !== AI_BG_STORAGE_KEY) return;
+      const next = readStoredAiBg();
+      setAiBg((prev) => (prev === next ? prev : next));
+    }
+    function onCustom(e) {
+      const next = e?.detail;
+      if (typeof next === 'string' && AI_BG_THEMES.some((t) => t.id === next)) {
+        setAiBg(next);
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('qc-ai-panel-bg', onCustom);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('qc-ai-panel-bg', onCustom);
+    };
+  }, []);
 
   const pickableMessages = messages.filter((message) => message.text).slice(-20);
 
@@ -184,7 +184,12 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
               aria-label={theme.label}
               title={theme.label}
               className={`ai-bg-swatch ai-bg-swatch--${theme.id}${aiBg === theme.id ? ' is-active' : ''}`}
-              onClick={() => setAiBg(theme.id)}
+              onClick={() => {
+                setAiBg(theme.id);
+                window.dispatchEvent(
+                  new CustomEvent('qc-ai-panel-bg', { detail: theme.id }),
+                );
+              }}
             >
               <span className="ai-bg-swatch-name">{theme.label}</span>
             </button>
