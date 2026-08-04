@@ -69,7 +69,6 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
     }
   }
 
-  const memberCount = selected.size + 1;
   const canSubmit = name.trim().length >= 2;
 
   return (
@@ -263,7 +262,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
             Cancel
           </button>
           <button type="submit" className="confirm-btn primary" disabled={submitting || !canSubmit}>
-            {submitting ? 'Creating…' : `Create (${memberCount})`}
+            {submitting ? 'Creating…' : 'Create'}
           </button>
         </div>
       </form>
