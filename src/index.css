@@ -3166,6 +3166,10 @@ input:focus-visible,
   box-shadow: none;
 }
 
+.avatar.self-chat-avatar {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .empty-hint {
   padding: 28px 16px;
   color: var(--text-muted);
@@ -11019,6 +11023,14 @@ body.theme-dreamcloud {
 .qc-info-action:hover {
   background: var(--accent-muted);
   color: var(--text-primary);
+}
+
+.qc-info-note {
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .qc-thread-stack {

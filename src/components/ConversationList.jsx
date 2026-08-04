@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -587,10 +587,14 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
               transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               whileHover={{ y: -1 }}
             >
-              <span className={`avatar-container ${c.type === 'group' ? 'group' : ''}`}>
+              <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
                 {c.type === 'group' ? (
                   <span className="avatar group-avatar">
                     <Users size={18} strokeWidth={2} aria-hidden="true" />
+                  </span>
+                ) : c.isSelfChat ? (
+                  <span className="avatar group-avatar self-chat-avatar">
+                    <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
                   </span>
                 ) : (
                   <span className="avatar-wrap" style={{ position: 'relative' }}>
@@ -613,9 +617,9 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                     </span>
                   )}
                   {c.unread && <span className="unread-dot" aria-hidden="true" />}
-                  <span className="conv-row-time">{formatShortLastSeen(c.lastLoginAt)}</span>
+                  <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
                 </span>
-                <span className="user-list-lastseen">{c.subtitle}</span>
+                <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
               </span>
               {(onHide || onBlock || onMute || onArchive) && (
                 <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
@@ -656,12 +660,12 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
         <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
       </button>
     )}
-    {c.type === 'dm' && onHide && (
+    {c.type === 'dm' && onHide && !c.isSelfChat && (
       <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
         <X size={14} /> Hide chat
       </button>
     )}
-    {c.type === 'dm' && onBlock && (
+    {c.type === 'dm' && onBlock && !c.isSelfChat && (
       <button
         type="button"
         role="menuitem"

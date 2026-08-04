@@ -1,4 +1,4 @@
-import { Users, Info, X } from 'lucide-react';
+import { Bookmark, Users, Info, X } from 'lucide-react';
 import UserAvatar from '../UserAvatar.jsx';
 import IconButton from '../ui/IconButton.jsx';
 
@@ -17,6 +17,9 @@ export default function InfoPanel({
   if (!open) return null;
 
   const isGroup = selected?.type === 'group';
+  const isSelfChat = Boolean(
+    selected?.isSelfChat || selected?.peer?.isSelfChat,
+  );
   const peer =
     selected?.peer ||
     users.find((u) => String(u.id) === String(selected?.id));
@@ -36,6 +39,10 @@ export default function InfoPanel({
               <span className="avatar group-avatar qc-info-avatar">
                 <Users size={28} strokeWidth={2} aria-hidden="true" />
               </span>
+            ) : isSelfChat ? (
+              <span className="avatar group-avatar qc-info-avatar self-chat-avatar">
+                <Bookmark size={28} strokeWidth={2} aria-hidden="true" />
+              </span>
             ) : (
               <UserAvatar
                 userId={selected.id}
@@ -52,6 +59,8 @@ export default function InfoPanel({
               <button type="button" className="qc-info-action" onClick={onOpenGroupSettings}>
                 <Info size={16} /> Group settings
               </button>
+            ) : isSelfChat ? (
+              <p className="qc-info-note">Encrypted notes only you can read on this account.</p>
             ) : (
               <button type="button" className="qc-info-action" onClick={() => onOpenProfile?.(selected.id)}>
                 <Info size={16} /> View profile
