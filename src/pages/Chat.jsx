@@ -4791,6 +4791,7 @@ useEffect(() => {
             setProfileUserId(null);
             handleBlockUser(peer);
           }}
+          onOpenAiPanel={() => setAiPanelOpen(true)}
           onClose={() => setProfileUserId(null)}
           onLoaded={(data) => {
             if (!data?.id) return;

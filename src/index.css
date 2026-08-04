@@ -8636,6 +8636,38 @@ button.message-reply-preview:hover {
   font-style: italic;
 }
 
+.user-profile-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.user-profile-ai-bg {
+  margin-top: 4px;
+}
+
+.user-profile-open-ai {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  min-height: var(--tap-min, 44px);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.user-profile-open-ai:hover {
+  background: var(--accent-muted);
+}
+
 .user-profile-meta {
   list-style: none;
   margin: 0;

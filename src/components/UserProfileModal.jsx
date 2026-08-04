@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Archive, BadgeCheck, Ban, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
+import {
+  AI_BG_THEMES,
+  readStoredAiBg,
+  writeStoredAiBg,
+} from '../utils/aiPanelBg.js';
 
 function formatPresence(profile, online) {
   if (!profile) return null;
@@ -43,6 +48,7 @@ export default function UserProfileModal({
   onHide,
   onBlock,
   onRemoveFriend,
+  onOpenAiPanel,
   onClose,
   onLoaded,
 }) {
@@ -50,6 +56,7 @@ export default function UserProfileModal({
   const [profile, setProfile] = useState(seed);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [aiBg, setAiBg] = useState(readStoredAiBg);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -96,13 +103,19 @@ export default function UserProfileModal({
     };
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps -- seed/onLoaded are open-time props
 
+  function selectAiBg(id) {
+    setAiBg(id);
+    writeStoredAiBg(id);
+    window.dispatchEvent(new CustomEvent('qc-ai-panel-bg', { detail: id }));
+  }
+
   const displayName = profile?.displayName?.trim() || profile?.username || 'User';
   const username = profile?.username || '';
   const bio = (profile?.bio || '').trim();
   const presence = formatPresence(profile, online);
   const keyRotated = formatKeyRotated(profile?.keyRotatedAt);
   const isAi = profile?.systemRole === 'quantum_ai' || profile?.isSystemUser;
- const showActions = Boolean(profile && (onMute || onArchive || onHide || onBlock || onRemoveFriend) && !isAi);
+  const showActions = Boolean(profile && (onMute || onArchive || onHide || onBlock || onRemoveFriend) && !isAi);
 
   return (
     <div className="create-group-overlay" role="presentation" onClick={() => onClose?.()}>
@@ -244,6 +257,46 @@ export default function UserProfileModal({
 )}
                   
                 </div>
+              </section>
+            )}
+
+            {isAi && (
+              <section className="user-profile-section">
+                <h3 className="user-profile-section-title">Assistant background</h3>
+                <p className="user-profile-hint">
+                  Skins the QuantumAI side panel (sparkle button in the chat header). Not the same as app fun themes.
+                </p>
+                <div className="ai-bg-control user-profile-ai-bg">
+                  <div className="ai-bg-picker" role="radiogroup" aria-label="Assistant background">
+                    {AI_BG_THEMES.map((theme) => (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={aiBg === theme.id}
+                        aria-label={theme.label}
+                        title={theme.label}
+                        className={`ai-bg-swatch ai-bg-swatch--${theme.id}${aiBg === theme.id ? ' is-active' : ''}`}
+                        onClick={() => selectAiBg(theme.id)}
+                      >
+                        <span className="ai-bg-swatch-name">{theme.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {onOpenAiPanel ? (
+                  <button
+                    type="button"
+                    className="user-profile-open-ai"
+                    onClick={() => {
+                      onOpenAiPanel();
+                      onClose?.();
+                    }}
+                  >
+                    <Sparkles size={15} strokeWidth={2} aria-hidden="true" />
+                    Open QuantumAI panel
+                  </button>
+                ) : null}
               </section>
             )}
 
