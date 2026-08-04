@@ -488,6 +488,10 @@ onMissed: (call) => {
     }
   }, [webrtc.call, users, notifSettings]);
 
+  useEffect(() => {
+    if (!webrtc.call) setCallMinimized(false);
+  }, [webrtc.call]);
+
   const meetingCall = useMeetingCall({
     userId: user?.id,
     resolveGroupMembers: async (groupId) => {
@@ -4800,7 +4804,9 @@ useEffect(() => {
           })
         }
         minimized={callMinimized}
-        onToggleMinimize={() => setCallMinimized((v) => !v)}
+        onToggleMinimize={(next) =>
+          setCallMinimized((v) => (typeof next === "boolean" ? next : !v))
+        }
       />
 
       <MeetingOverlay
