@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -49,6 +49,7 @@ export default function ConversationList({
   friendCandidates = [],
   friendCandidatesLoading = false,
   incomingRequests = [],
+  outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
   contactQuery = '',
@@ -237,48 +238,75 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
           <div className="friend-requests-incoming">
             <p className="friend-requests-heading">
               Requests
-              {incomingRequests.length > 0 ? (
-                <span className="friend-section-count">{incomingRequests.length}</span>
+              {incomingRequests.length + outgoingRequests.length > 0 ? (
+                <span className="friend-section-count">
+                  {incomingRequests.length + outgoingRequests.length}
+                </span>
               ) : null}
             </p>
-            {incomingRequests.length === 0 ? (
+            {incomingRequests.length === 0 && outgoingRequests.length === 0 ? (
               <div className="friends-empty-card" role="status">
                 <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" />
                 <p className="friends-empty-title">No pending requests</p>
-                <p className="friends-empty-copy">When someone wants to connect, their request shows up here.</p>
+                <p className="friends-empty-copy">
+                  Incoming requests and ones you&apos;ve sent appear here until they&apos;re accepted.
+                </p>
               </div>
             ) : (
-              incomingRequests.map((r) => (
-                <div key={r.id} className="user-list-item friend-request-item">
-                  <UserAvatar
-                    userId={r.user.id}
-                    name={r.user.displayName || r.user.username}
-                    hasAvatar={Boolean(r.user.hasAvatar)}
-                  />
-                  <span className="user-list-meta">
-                    <span className="user-list-name">{r.user.displayName || r.user.username}</span>
-                    <span className="user-list-lastseen">@{r.user.username}</span>
-                  </span>
-                  <div className="friend-request-actions">
+              <>
+                {incomingRequests.map((r) => (
+                  <div key={`in-${r.id}`} className="user-list-item friend-request-item">
+                    <UserAvatar
+                      userId={r.user.id}
+                      name={r.user.displayName || r.user.username}
+                      hasAvatar={Boolean(r.user.hasAvatar)}
+                    />
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                    </span>
+                    <div className="friend-request-actions">
+                      <button
+                        type="button"
+                        className="friend-action-btn accept"
+                        aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onAcceptFriendRequest?.(r.id)}
+                      >
+                        <Check size={15} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        className="friend-action-btn decline"
+                        aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onDeclineFriendRequest?.(r.id)}
+                      >
+                        <X size={15} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {outgoingRequests.map((r) => (
+                  <div key={`out-${r.id}`} className="user-list-item friend-request-item">
+                    <UserAvatar
+                      userId={r.user.id}
+                      name={r.user.displayName || r.user.username}
+                      hasAvatar={Boolean(r.user.hasAvatar)}
+                    />
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Pending · @{r.user.username}</span>
+                    </span>
                     <button
                       type="button"
-                      className="friend-action-btn accept"
-                      aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onAcceptFriendRequest?.(r.id)}
+                      className="friend-action-btn cancel"
+                      aria-label={`Cancel request to ${r.user.displayName || r.user.username}`}
+                      onClick={() => onCancelFriendRequest?.(r.id)}
                     >
-                      <Check size={15} strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
-                      className="friend-action-btn decline"
-                      aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onDeclineFriendRequest?.(r.id)}
-                    >
-                      <X size={15} strokeWidth={2.5} />
+                      Cancel
                     </button>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
 
@@ -566,10 +594,14 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
               transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               whileHover={{ y: -1 }}
             >
-              <span className={`avatar-container ${c.type === 'group' ? 'group' : ''}`}>
+              <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
                 {c.type === 'group' ? (
                   <span className="avatar group-avatar">
                     <Users size={18} strokeWidth={2} aria-hidden="true" />
+                  </span>
+                ) : c.isSelfChat ? (
+                  <span className="avatar group-avatar self-chat-avatar">
+                    <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
                   </span>
                 ) : (
                   <span className="avatar-wrap" style={{ position: 'relative' }}>
@@ -592,9 +624,9 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                     </span>
                   )}
                   {c.unread && <span className="unread-dot" aria-hidden="true" />}
-                  <span className="conv-row-time">{formatShortLastSeen(c.lastLoginAt)}</span>
+                  <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
                 </span>
-                <span className="user-list-lastseen">{c.subtitle}</span>
+                <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
               </span>
               {(onHide || onBlock || onMute || onArchive) && (
                 <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
@@ -635,12 +667,12 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
         <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
       </button>
     )}
-    {c.type === 'dm' && onHide && (
+    {c.type === 'dm' && onHide && !c.isSelfChat && (
       <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
         <X size={14} /> Hide chat
       </button>
     )}
-    {c.type === 'dm' && onBlock && (
+    {c.type === 'dm' && onBlock && !c.isSelfChat && (
       <button
         type="button"
         role="menuitem"
