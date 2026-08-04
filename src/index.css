@@ -13086,6 +13086,16 @@ body.theme-dreamcloud {
   margin-top: 8px;
 }
 
+.call-overlay.is-pip {
+  /* Document / video PiP owns the visual; keep a compact restore banner only. */
+  pointer-events: auto;
+}
+
+.call-overlay.is-pip .call-stage.has-video .call-video-tile,
+.call-overlay.is-pip .call-pip {
+  display: none;
+}
+
 .settings-modal.qc-settings-sheet {
   align-items: stretch;
   width: min(520px, calc(100vw - 32px));
