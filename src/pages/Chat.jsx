@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
@@ -22,43 +20,107 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { useAuth } from "../context/AuthContext.jsx";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { streamQuantumAI } from "../api/aiClient.js";
+import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { connectSocket, getSocket } from "../api/socket.js";
+import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
+import CallOverlay from "../components/CallOverlay.jsx";
+import CameraCapture from "../components/CameraCapture.jsx";
+import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
+import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
-import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
-import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import ChatThemeModal from '../components/ChatThemeModal.jsx';
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import CreateGroupModal from "../components/CreateGroupModal.jsx";
+import DateSeparator from "../components/DateSeparator.jsx";
+import DragDropOverlay from "../components/DragDropOverlay.jsx";
+import EmojiPicker from "../components/EmojiPicker.jsx";
+import ForwardModal from "../components/ForwardModal.jsx";
+import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
+import ImageLightbox from "../components/ImageLightbox.jsx";
+import MeetingOverlay from "../components/MeetingOverlay.jsx";
+import MessageSearch from "../components/MessageSearch.jsx";
+import SettingsModal from "../components/SettingsModal.jsx";
+import { useToast } from "../components/ToastProvider.jsx";
+import TypingIndicator from "../components/TypingIndicator.jsx";
+import UserAvatar from "../components/UserAvatar.jsx";
+import UserProfileModal from "../components/UserProfileModal.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
+import {
+  downloadKeyFile,
+  formatKeyFile,
+  parseKeyFile,
+} from "../crypto/keyFile.js";
+import {
+  pickRandom,
+  sealBytes,
+  sealMessage,
+  secretboxSeal,
+  unsealMessage,
+} from "../crypto/keys.js";
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+} from "../crypto/keyStorage.js";
+import {
+  attachmentIdOf,
+  normalizeAttachment,
+  pickRecorderMimeType,
+} from "../crypto/voiceCache.js";
+import useMeetingCall from "../hooks/useMeetingCall.js";
+import useWebRTCCall from "../hooks/useWebRTCCall.js";
+import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
+import {
+  getArchivedChatKeys,
+  getInfoPanelOpen,
+  getLastQuickReaction,
+  getMutedChatKeys,
+  isChatMuted,
+  setInfoPanelOpen,
+  setLastQuickReaction,
+  toggleArchiveChat,
+  toggleMuteChat,
+} from "../utils/chatPrefs.js";
 import {
   chatPathForSelection,
   selectionFromParams,
 } from "../utils/chatRoutes.js";
-import { streamQuantumAI } from "../api/aiClient.js";
-import { connectSocket, getSocket } from "../api/socket.js";
+import { updateFaviconBadge } from "../utils/faviconBadge.js";
 import {
-  sealMessage,
-  unsealMessage,
-  sealBytes,
-  secretboxSeal,
-  pickRandom,
-} from "../crypto/keys.js";
+  encodeAnnouncement,
+  encodeEvent,
+  encodeGroupFile,
+  encodePoll,
+  extractMentions,
+  isGroupAdmin,
+} from "../utils/groupPayload.js";
 import {
-  formatKeyFile,
-  downloadKeyFile,
-  parseKeyFile,
-} from "../crypto/keyFile.js";
+  getHiddenChatIds,
+  hideChat,
+  unhideChat,
+} from "../utils/hiddenChats.js";
 import {
-  getCurrentKeySet,
-  findSecretKeyForPublicKey,
-} from "../crypto/keyStorage.js";
+  deleteMessageForMe,
+  getDeletedForMeIds,
+  getPinnedIds,
+  getStarredIds,
+  togglePinnedMessage,
+  toggleStarredMessage,
+} from "../utils/messageExtras.js";
 import {
-  normalizeAttachment,
-  pickRecorderMimeType,
-  attachmentIdOf,
-} from "../crypto/voiceCache.js";
-import { playReceiveSound, playSendSound } from "../utils/sounds.js";
+  buildNotificationText,
+  playNotificationSound,
+  shouldNotify,
+  showNotificationPopup,
+} from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -68,66 +130,9 @@ import {
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
-import {
-  encodePoll,
-  encodeEvent,
-  encodeAnnouncement,
-  encodeGroupFile,
-  extractMentions,
-  isGroupAdmin,
-} from "../utils/groupPayload.js";
-import CreateGroupModal from "../components/CreateGroupModal.jsx";
-import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
-import UserProfileModal from "../components/UserProfileModal.jsx";
-import UserAvatar from "../components/UserAvatar.jsx";
-import EmojiPicker from "../components/EmojiPicker.jsx";
-import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import SettingsModal from "../components/SettingsModal.jsx";
-import DateSeparator from "../components/DateSeparator.jsx";
-import MessageSearch from "../components/MessageSearch.jsx";
-import DragDropOverlay from "../components/DragDropOverlay.jsx";
-import TypingIndicator from "../components/TypingIndicator.jsx";
-import ForwardModal from "../components/ForwardModal.jsx";
-import CameraCapture from "../components/CameraCapture.jsx";
-import ImageLightbox from "../components/ImageLightbox.jsx";
-import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
-import CallOverlay from "../components/CallOverlay.jsx";
-import MeetingOverlay from "../components/MeetingOverlay.jsx";
-import useWebRTCCall from "../hooks/useWebRTCCall.js";
-import useMeetingCall from "../hooks/useMeetingCall.js";
-import { useToast } from "../components/ToastProvider.jsx";
-import {
-  getHiddenChatIds,
-  hideChat,
-  unhideChat,
-} from "../utils/hiddenChats.js";
-import {
-  getMutedChatKeys,
-  getArchivedChatKeys,
-  toggleMuteChat,
-  toggleArchiveChat,
-  isChatMuted,
-  getInfoPanelOpen,
-  setInfoPanelOpen,
-  getLastQuickReaction,
-  setLastQuickReaction,
-} from "../utils/chatPrefs.js";
-import {
-  deleteMessageForMe,
-  getDeletedForMeIds,
-  getPinnedIds,
-  getStarredIds,
-  togglePinnedMessage,
-  toggleStarredMessage,
-} from "../utils/messageExtras.js";
-import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
-import {
-  shouldNotify,
-  playNotificationSound,
-  buildNotificationText,
-  showNotificationPopup,
-} from "../utils/notificationDispatch.js";
-import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import { playReceiveSound, playSendSound } from "../utils/sounds.js";
+
+const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -276,6 +281,10 @@ export default function Chat() {
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
+  const [themeCatalog, setThemeCatalog] = useState(null);
+  const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
+  const [customWallpaperUrl, setCustomWallpaperUrl] = useState(null);
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
@@ -293,6 +302,68 @@ export default function Chat() {
     document.body.classList.toggle("low-fx", reduced);
     return () => document.body.classList.remove("low-fx");
   }, []);
+
+  useEffect(() => {
+      if (!hasLocalKeyring) return;
+      fetchThemeCatalog()
+        .then(setThemeCatalog)
+        .catch(() => { }); // Non-critical — the picker just won't open without it; chat still works.
+    }, [hasLocalKeyring]);
+  
+    useEffect(() => {
+      setThemeModalOpen(false);
+  
+      if (!selected || selected.type !== "dm") {
+        setChatTheme(DEFAULT_CHAT_THEME);
+        return;
+      }
+  
+      let cancelled = false;
+  
+      fetchChatTheme(selected.id).then((theme) => {
+        if (!cancelled) {
+          setChatTheme(theme);
+        }
+      });
+  
+      return () => {
+        cancelled = true;
+      };
+    }, [selected]);
+  
+    // The custom wallpaper endpoint returns raw bytes (auth-gated, owner-only)
+    // rather than a public URL, so it has to be fetched as a blob and turned
+    // into an object URL, same as attachment previews elsewhere in this app.
+    useEffect(() => {
+      if (
+        !selected ||
+        selected.type !== "dm" ||
+        chatTheme.wallpaperId !== "custom"
+      ) {
+        setCustomWallpaperUrl(null);
+        return;
+      }
+  
+      let cancelled = false;
+      let urlToRevoke = null;
+  
+      fetchWallpaperImageUrl(selected.id).then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+  
+        urlToRevoke = url;
+        setCustomWallpaperUrl(url);
+      });
+  
+      return () => {
+        cancelled = true;
+        if (urlToRevoke) {
+          URL.revokeObjectURL(urlToRevoke);
+        }
+      };
+    }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
@@ -793,6 +864,9 @@ useEffect(() => {
               String(raw.from) === String(user.id) ? raw.to : raw.from,
             );
         const muted = isChatMuted(user.id, convKey);
+                if (!muted) {
+                  playReceiveSound();
+                }
         const isCurrentlyOpen = isCurrentConversation(raw);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
@@ -3452,6 +3526,34 @@ useEffect(() => {
     }
   }
 
+  // Only sent-bubble color and wallpaper vary by theme — received bubbles
+    // stay the default white so text stays readable regardless of which
+    // theme color is picked. When the theme is 'default', the var is left
+    // unset so the original hardcoded CSS (gradient bubble, transparent
+    // background) shows through untouched.
+    const themeStyle = useMemo(() => {
+      const vars = {};
+      if (themeCatalog && chatTheme.bubbleColorId && chatTheme.bubbleColorId !== 'default') {
+        const bubble = themeCatalog.bubbleColors.find((b) => b.id === chatTheme.bubbleColorId);
+        if (bubble) {
+          vars['--bubble-mine'] = bubble.mine;
+          // `fg` is optional on older catalog responses — falls back to the
+          // app theme's default (white in dark/eyecare, dark text in light)
+          // via the CSS `var(--bubble-mine-fg, ...)` fallback if omitted.
+          if (bubble.fg) {
+            vars['--bubble-mine-fg'] = bubble.fg;
+            vars['--bubble-mine-time'] = `color-mix(in srgb, ${bubble.fg} 78%, transparent)`;
+          }
+        }
+      }
+      if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
+        vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
+      } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
+        vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
+      }
+      return vars;
+    }, [themeCatalog, chatTheme, customWallpaperUrl]);
+
   const title = useMemo(() => {
     if (!selected) return "Select a conversation";
     return selected.title || (selected.type === "group" ? "Group" : "Chat");
@@ -4037,6 +4139,17 @@ useEffect(() => {
                   !selected?.peer?.isSystemUser &&
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
+                    
+                      {selected && themeCatalog && (
+                        <button
+                          type="button"
+                          className="theme-open-button"
+                          onClick={() => setThemeModalOpen(true)}
+                          title="Chat theme"
+                        >
+                          🎨
+                        </button>
+                      )}
                       <button
                         className="icon-btn"
                         type="button"
@@ -4221,10 +4334,12 @@ useEffect(() => {
                     className="message-list"
                     ref={messageListRef}
                     onScroll={handleScroll}
+                    data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
                     initial={{ opacity: 0, x: 12 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                    style={themeStyle}
                   >
                     {loadingOlder && (
                       <div className="load-older-hint">
@@ -4613,6 +4728,14 @@ useEffect(() => {
           </>
         )}
       </main>
+      {themeModalOpen && selected && (
+              <ChatThemeModal
+                peerId={selected.id}
+                theme={chatTheme}
+                onApplied={(updated) => setChatTheme(updated)}
+                onClose={() => setThemeModalOpen(false)}
+              />
+            )}
 
       {aiPanelOpen && (
         <AIAssistantPanel

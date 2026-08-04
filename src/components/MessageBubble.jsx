@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, useMemo, memo } from 'react';
-import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
+  Clock,
   Copy,
   Forward,
   Image as ImageIcon,
@@ -14,14 +13,15 @@ import {
   Smile,
   Star,
   Trash2,
-  Clock,
   Users,
   Video,
 } from 'lucide-react';
-import AttachmentBubble from './AttachmentBubble.jsx';
-import GroupMessageContent from './GroupMessageContent.jsx';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { COMPOSER_EMOJIS, QUICK_REACTIONS, searchEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
+import AttachmentBubble from './AttachmentBubble.jsx';
+import GroupMessageContent from './GroupMessageContent.jsx';
 
 const MENU_GAP = 8;
 const VIEW_PAD = 12;
