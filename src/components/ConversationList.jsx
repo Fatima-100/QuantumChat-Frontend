@@ -28,6 +28,7 @@ const FILTERS = [
   { id: 'groups', label: 'Groups' },
   { id: 'friends', label: 'Friends' },
   { id: 'discover', label: 'Discover' },
+  { id: 'public', label: 'Public Groups' },
   { id: 'archived', label: 'Archived' },
 ];
 
@@ -113,10 +114,20 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
   }, []);
 
   useEffect(() => {
-    if (filter !== 'discover') return undefined;
+    if (filter !== 'discover' && filter !== 'public') return undefined;
     loadDiscover(searchQuery);
     return undefined;
   }, [filter, searchQuery, loadDiscover]);
+
+  const visibleDiscoverItems =
+    filter === 'public' ? discoverItems.filter((g) => g.joinPolicy !== 'request') : discoverItems;
+  const discoverEmptyMessage = searchQuery.trim()
+    ? filter === 'public'
+      ? 'No open public groups match your search.'
+      : 'No public groups match your search.'
+    : filter === 'public'
+      ? 'No open public groups to join right now.'
+      : 'No public groups to join right now.';
 
   async function handleJoin(item) {
     if (!onDiscoverJoin || joiningId) return;
@@ -161,7 +172,7 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
         </button>
       </div>
 
-      {filter === 'discover' ? (
+      {filter === 'discover' || filter === 'public' ? (
         <div className="user-list discover-list">
           {discoverLoading ? (
             [1, 2, 3].map((i) => (
@@ -175,14 +186,10 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
             ))
           ) : discoverError ? (
             <p className="empty-hint">{discoverError}</p>
-          ) : discoverItems.length === 0 ? (
-            <p className="empty-hint">
-              {searchQuery.trim()
-                ? 'No public groups match your search.'
-                : 'No public groups to join right now.'}
-            </p>
+          ) : visibleDiscoverItems.length === 0 ? (
+            <p className="empty-hint">{discoverEmptyMessage}</p>
           ) : (
-            discoverItems.map((g, index) => (
+            visibleDiscoverItems.map((g, index) => (
               <motion.div
                 key={g.id}
                 className="user-list-item discover-item"
