@@ -1,4 +1,4 @@
-import { playReceiveSound } from "./sounds";
+import { playReceiveSound, unlockAudio } from './sounds.js';
 
 /** Returns true if the current time falls inside the configured DND window (handles overnight ranges). */
 function isWithinDoNotDisturb(dnd) {
@@ -45,7 +45,7 @@ export function shouldNotify(notifSettings, { kind, isMention = false } = {}) {
     return true; // 'all', 'direct_only', 'all_except_reactions' all permit DMs
   }
 
- if (kind === 'status') {
+  if (kind === 'status') {
     return notifSettings.statusNotifications !== 'off';
   }
 
@@ -58,13 +58,18 @@ export function shouldNotify(notifSettings, { kind, isMention = false } = {}) {
 
 /** Plays the notification sound if enabled, scaled by the configured volume. */
 export function playNotificationSound(notifSettings) {
-  if (!notifSettings?.soundEnabled) return;
-  const scale = typeof notifSettings.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 1;
+  if (notifSettings?.soundEnabled === false) return;
+  unlockAudio();
+  const scale =
+    typeof notifSettings?.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 1;
   playReceiveSound(scale);
 }
 
 /** Builds the { title, body } text for a popup, respecting the messagePreview setting. */
-export function buildNotificationText({ senderName, messageText, isGroup, groupName }, notifSettings) {
+export function buildNotificationText(
+  { senderName, messageText, isGroup, groupName },
+  notifSettings,
+) {
   const preview = notifSettings?.messagePreview || 'full';
   const context = isGroup ? groupName : senderName;
 
@@ -79,18 +84,36 @@ export function buildNotificationText({ senderName, messageText, isGroup, groupN
   return { title: context || 'QuantumChat', body };
 }
 
-/** Shows a real browser Notification popup, if permission is already granted. */
-export function showNotificationPopup({ title, body }, notifSettings, onClick) {
+/**
+ * Shows a real browser Notification popup, if permission is already granted.
+ * When the tab is hidden, prefer OS sound (silent:false) because Web Audio is
+ * often suspended in background tabs.
+ */
+export function showNotificationPopup(
+  { title, body, requireInteraction },
+  notifSettings,
+  onClick,
+) {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   if (notifSettings?.webNotifications?.enabled === false) return;
+
+  const tabHidden =
+    typeof document !== 'undefined' && document.visibilityState === 'hidden';
+  const soundOnWeb = notifSettings?.webNotifications?.soundOnWeb !== false;
+  // Background: let the OS play the alert sound. Foreground: we play our own tone.
+  const allowOsSound =
+    soundOnWeb && notifSettings?.soundEnabled !== false;
+  const silent = tabHidden ? !allowOsSound : true;
 
   try {
     const n = new Notification(title, {
       body,
       icon: '/logo.png',
-      silent: true, // sound is handled separately via playNotificationSound to respect volume
-      requireInteraction: notifSettings?.priority === 'high',
+      silent,
+      requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
+      tag: 'quantumchat-alert',
+      renotify: true,
     });
     if (onClick) {
       n.onclick = () => {
