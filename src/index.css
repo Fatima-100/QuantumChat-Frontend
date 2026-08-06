@@ -2957,6 +2957,7 @@ input:focus-visible,
   gap: 10px;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
+  position: relative;
   cursor: pointer;
   color: var(--text-primary);
   transition: background var(--transition-fast);
