@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Bookmark, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -31,6 +31,8 @@ const FILTERS = [
   { id: 'public', label: 'Public Groups' },
   { id: 'archived', label: 'Archived' },
 ];
+
+const FILTER_WINDOW = 3;
 
 export default function ConversationList({
   conversations,
@@ -69,8 +71,29 @@ export default function ConversationList({
   const [discoverError, setDiscoverError] = useState('');
   const [joiningId, setJoiningId] = useState(null);
   const [openMenuKey, setOpenMenuKey] = useState(null);
+  const [filterStart, setFilterStart] = useState(0);
   const panelRef = useRef(null);
-const [menuPos, setMenuPos] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
+
+  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+
+  const visibleFilters = useMemo(
+    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
+    [filterStart],
+  );
+
+  useEffect(() => {
+    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    if (activeIndex < 0) return;
+    setFilterStart((start) => {
+      if (activeIndex < start) return activeIndex;
+      if (activeIndex >= start + FILTER_WINDOW) {
+        return Math.min(activeIndex - FILTER_WINDOW + 1, maxFilterStart);
+      }
+      return start;
+    });
+  }, [filter, maxFilterStart]);
+
   useEffect(() => {
     if (!openMenuKey) return undefined;
 
@@ -150,19 +173,41 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
 
   return (
     <div className="conversation-panel" ref={panelRef}>
-      <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.id}
-            className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-            onClick={() => onFilterChange(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="sidebar-filters-wrap">
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Previous filters"
+          disabled={filterStart <= 0}
+          onClick={() => setFilterStart((start) => Math.max(0, start - 1))}
+        >
+          <ChevronLeft size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
+
+        <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
+          {visibleFilters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
+              onClick={() => onFilterChange(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Next filters"
+          disabled={filterStart >= maxFilterStart}
+          onClick={() => setFilterStart((start) => Math.min(maxFilterStart, start + 1))}
+        >
+          <ChevronRight size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="sidebar-create-row">

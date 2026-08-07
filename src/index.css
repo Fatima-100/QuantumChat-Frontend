@@ -2305,21 +2305,53 @@ input:focus-visible,
   min-height: 0;
 }
 
-.sidebar-filters {
+.sidebar-filters-wrap {
   display: flex;
-  gap: 8px;
-  padding: 0 16px 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-  scrollbar-gutter: stable;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 12px;
+}
+
+.sidebar-filter-nav {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.sidebar-filter-nav:hover:not(:disabled) {
+  background: var(--accent-muted);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.sidebar-filter-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sidebar-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .sidebar-filter-btn {
   flex: 0 0 auto;
-  padding: 9px 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 8px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border-subtle);
   background: transparent;
@@ -2328,26 +2360,13 @@ input:focus-visible,
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .sidebar-filters::-webkit-scrollbar {
-  height: 8px;
-}
-
-.sidebar-filters::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.sidebar-filters::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--accent-muted), var(--accent));
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.sidebar-filters::-webkit-scrollbar-button {
   display: none;
 }
 
