@@ -16,7 +16,7 @@ export default function ConversationPane({
   storiesRailRef,
   users,
   onStoriesError,
-   notifSettings,
+  notifSettings,
   search,
   onSearchChange,
   conversations,
@@ -31,6 +31,8 @@ export default function ConversationPane({
   onMute,
   onArchive,
   loadingUsers,
+    hasMoreContacts,
+  onLoadMoreContacts,
   friendCandidates,
   friendCandidatesLoading,
   incomingRequests,
@@ -48,6 +50,7 @@ export default function ConversationPane({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onOpenFriend,
+
   
 }) {
   return (
@@ -79,7 +82,7 @@ export default function ConversationPane({
               currentUser={user}
               users={users}
               onError={onStoriesError}
-               notifSettings={notifSettings}
+              notifSettings={notifSettings}
             />
             <div className="sidebar-search">
               <input
@@ -123,6 +126,10 @@ export default function ConversationPane({
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
             onOpenFriend={onOpenFriend}
+            loading={loadingUsers}
+            hasMoreContacts={hasMoreContacts}
+            onLoadMoreContacts={onLoadMoreContacts}
+            searchQuery={search}
           />
         ) : (
           <p className="empty-hint">Set up your device key to see people.</p>
