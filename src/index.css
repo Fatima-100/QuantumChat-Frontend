@@ -3249,6 +3249,7 @@ input:focus-visible,
   box-shadow: none;
   overflow: hidden;
   transition: border-color var(--transition-theme);
+  
 }
 
 /* Header */
