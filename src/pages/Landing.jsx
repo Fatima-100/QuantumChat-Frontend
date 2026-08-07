@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const FEATURES = [
   {
@@ -58,8 +59,13 @@ const STEPS = [
 ];
 
 export default function Landing() {
+  const { user } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  if (user) {
+    return <Navigate to="/chat" replace />;
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 16);
