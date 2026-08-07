@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
@@ -65,7 +65,7 @@ function getFriendlyRegisterError(serverError, statusCode) {
 }
 
 export default function Register() {
-  const { register } = useAuth();
+  const { user, register } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ username: '', email: '', password: '' });
   const [error, setError] = useState(null);
@@ -73,6 +73,10 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [keyBackup, setKeyBackup] = useState(null);
   const [keysDownloaded, setKeysDownloaded] = useState(false);
+
+  if (user && !keyBackup) {
+    return <Navigate to="/chat" replace />;
+  }
 
   // Dynamic page title
   useEffect(() => {
