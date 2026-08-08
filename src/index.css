@@ -11060,20 +11060,23 @@ button.message-reply-preview:hover {
 }
 
 .conv-row-dropdown {
-  position: absolute;
+  position: fixed;
   right: 0;
-  top: calc(100% + 8px);
+  top: 0;
   display: flex;
   flex-direction: column;
   width: 190px;
+  max-height: min(280px, calc(100dvh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px;
-  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 96%, transparent);
   border: 1px solid var(--border-glass);
   border-radius: 16px;
-  z-index: 999;
+  z-index: 10050;
   box-shadow:
-    0 18px 48px rgba(2, 8, 20, 0.2),
-    0 4px 14px rgba(2, 8, 20, 0.12);
+    0 18px 48px rgba(2, 8, 20, 0.28),
+    0 4px 14px rgba(2, 8, 20, 0.14);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
   backdrop-filter: blur(18px) saturate(1.15);
   opacity: 0;
@@ -11092,6 +11095,10 @@ button.message-reply-preview:hover {
   visibility: visible;
   pointer-events: auto;
   transform: translateY(0) scale(1);
+}
+
+.conv-row-dropdown.open-up {
+  transform-origin: bottom right;
 }
 
 .conv-row-dropdown-title {
