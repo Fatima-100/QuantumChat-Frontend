@@ -126,10 +126,8 @@ export default function ConversationPane({
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
             onOpenFriend={onOpenFriend}
-            loading={loadingUsers}
             hasMoreContacts={hasMoreContacts}
             onLoadMoreContacts={onLoadMoreContacts}
-            searchQuery={search}
           />
         ) : (
           <p className="empty-hint">Set up your device key to see people.</p>
