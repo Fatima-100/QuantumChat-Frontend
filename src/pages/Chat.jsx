@@ -20,6 +20,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
@@ -2825,6 +2826,39 @@ export default function Chat() {
     }
   }
 
+  // Uploads one already-encrypted blob to the target handed back by
+  // POST /attachments/init: either straight to Google Drive's resumable
+  // session URL (bypasses our server and its request-size limits), or
+  // through our own proxy endpoint for local/dev storage. Returns the
+  // Drive file id when applicable (undefined for the proxy path, since the
+  // server already knows its own storage key).
+  async function putCiphertext(
+    target,
+    blob,
+    filename,
+    mimeType,
+    { pendingUploadId, slot, signal, onProgress },
+  ) {
+    if (target.mode === "direct") {
+      // Plain axios, not the `client` instance — this must NOT carry our
+      // app's Authorization header to a third-party host.
+      const res = await axios.put(target.uploadUrl, blob, {
+        headers: { "Content-Type": mimeType },
+        signal,
+        onUploadProgress: onProgress,
+      });
+      return res.data?.id;
+    }
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+    await client.put(
+      `/attachments/pending/${pendingUploadId}/bytes?slot=${slot}`,
+      formData,
+      { signal, onUploadProgress: onProgress },
+    );
+    return undefined;
+  }
+
   async function sendAttachmentFile(file, { plainBytes, quiet } = {}) {
     if (
       !file ||
@@ -2853,31 +2887,50 @@ export default function Chat() {
         const fileBytes =
           plainBytes || new Uint8Array(await file.arrayBuffer());
         const sealed = secretboxSeal(fileBytes);
-        const formData = new FormData();
-        formData.append(
-          "file",
-          new Blob([sealed.cipherBytes], {
-            type: file.type || "application/octet-stream",
-          }),
-          file.name,
-        );
-        formData.append("groupId", selected.id);
-        formData.append("secretboxNonce", sealed.nonce);
+        const mimeType = file.type || "application/octet-stream";
+        const cipherBlob = new Blob([sealed.cipherBytes], { type: mimeType });
 
-        const uploadRes = await client.post("/attachments", formData, {
-          signal: controller.signal,
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const progress = Math.min(
-              100,
-              Math.round((event.loaded / event.total) * 100),
-            );
-            setUploads((prev) =>
-              prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
-            );
+        const initRes = await client.post(
+          "/attachments/init",
+          {
+            groupId: selected.id,
+            secretboxNonce: sealed.nonce,
+            filename: file.name,
+            mimetype: mimeType,
+            size: cipherBlob.size,
           },
-        });
-        const attachment = uploadRes.data.data;
+          { signal: controller.signal },
+        );
+        const { pendingUploadId, recipient } = initRes.data.data;
+
+        const recipientDriveFileId = await putCiphertext(
+          recipient,
+          cipherBlob,
+          file.name,
+          mimeType,
+          {
+            pendingUploadId,
+            slot: "recipient",
+            signal: controller.signal,
+            onProgress: (event) => {
+              if (!event.total) return;
+              const progress = Math.min(
+                100,
+                Math.round((event.loaded / event.total) * 100),
+              );
+              setUploads((prev) =>
+                prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
+              );
+            },
+          },
+        );
+
+        const finalizeRes = await client.post(
+          "/attachments/finalize",
+          { pendingUploadId, recipientDriveFileId },
+          { signal: controller.signal },
+        );
+        const attachment = finalizeRes.data.data;
         const plaintext = encodeGroupFile({
           attachmentId: attachment.id,
           key: sealed.key,
@@ -2905,53 +2958,79 @@ export default function Chat() {
       const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
       const forRecipientFile = sealBytes(fileBytes, recipientPublicKey);
       const forSenderFile = sealBytes(fileBytes, myKey.publicKey);
-
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new Blob([forRecipientFile.cipherBytes], {
-          type: file.type || "application/octet-stream",
-        }),
-        file.name,
-      );
-      formData.append(
-        "senderFile",
-        new Blob([forSenderFile.cipherBytes], {
-          type: file.type || "application/octet-stream",
-        }),
-        file.name,
-      );
-      formData.append("recipientId", selected.id);
-      formData.append("nonce", forRecipientFile.nonce);
-      formData.append(
-        "ephemeralPublicKey",
-        forRecipientFile.ephemeralPublicKey,
-      );
-      formData.append("targetPublicKey", forRecipientFile.targetPublicKey);
-      formData.append("forSenderNonce", forSenderFile.nonce);
-      formData.append(
-        "forSenderEphemeralPublicKey",
-        forSenderFile.ephemeralPublicKey,
-      );
-      formData.append(
-        "forSenderTargetPublicKey",
-        forSenderFile.targetPublicKey,
-      );
-
-      const uploadRes = await client.post("/attachments", formData, {
-        signal: controller.signal,
-        onUploadProgress: (event) => {
-          if (!event.total) return;
-          const progress = Math.min(
-            100,
-            Math.round((event.loaded / event.total) * 100),
-          );
-          setUploads((prev) =>
-            prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
-          );
-        },
+      const mimeType = file.type || "application/octet-stream";
+      const recipientBlob = new Blob([forRecipientFile.cipherBytes], {
+        type: mimeType,
       });
-      const attachmentId = uploadRes.data.data.id;
+      const senderBlob = new Blob([forSenderFile.cipherBytes], {
+        type: mimeType,
+      });
+
+      const initRes = await client.post(
+        "/attachments/init",
+        {
+          recipientId: selected.id,
+          filename: file.name,
+          mimetype: mimeType,
+          size: recipientBlob.size,
+          nonce: forRecipientFile.nonce,
+          ephemeralPublicKey: forRecipientFile.ephemeralPublicKey,
+          targetPublicKey: forRecipientFile.targetPublicKey,
+          forSenderNonce: forSenderFile.nonce,
+          forSenderEphemeralPublicKey: forSenderFile.ephemeralPublicKey,
+          forSenderTargetPublicKey: forSenderFile.targetPublicKey,
+        },
+        { signal: controller.signal },
+      );
+      const { pendingUploadId, recipient, sender } = initRes.data.data;
+
+      let recipientLoaded = 0;
+      let senderLoaded = 0;
+      const totalBytes = recipientBlob.size + senderBlob.size;
+      const reportProgress = () => {
+        if (!totalBytes) return;
+        const progress = Math.min(
+          100,
+          Math.round(((recipientLoaded + senderLoaded) / totalBytes) * 100),
+        );
+        setUploads((prev) =>
+          prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
+        );
+      };
+
+      const recipientDriveFileId = await putCiphertext(
+        recipient,
+        recipientBlob,
+        file.name,
+        mimeType,
+        {
+          pendingUploadId,
+          slot: "recipient",
+          signal: controller.signal,
+          onProgress: (event) => {
+            recipientLoaded = event.loaded || 0;
+            reportProgress();
+          },
+        },
+      );
+      const senderDriveFileId = sender
+        ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
+            pendingUploadId,
+            slot: "sender",
+            signal: controller.signal,
+            onProgress: (event) => {
+              senderLoaded = event.loaded || 0;
+              reportProgress();
+            },
+          })
+        : undefined;
+
+      const finalizeRes = await client.post(
+        "/attachments/finalize",
+        { pendingUploadId, recipientDriveFileId, senderDriveFileId },
+        { signal: controller.signal },
+      );
+      const attachmentId = finalizeRes.data.data.id;
 
       const forRecipient = sealMessage("", recipientPublicKey);
       const forSender = sealMessage("", myKey.publicKey);
