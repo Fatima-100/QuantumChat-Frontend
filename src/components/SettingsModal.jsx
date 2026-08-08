@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTheme, APP_ICONS, FUN_THEMES } from '../context/ThemeContext.jsx';
+import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
-import client, { updatePrivacySettings, unmuteChat } from '../api/client.js';
+import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
-import { encryptVaultPayload, decryptVaultPayload } from '../crypto/keyVault.js';
-import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
+import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -103,6 +103,10 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
       : [],
     whoCanMessage: user?.privacy?.whoCanMessage || 'everyone',
     discoverable: user?.privacy?.discoverable || 'everyone',
+     story: user?.privacy?.story || 'everyone',
+    storyViewers: Array.isArray(user?.privacy?.storyViewers)
+      ? user.privacy.storyViewers.map((id) => String(id._id || id))
+      : [],
   });
   const [friendsList, setFriendsList] = useState([]);
 
@@ -270,6 +274,16 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
       current.add(friendId);
     }
     updatePrivacyField('onlineStatusVisibleTo', [...current]);
+  }
+
+  function toggleStoryViewer(friendId) {
+    const current = new Set(privacy.storyViewers || []);
+    if (current.has(friendId)) {
+      current.delete(friendId);
+    } else {
+      current.add(friendId);
+    }
+    updatePrivacyField('storyViewers', [...current]);
   }
 
   async function savePrivacy() {
@@ -886,6 +900,47 @@ async function unmuteFromList(key) {
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('discoverable', v)}
                 />
+                <PrivacySelect
+                  label="Who Can View My Stories"
+                  description="Control who can see your posted stories"
+                  value={privacy.story}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                    { value: 'selected', label: 'Selected People' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('story', v)}
+                />
+
+                {privacy.story === 'selected' && (
+                  <div className="privacy-friend-picker">
+                    <span className="privacy-select-description" style={{ marginBottom: 4 }}>
+                      Friends permitted to see your stories:
+                    </span>
+                    {friendsList.length === 0 ? (
+                      <p className="privacy-select-description">No friends added yet.</p>
+                    ) : (
+                      friendsList.map((f) => {
+                        const fId = String(f.id || f._id);
+                        const isChecked = (privacy.storyViewers || []).includes(fId);
+                        return (
+                          <label key={fId} className="privacy-friend-item">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={busy}
+                              onChange={() => toggleStoryViewer(fId)}
+                            />
+                            <UserAvatar userId={f.id} name={f.displayName || f.username} size="xs" />
+                            <span>{f.displayName || f.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
             </section>
           )}
