@@ -71,17 +71,22 @@ export function buildNotificationText(
   notifSettings,
 ) {
   const preview = notifSettings?.messagePreview || 'full';
-  const context = isGroup ? groupName : senderName;
 
   if (preview === 'hidden') {
     return { title: 'QuantumChat', body: 'New message' };
   }
   if (preview === 'sender_only') {
-    return { title: context || 'QuantumChat', body: 'New message' };
+    return {
+      title: isGroup ? groupName || 'QuantumChat' : senderName || 'QuantumChat',
+      body: isGroup && senderName ? `${senderName} sent a message` : 'New message',
+    };
   }
   // 'full'
   const body = messageText?.trim() ? messageText : '[Attachment]';
-  return { title: context || 'QuantumChat', body };
+  return {
+    title: isGroup ? groupName || 'QuantumChat' : senderName || 'QuantumChat',
+    body: isGroup && senderName ? `${senderName}: ${body}` : body,
+  };
 }
 
 /**
@@ -90,7 +95,7 @@ export function buildNotificationText(
  * often suspended in background tabs.
  */
 export function showNotificationPopup(
-  { title, body, requireInteraction },
+  { title, body, requireInteraction, icon, tag },
   notifSettings,
   onClick,
 ) {
@@ -101,18 +106,17 @@ export function showNotificationPopup(
   const tabHidden =
     typeof document !== 'undefined' && document.visibilityState === 'hidden';
   const soundOnWeb = notifSettings?.webNotifications?.soundOnWeb !== false;
-  // Background: let the OS play the alert sound. Foreground: we play our own tone.
-  const allowOsSound =
-    soundOnWeb && notifSettings?.soundEnabled !== false;
+  const allowOsSound = soundOnWeb && notifSettings?.soundEnabled !== false;
   const silent = tabHidden ? !allowOsSound : true;
 
   try {
     const n = new Notification(title, {
       body,
-      icon: '/logo.png',
+      icon: icon || '/logo.png',
+      badge: '/logo.png',
       silent,
       requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
-      tag: 'quantumchat-alert',
+      tag: tag || 'quantumchat-alert',
       renotify: true,
     });
     if (onClick) {
@@ -125,4 +129,31 @@ export function showNotificationPopup(
   } catch {
     // ignore unsupported/blocked notifications
   }
+}
+/** Builds { title, body } for multiple buffered messages in one conversation, WhatsApp-style. */
+export function buildGroupedNotificationText(entries, { isGroup, groupName, notifSettings }) {
+  const preview = notifSettings?.messagePreview || 'full';
+  const title = isGroup ? groupName || 'QuantumChat' : entries[0]?.senderName || 'QuantumChat';
+
+  if (preview === 'hidden') {
+    return { title, body: entries.length > 1 ? `${entries.length} new messages` : 'New message' };
+  }
+
+  if (entries.length === 1) {
+    const e = entries[0];
+    const text = preview === 'sender_only' ? 'New message' : (e.text?.trim() || '[Attachment]');
+    return { title, body: isGroup && e.senderName ? `${e.senderName}: ${text}` : text };
+  }
+
+  // Multiple buffered messages — show last 2 lines + a "+N more" summary, like WhatsApp.
+  if (preview === 'sender_only') {
+    return { title, body: `${entries.length} new messages` };
+  }
+  const lines = entries.slice(-2).map((e) => {
+    const text = e.text?.trim() || '[Attachment]';
+    return isGroup && e.senderName ? `${e.senderName}: ${text}` : text;
+  });
+  const extra = entries.length - lines.length;
+  const body = extra > 0 ? `${lines.join('\n')}\n+${extra} more` : lines.join('\n');
+  return { title, body };
 }

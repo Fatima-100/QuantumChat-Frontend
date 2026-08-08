@@ -69,6 +69,8 @@ export default function ConversationList({
   onMute,
   onArchive,
   loading,
+  hasMoreContacts,
+  onLoadMoreContacts,
   searchQuery = '',
   friendCandidates = [],
   friendCandidatesLoading = false,
@@ -125,7 +127,10 @@ export default function ConversationList({
         setMenuPos(null);
       }
     }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
     function closeOnEscape(e) {
       if (e.key === 'Escape') {
         setOpenMenuKey(null);
@@ -668,7 +673,7 @@ export default function ConversationList({
               tabIndex={0}
               onClick={() => {
                 setOpenMenuKey(null);
-                 setMenuPos(null);
+                setMenuPos(null);
                 onSelect(c);
               }}
               onKeyDown={(e) => {
@@ -726,18 +731,27 @@ export default function ConversationList({
                     aria-haspopup="menu"
                     aria-expanded={openMenuKey === c.key}
                     onClick={(e) => {
+<<<<<<< HEAD
                       e.stopPropagation();
+=======
+>>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
                       if (openMenuKey === c.key) {
                         setOpenMenuKey(null);
                         setMenuPos(null);
                         return;
                       }
+<<<<<<< HEAD
                       setMenuPos(computeConvMenuPosition(e.currentTarget));
+=======
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+>>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
                       setOpenMenuKey(c.key);
                     }}
                   >
                     <MoreVertical size={16} />
                   </button>
+<<<<<<< HEAD
                   {openMenuKey === c.key && menuPos
                     ? createPortal(
                         <div
@@ -794,10 +808,49 @@ export default function ConversationList({
                         document.body,
                       )
                     : null}
+=======
+                  {openMenuKey === c.key && menuPos && createPortal(
+                    <div
+                      className="conv-row-dropdown open"
+                      role="menu"
+                      aria-label={`Conversation options for ${c.title}`}
+                      style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' }}
+                    >
+                      <div className="conv-row-dropdown-title">Conversation options</div>
+                      {onMute && (
+                        <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
+                          <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+                        </button>
+                      )}
+                      {onArchive && (
+                        <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
+                          <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+                        </button>
+                      )}
+                      {c.type === 'dm' && onHide && !c.isSelfChat && (
+                        <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
+                          <X size={14} /> Hide chat
+                        </button>
+                      )}
+                      {c.type === 'dm' && onBlock && !c.isSelfChat && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="danger"
+                          onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                        >
+                          <Ban size={14} /> Block user
+                        </button>
+                      )}
+                    </div>,
+                    document.body
+                  )}
+>>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
                 </div>
               )}
             </motion.div>
           ))}
+          
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -811,8 +864,18 @@ export default function ConversationList({
                       : 'No conversations yet.'}
             </p>
           )}
+          {hasMoreContacts && !searchQuery.trim() && (
+            <button
+              type="button"
+              className="load-older-btn"
+              onClick={onLoadMoreContacts}
+            >
+              Load more contacts
+            </button>
+          )}
         </div>
       )}
+       
     </div>
   );
 }
