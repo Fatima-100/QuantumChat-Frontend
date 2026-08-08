@@ -164,7 +164,16 @@ function formatFileSize(bytes) {
 function memberId(m) {
   return String(m?.id || m?._id || m);
 }
-
+function parseStoryPayload(text) {
+  if (!text) return null;
+  try {
+    const obj = JSON.parse(text);
+    if (obj?.type === "story_reaction" || obj?.type === "story_reply") return obj;
+  } catch {
+    // not a story payload
+  }
+  return null;
+}
 // Check if two ISO dates fall on the same calendar day
 function isSameDay(d1, d2) {
   const a = new Date(d1);
@@ -965,21 +974,27 @@ export default function Chat() {
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
           : false;
+        const decoratedForNotif = decorate(raw);
+        const storyPayload = parseStoryPayload(decoratedForNotif.text);
+        const reactionsExcluded =
+          notifSettings?.messageNotifications === "all_except_reactions" &&
+          storyPayload?.type === "story_reaction";
         const notifyOk =
           !muted &&
-          shouldNotify(notifSettings, {
-            kind: raw.group ? "group" : "dm",
-            isMention,
-          });
+          !reactionsExcluded &&
+          (storyPayload
+            ? notifSettings?.statusNotifications !== "off"
+            : shouldNotify(notifSettings, {
+              kind: raw.group ? "group" : "dm",
+              isMention,
+            }));
 
         if (notifyOk) {
           const tabHidden = document.visibilityState === "hidden";
           // Alert when another chat arrives, or when this tab is in the background.
           const shouldAlert = !isCurrent || tabHidden;
-
           if (shouldAlert) {
             playNotificationSound(notifSettings);
-            const decoratedForNotif = decorate(raw);
             const senderName =
               users.find((u) => String(u.id) === String(raw.from))?.displayName ||
               users.find((u) => String(u.id) === String(raw.from))?.username ||
@@ -1008,9 +1023,7 @@ export default function Chat() {
                 };
               handleSelectConversation(target);
             });
-
           } else if (!muted) {
-            // Soft in-app sound for the open, focused conversation.
             playReceiveSound(
               typeof notifSettings?.soundVolume === "number"
                 ? notifSettings.soundVolume / 100
@@ -1940,6 +1953,27 @@ export default function Chat() {
 
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
+  }
+  async function handleMarkAllRead() {
+    const unreadConvos = conversations.filter((c) => c.unread);
+    if (!unreadConvos.length) {
+      showToast("No unread conversations", "info");
+      return;
+    }
+
+    const dmReadRequests = [];
+    for (const c of unreadConvos) {
+      markConversationRead(user.id, c.key);
+      if (c.type === "dm" && !c.isSelfChat) {
+        dmReadRequests.push(client.post(`/messages/${c.id}/read`).catch(() => { }));
+      }
+    }
+
+    bumpActivity();
+    if (dmReadRequests.length) {
+      await Promise.allSettled(dmReadRequests);
+    }
+    showToast("All conversations marked as read", "success");
   }
 
   function toggleInfoPanel() {
@@ -3903,6 +3937,7 @@ export default function Chat() {
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
+        onMarkAllRead={handleMarkAllRead}
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
@@ -4152,11 +4187,11 @@ export default function Chat() {
                 {selected ? (
                   <div
                     className={`chat-header-peer${selected.type === "group" ||
-                        (selected.type === "dm" &&
-                          !selected.isSelfChat &&
-                          String(selected.id) !== String(user.id))
-                        ? " clickable"
-                        : ""
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
+                      ? " clickable"
+                      : ""
                       }`}
                     role={
                       selected.type === "group" ||

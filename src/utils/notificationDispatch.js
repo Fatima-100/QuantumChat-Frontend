@@ -64,29 +64,61 @@ export function playNotificationSound(notifSettings) {
     typeof notifSettings?.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 1;
   playReceiveSound(scale);
 }
+/** Detects a JSON system payload (call summary, meeting summary, story reaction/reply, etc.) embedded as message text. */
+export function parseSystemPayload(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(trimmed);
+    if (obj && (obj.__type || obj.type)) return obj;
+  } catch {
+    return null;
+  }
+  return null;
+}
 
+/** Turns a parsed system payload into a short, human-readable notification line. Returns null for unknown types. */
+export function describeSystemPayload(obj) {
+  if (!obj) return null;
+  const kind = obj.__type || obj.type;
+  const durationStr = (seconds) => {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+  };
+
+  switch (kind) {
+    case 'call':
+      if (!obj.answered) return `Missed ${obj.video ? 'video' : 'voice'} call`;
+      return `${obj.video ? 'Video' : 'Voice'} call ended · ${durationStr(obj.durationSeconds)}`;
+    case 'meeting':
+      return `${obj.video ? 'Video' : 'Voice'} meeting ended · ${durationStr(obj.durationSeconds)} · ${obj.participantCount || 0} joined`;
+    case 'story_reaction':
+      return `Reacted ${obj.emoji || '❤️'} to your story`;
+    case 'story_reply':
+      return `Replied to your story: "${(obj.text || '').slice(0, 80)}"`;
+    default:
+      return null;
+  }
+}
 /** Builds the { title, body } text for a popup, respecting the messagePreview setting. */
 export function buildNotificationText(
   { senderName, messageText, isGroup, groupName },
   notifSettings,
 ) {
   const preview = notifSettings?.messagePreview || 'full';
+  const context = isGroup ? groupName : senderName;
+  const systemLine = describeSystemPayload(parseSystemPayload(messageText));
 
   if (preview === 'hidden') {
     return { title: 'QuantumChat', body: 'New message' };
   }
   if (preview === 'sender_only') {
-    return {
-      title: isGroup ? groupName || 'QuantumChat' : senderName || 'QuantumChat',
-      body: isGroup && senderName ? `${senderName} sent a message` : 'New message',
-    };
+    return { title: context || 'QuantumChat', body: systemLine ? systemLine : 'New message' };
   }
-  // 'full'
-  const body = messageText?.trim() ? messageText : '[Attachment]';
-  return {
-    title: isGroup ? groupName || 'QuantumChat' : senderName || 'QuantumChat',
-    body: isGroup && senderName ? `${senderName}: ${body}` : body,
-  };
+  const body = systemLine || (messageText?.trim() ? messageText : '[Attachment]');
+  return { title: context || 'QuantumChat', body };
 }
 
 /**
@@ -135,22 +167,23 @@ export function buildGroupedNotificationText(entries, { isGroup, groupName, noti
   const preview = notifSettings?.messagePreview || 'full';
   const title = isGroup ? groupName || 'QuantumChat' : entries[0]?.senderName || 'QuantumChat';
 
+  const lineFor = (e) => describeSystemPayload(parseSystemPayload(e.text)) || e.text?.trim() || '[Attachment]';
+
   if (preview === 'hidden') {
     return { title, body: entries.length > 1 ? `${entries.length} new messages` : 'New message' };
   }
 
   if (entries.length === 1) {
     const e = entries[0];
-    const text = preview === 'sender_only' ? 'New message' : (e.text?.trim() || '[Attachment]');
+    const text = preview === 'sender_only' ? (describeSystemPayload(parseSystemPayload(e.text)) || 'New message') : lineFor(e);
     return { title, body: isGroup && e.senderName ? `${e.senderName}: ${text}` : text };
   }
 
-  // Multiple buffered messages — show last 2 lines + a "+N more" summary, like WhatsApp.
   if (preview === 'sender_only') {
     return { title, body: `${entries.length} new messages` };
   }
   const lines = entries.slice(-2).map((e) => {
-    const text = e.text?.trim() || '[Attachment]';
+    const text = lineFor(e);
     return isGroup && e.senderName ? `${e.senderName}: ${text}` : text;
   });
   const extra = entries.length - lines.length;
