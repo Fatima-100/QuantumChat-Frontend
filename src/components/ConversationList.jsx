@@ -128,9 +128,13 @@ export default function ConversationList({
       }
     }
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 =======
 >>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
+=======
+
+>>>>>>> 79ebd5ef9929b4e4b6a0aa2c21f5e94de774937c
     function closeOnEscape(e) {
       if (e.key === 'Escape') {
         setOpenMenuKey(null);
@@ -732,26 +736,37 @@ export default function ConversationList({
                     aria-expanded={openMenuKey === c.key}
                     onClick={(e) => {
 <<<<<<< HEAD
+<<<<<<< HEAD
                       e.stopPropagation();
 =======
 >>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
+=======
+                      e.stopPropagation();
+>>>>>>> 79ebd5ef9929b4e4b6a0aa2c21f5e94de774937c
                       if (openMenuKey === c.key) {
                         setOpenMenuKey(null);
                         setMenuPos(null);
                         return;
                       }
 <<<<<<< HEAD
+<<<<<<< HEAD
                       setMenuPos(computeConvMenuPosition(e.currentTarget));
 =======
                       const rect = e.currentTarget.getBoundingClientRect();
                       setMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
 >>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
+=======
+                      setMenuPos(computeConvMenuPosition(e.currentTarget));
+>>>>>>> 79ebd5ef9929b4e4b6a0aa2c21f5e94de774937c
                       setOpenMenuKey(c.key);
                     }}
                   >
                     <MoreVertical size={16} />
                   </button>
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 79ebd5ef9929b4e4b6a0aa2c21f5e94de774937c
                   {openMenuKey === c.key && menuPos
                     ? createPortal(
                         <div
@@ -808,6 +823,7 @@ export default function ConversationList({
                         document.body,
                       )
                     : null}
+<<<<<<< HEAD
 =======
                   {openMenuKey === c.key && menuPos && createPortal(
                     <div
@@ -846,6 +862,8 @@ export default function ConversationList({
                     document.body
                   )}
 >>>>>>> 75b5408c6620eac3814c15696226fee1f5d3fee2
+=======
+>>>>>>> 79ebd5ef9929b4e4b6a0aa2c21f5e94de774937c
                 </div>
               )}
             </motion.div>
