@@ -69,6 +69,8 @@ export default function ConversationList({
   onMute,
   onArchive,
   loading,
+  hasMoreContacts,
+  onLoadMoreContacts,
   searchQuery = '',
   friendCandidates = [],
   friendCandidatesLoading = false,
@@ -668,7 +670,7 @@ export default function ConversationList({
               tabIndex={0}
               onClick={() => {
                 setOpenMenuKey(null);
-                 setMenuPos(null);
+                setMenuPos(null);
                 onSelect(c);
               }}
               onKeyDown={(e) => {
@@ -798,6 +800,7 @@ export default function ConversationList({
               )}
             </motion.div>
           ))}
+          
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -811,8 +814,18 @@ export default function ConversationList({
                       : 'No conversations yet.'}
             </p>
           )}
+          {hasMoreContacts && !searchQuery.trim() && (
+            <button
+              type="button"
+              className="load-older-btn"
+              onClick={onLoadMoreContacts}
+            >
+              Load more contacts
+            </button>
+          )}
         </div>
       )}
+       
     </div>
   );
 }
