@@ -1,23 +1,20 @@
-import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
-import { QUICK_REACTIONS } from '../utils/emojis.js';
+import { Send, Smile, X } from 'lucide-react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
+import { getSocket } from '../api/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { KEY_SET_SIZE, pickRandom, sealMessage, unsealMessage } from '../crypto/keys.js';
 import {
-  getToken,
   findSecretKeyForPublicKey,
   getCurrentKeySet,
-  getKeyringSyncStatus,
-  getStoredUser,
   getKeyring,
+  getKeyringSyncStatus,
+  getStoredUser
 } from '../crypto/keyStorage.js';
-import { getSocket } from '../api/socket.js';
-import { sealMessage, unsealMessage, pickRandom, KEY_SET_SIZE } from '../crypto/keys.js';
-import UserAvatar from './UserAvatar.jsx';
-import ConfirmDialog from './ConfirmDialog.jsx';
-import { motion } from 'framer-motion';
-import { Send, Smile, X } from 'lucide-react';
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
-import { shouldNotify, playNotificationSound, showNotificationPopup } from '../utils/notificationDispatch.js';
+import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
+import ConfirmDialog from './ConfirmDialog.jsx';
+import UserAvatar from './UserAvatar.jsx';
 const MAX_STORY_SECONDS = 60;
 const TTL_PRESETS = [
   { label: '1 hour', ms: 60 * 60 * 1000 },
@@ -315,6 +312,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           }
         }
 
+        const storyPrivacy = currentUser?.privacy?.story || 'everyone';
+        const friendSet = new Set((currentUser?.friends || []).map(String));
+        const selectedSet = new Set((currentUser?.privacy?.storyViewers || []).map(String));
+
         const audienceMap = new Map();
         audienceMap.set(String(ownerUser.id), {
           id: String(ownerUser.id),
@@ -324,6 +325,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         for (const u of users) {
           if (!u?.id || !u.publicKeys?.length) continue;
           if (String(u.id) === String(ownerUser.id)) continue;
+           // --- Story privacy filter
+          if (storyPrivacy === 'nobody') continue;
+          if (storyPrivacy === 'friends' && !friendSet.has(String(u.id))) continue;
+          if (storyPrivacy === 'selected' && !selectedSet.has(String(u.id))) continue;
           audienceMap.set(String(u.id), {
             id: String(u.id),
             username: u.username,
