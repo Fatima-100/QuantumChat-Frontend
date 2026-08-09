@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Bookmark, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -32,6 +32,30 @@ const FILTERS = [
   { id: 'archived', label: 'Archived' },
 ];
 
+const FILTER_WINDOW = 3;
+const CONV_MENU_WIDTH = 190;
+const CONV_MENU_EST_HEIGHT = 230;
+
+function computeConvMenuPosition(triggerEl) {
+  const rect = triggerEl.getBoundingClientRect();
+  const gap = 8;
+  const pad = 12;
+  const spaceBelow = window.innerHeight - rect.bottom - pad;
+  const spaceAbove = rect.top - pad;
+  const openUp = spaceBelow < CONV_MENU_EST_HEIGHT && spaceAbove > spaceBelow;
+
+  let top = openUp
+    ? rect.top - CONV_MENU_EST_HEIGHT - gap
+    : rect.bottom + gap;
+
+  top = Math.max(pad, Math.min(top, window.innerHeight - CONV_MENU_EST_HEIGHT - pad));
+
+  let right = window.innerWidth - rect.right;
+  right = Math.max(pad, Math.min(right, window.innerWidth - CONV_MENU_WIDTH - pad));
+
+  return { top, right, openUp };
+}
+
 export default function ConversationList({
   conversations,
   filter,
@@ -45,6 +69,8 @@ export default function ConversationList({
   onMute,
   onArchive,
   loading,
+  hasMoreContacts,
+  onLoadMoreContacts,
   searchQuery = '',
   friendCandidates = [],
   friendCandidatesLoading = false,
@@ -69,31 +95,74 @@ export default function ConversationList({
   const [discoverError, setDiscoverError] = useState('');
   const [joiningId, setJoiningId] = useState(null);
   const [openMenuKey, setOpenMenuKey] = useState(null);
+  const [filterStart, setFilterStart] = useState(0);
   const panelRef = useRef(null);
-const [menuPos, setMenuPos] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
+
+  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+
+  const visibleFilters = useMemo(
+    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
+    [filterStart],
+  );
+
+  useEffect(() => {
+    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    if (activeIndex < 0) return;
+    setFilterStart((start) => {
+      if (activeIndex < start) return activeIndex;
+      if (activeIndex >= start + FILTER_WINDOW) {
+        return Math.min(activeIndex - FILTER_WINDOW + 1, maxFilterStart);
+      }
+      return start;
+    });
+  }, [filter, maxFilterStart]);
+
   useEffect(() => {
     if (!openMenuKey) return undefined;
 
     function closeMenu(e) {
-if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dropdown')) {
-    setOpenMenuKey(null);
-    setMenuPos(null);
-  }
-}
+      if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dropdown')) {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+      }
+    }
+
     function closeOnEscape(e) {
-      if (e.key === 'Escape') setOpenMenuKey(null);
+      if (e.key === 'Escape') {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+      }
+    }
+
+    function closeOnScroll(e) {
+      // Don't close when scrolling inside the menu itself.
+      if (e.target?.closest?.('.conv-row-dropdown')) return;
+      setOpenMenuKey(null);
+      setMenuPos(null);
+    }
+
+    function closeOnResize() {
+      setOpenMenuKey(null);
+      setMenuPos(null);
     }
 
     document.addEventListener('pointerdown', closeMenu);
     window.addEventListener('keydown', closeOnEscape);
+    // Capture scroll from the conversation list (and nested scrollers).
+    window.addEventListener('scroll', closeOnScroll, true);
+    window.addEventListener('resize', closeOnResize);
     return () => {
       document.removeEventListener('pointerdown', closeMenu);
       window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('scroll', closeOnScroll, true);
+      window.removeEventListener('resize', closeOnResize);
     };
   }, [openMenuKey]);
 
   function runMenuAction(action) {
     setOpenMenuKey(null);
+    setMenuPos(null);
     action?.();
   }
 
@@ -150,19 +219,41 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
 
   return (
     <div className="conversation-panel" ref={panelRef}>
-      <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.id}
-            className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-            onClick={() => onFilterChange(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="sidebar-filters-wrap">
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Previous filters"
+          disabled={filterStart <= 0}
+          onClick={() => setFilterStart((start) => Math.max(0, start - 1))}
+        >
+          <ChevronLeft size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
+
+        <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
+          {visibleFilters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
+              onClick={() => onFilterChange(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Next filters"
+          disabled={filterStart >= maxFilterStart}
+          onClick={() => setFilterStart((start) => Math.min(maxFilterStart, start + 1))}
+        >
+          <ChevronRight size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="sidebar-create-row">
@@ -579,7 +670,7 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
               tabIndex={0}
               onClick={() => {
                 setOpenMenuKey(null);
-                 setMenuPos(null);
+                setMenuPos(null);
                 onSelect(c);
               }}
               onKeyDown={(e) => {
@@ -636,59 +727,80 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                     aria-label={`Options for ${c.title}`}
                     aria-haspopup="menu"
                     aria-expanded={openMenuKey === c.key}
-                   onClick={(e) => {
-  if (openMenuKey === c.key) {
-    setOpenMenuKey(null);
-    setMenuPos(null);
-    return;
-  }
-  const rect = e.currentTarget.getBoundingClientRect();
-  setMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
-  setOpenMenuKey(c.key);
-}}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (openMenuKey === c.key) {
+                        setOpenMenuKey(null);
+                        setMenuPos(null);
+                        return;
+                      }
+                      setMenuPos(computeConvMenuPosition(e.currentTarget));
+                      setOpenMenuKey(c.key);
+                    }}
                   >
                     <MoreVertical size={16} />
                   </button>
-                  {openMenuKey === c.key && menuPos && createPortal(
-  <div
-    className="conv-row-dropdown open"
-    role="menu"
-    aria-label={`Conversation options for ${c.title}`}
-    style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' }}
-  >
-    <div className="conv-row-dropdown-title">Conversation options</div>
-    {onMute && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
-        <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
-      </button>
-    )}
-    {onArchive && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
-        <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
-      </button>
-    )}
-    {c.type === 'dm' && onHide && !c.isSelfChat && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
-        <X size={14} /> Hide chat
-      </button>
-    )}
-    {c.type === 'dm' && onBlock && !c.isSelfChat && (
-      <button
-        type="button"
-        role="menuitem"
-        className="danger"
-        onClick={() => runMenuAction(() => onBlock(c.peer || c))}
-      >
-        <Ban size={14} /> Block user
-      </button>
-    )}
-  </div>,
-  document.body
-)}
+                  {openMenuKey === c.key && menuPos
+                    ? createPortal(
+                        <div
+                          className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
+                          role="menu"
+                          aria-label={`Conversation options for ${c.title}`}
+                          style={{
+                            position: 'fixed',
+                            top: menuPos.top,
+                            right: menuPos.right,
+                            left: 'auto',
+                            bottom: 'auto',
+                          }}
+                        >
+                          <div className="conv-row-dropdown-title">Conversation options</div>
+                          {onMute && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => runMenuAction(() => onMute(c))}
+                            >
+                              <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+                            </button>
+                          )}
+                          {onArchive && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => runMenuAction(() => onArchive(c))}
+                            >
+                              <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+                            </button>
+                          )}
+                          {c.type === 'dm' && onHide && !c.isSelfChat && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => runMenuAction(() => onHide(c.peer || c))}
+                            >
+                              <X size={14} /> Hide chat
+                            </button>
+                          )}
+                          {c.type === 'dm' && onBlock && !c.isSelfChat && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="danger"
+                              onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                            >
+                              <Ban size={14} /> Block user
+                            </button>
+                          )}
+                        </div>,
+                        document.body,
+                      )
+                    : null}
                 </div>
               )}
             </motion.div>
           ))}
+          
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -702,8 +814,18 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                       : 'No conversations yet.'}
             </p>
           )}
+          {hasMoreContacts && !searchQuery.trim() && (
+            <button
+              type="button"
+              className="load-older-btn"
+              onClick={onLoadMoreContacts}
+            >
+              Load more contacts
+            </button>
+          )}
         </div>
       )}
+       
     </div>
   );
 }

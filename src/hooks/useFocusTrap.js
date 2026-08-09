@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 const FOCUSABLE_SELECTORS = [
   'a[href]',
@@ -14,31 +14,38 @@ const FOCUSABLE_SELECTORS = [
  * When `active` is true, Tab/Shift+Tab will cycle within the container
  * and Escape will trigger `onEscape` (or click the first close button).
  *
+ * Auto-focuses the first field once when the trap activates — not on every
+ * render — so typing in inputs is not interrupted.
+ *
  * @param {React.RefObject} ref - Ref to the modal/dialog container element.
  * @param {boolean} [active=true] - Whether the trap is active.
  * @param {Object} [options] - Additional options.
  * @param {Function} [options.onEscape] - Callback when Escape is pressed.
  */
 export default function useFocusTrap(ref, active = true, { onEscape } = {}) {
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+
   useEffect(() => {
-    if (!active || !ref.current) return;
+    if (!active || !ref.current) return undefined;
 
     const container = ref.current;
 
-    // Focus the first focusable element on mount
-    const firstFocusable = container.querySelectorAll(FOCUSABLE_SELECTORS)[0];
-    firstFocusable?.focus();
+    // Prefer the first text field so dialogs open ready for typing.
+    const preferred =
+      container.querySelector(
+        'input:not([disabled]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea:not([disabled])',
+      ) || container.querySelectorAll(FOCUSABLE_SELECTORS)[0];
+    preferred?.focus();
 
     function handleKeyDown(e) {
-      // Escape: dismiss the modal
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (onEscape) {
-          onEscape();
+        if (onEscapeRef.current) {
+          onEscapeRef.current();
         } else {
-          // Fallback: click the first close-like button in the container
           const closeBtn = container.querySelector(
-            '[aria-label*="Close"], [aria-label*="close"], .emoji-picker-close, .modal-close'
+            '[aria-label*="Close"], [aria-label*="close"], .emoji-picker-close, .modal-close, .create-group-close',
           );
           closeBtn?.click();
         }
@@ -54,21 +61,17 @@ export default function useFocusTrap(ref, active = true, { onEscape } = {}) {
       const last = focusableEls[focusableEls.length - 1];
 
       if (e.shiftKey) {
-        // Shift+Tab: if focus is on first element, wrap to last
         if (document.activeElement === first) {
           e.preventDefault();
           last.focus();
         }
-      } else {
-        // Tab: if focus is on last element, wrap to first
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+      } else if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     }
 
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [ref, active, onEscape]);
+  }, [ref, active]);
 }

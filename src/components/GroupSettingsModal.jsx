@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Camera, Copy, FileText, Link2, Shield, Trash2, UserMinus, UserPlus, X } from 'lucide-react';
 import client from '../api/client.js';
 import { isGroupAdmin } from '../utils/groupPayload.js';
@@ -66,6 +67,11 @@ export default function GroupSettingsModal({
     ],
     [group?.visibility],
   );
+
+  useEffect(() => {
+    const ids = new Set(tabs.map(([id]) => id));
+    if (!ids.has(tab)) setTab('info');
+  }, [tabs, tab]);
 
   useEffect(() => {
     setName(group?.name || '');
@@ -312,7 +318,7 @@ export default function GroupSettingsModal({
     };
   }, [group?.id, group?.hasPhoto, group?.updatedAt]);
 
-  return (
+  return createPortal(
     <div className="create-group-overlay" role="presentation" onClick={() => !busy && onClose?.()}>
       <div
         className="create-group-modal group-settings-modal"
@@ -882,6 +888,7 @@ export default function GroupSettingsModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
