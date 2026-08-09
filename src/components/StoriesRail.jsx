@@ -219,43 +219,42 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   }, []);
 
   useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return undefined;
+  const socket = getSocket();
+  if (!socket) return undefined;
   function onNew(payload) {
-      if (!payload?.id) return;
-      if (!viewerCanSeeStory(payload, currentUser?.id)) return;
-      const isOwn = String(payload.user?.id) === String(currentUser?.id);
-      setStories((prev) => {
-        if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
-        return [payload, ...prev];
-      });
+    if (!payload?.id) return;
+    if (!viewerCanSeeStory(payload, currentUser?.id)) return;
+    const isOwn = String(payload.user?.id) === String(currentUser?.id);
+    setStories((prev) => {
+      if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
+      return [payload, ...prev];
+    });
 
-      if (!isOwn) {
-        const mode = notifSettings?.statusNotifications;
-        // 'favorites_only' has no dedicated favorites list yet — approximated as friends-only.
-        const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
-        const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
-        if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
-          playNotificationSound(notifSettings);
-          showNotificationPopup(
-            { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
-            notifSettings,
-            () => {},
-          );
-        }
+    if (!isOwn) {
+      const mode = notifSettings?.statusNotifications;
+      const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
+      const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
+      if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
+        playNotificationSound(notifSettings);
+        showNotificationPopup(
+          { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
+          notifSettings,
+          () => {},
+        );
       }
     }
-    function onDeleted({ id } = {}) {
-      if (!id) return;
-      setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
-    }
-    socket.on('story:new', onNew);
-    socket.on('story:deleted', onDeleted);
-    return () => {
-      socket.off('story:new', onNew);
-      socket.off('story:deleted', onDeleted);
-    };
-  }, [currentUser?.id]);
+  }
+  function onDeleted({ id } = {}) {
+    if (!id) return;
+    setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
+  }
+  socket.on('story:new', onNew);
+  socket.on('story:deleted', onDeleted);
+  return () => {
+    socket.off('story:new', onNew);
+    socket.off('story:deleted', onDeleted);
+  };
+}, [currentUser?.id, currentUser?.friends, notifSettings]);
 
   function handleFileSelected(e) {
     const file = e.target.files?.[0];

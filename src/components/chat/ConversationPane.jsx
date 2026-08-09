@@ -13,6 +13,7 @@ export default function ConversationPane({
   onCloseSidebar,
   onSettings,
   onLogout,
+   onMarkAllRead,
   storiesRailRef,
   users,
   onStoriesError,
@@ -72,7 +73,7 @@ export default function ConversationPane({
             </div>
           </div>
           <div className="sidebar-header-actions">
-            <SidebarMenu onSettings={onSettings} onLogout={onLogout} />
+            <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} />
           </div>
         </div>
         {canChat && (
