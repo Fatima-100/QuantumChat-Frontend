@@ -57,12 +57,12 @@ const THEME_LABELS = {
   dark: 'Dark',
   eyecare: 'Eyecare',
   moonveil: 'Moonveil',
-   sakura: 'Sakura',
-   sunset: 'Sunset Ember',
+  sakura: 'Sakura',
+  sunset: 'Sunset Ember',
   aurora: 'Aurora',
   ocean: 'Bioluminescent',
-    nebula: 'Nebula',
-    dreamcloud: 'Dreamcloud',
+  nebula: 'Nebula',
+  dreamcloud: 'Dreamcloud',
 };
 
 export default function SettingsModal({
@@ -76,8 +76,8 @@ export default function SettingsModal({
   initialTab = 'profile',
   className = '',
 }) {
- const { theme, appIcon, setAppIcon } = useTheme();
-const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
+  const { theme, appIcon, setAppIcon } = useTheme();
+  const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const { settings: notifSettings, updateSettings: updateNotifSettings } = useNotificationSettings();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
@@ -103,7 +103,7 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
       : [],
     whoCanMessage: user?.privacy?.whoCanMessage || 'everyone',
     discoverable: user?.privacy?.discoverable || 'everyone',
-     story: user?.privacy?.story || 'everyone',
+    story: user?.privacy?.story || 'everyone',
     storyViewers: Array.isArray(user?.privacy?.storyViewers)
       ? user.privacy.storyViewers.map((id) => String(id._id || id))
       : [],
@@ -124,11 +124,11 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
   const [totpCode, setTotpCode] = useState('');
   const [totpPassword, setTotpPassword] = useState('');
   const [totpBusy, setTotpBusy] = useState(false);
-const [directoryUsers, setDirectoryUsers] = useState([]);
+  const [directoryUsers, setDirectoryUsers] = useState([]);
   const [directoryGroups, setDirectoryGroups] = useState([]);
   const shownName = user?.displayName || user?.username || 'You';
   const currentSessionId = getSessionId();
-
+  const [verifyLinkUrl, setVerifyLinkUrl] = useState('');
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -290,31 +290,31 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
     updatePrivacyField('lastSeen', privacy.lastSeen);
   }
   async function updateNotifField(key, val) {
-  setBusy(true);
-  setError('');
-  setOk('');
-  const res = await updateNotifSettings({ [key]: val });
-  if (res.success) {
-    setOk('Notification settings saved');
-  } else {
-    setError(res.error || 'Failed to save notification settings');
+    setBusy(true);
+    setError('');
+    setOk('');
+    const res = await updateNotifSettings({ [key]: val });
+    if (res.success) {
+      setOk('Notification settings saved');
+    } else {
+      setError(res.error || 'Failed to save notification settings');
+    }
+    setBusy(false);
   }
-  setBusy(false);
-}
-async function updateNotifNested(parentKey, childKey, val) {
-  setBusy(true);
-  setError('');
-  setOk('');
-  const nextParent = { ...(notifSettings[parentKey] || {}), [childKey]: val };
-  const res = await updateNotifSettings({ [parentKey]: nextParent });
-  if (res.success) {
-    setOk('Notification settings saved');
-  } else {
-    setError(res.error || 'Failed to save notification settings');
+  async function updateNotifNested(parentKey, childKey, val) {
+    setBusy(true);
+    setError('');
+    setOk('');
+    const nextParent = { ...(notifSettings[parentKey] || {}), [childKey]: val };
+    const res = await updateNotifSettings({ [parentKey]: nextParent });
+    if (res.success) {
+      setOk('Notification settings saved');
+    } else {
+      setError(res.error || 'Failed to save notification settings');
+    }
+    setBusy(false);
   }
-  setBusy(false);
-}
-async function unmuteFromList(key) {
+  async function unmuteFromList(key) {
     const parsed = parseMutedKey(key, user?.id);
     if (!parsed) return;
     setBusy(true);
@@ -500,14 +500,11 @@ async function unmuteFromList(key) {
     setBusy(true);
     setError('');
     setOk('');
+    setVerifyLinkUrl('');
     try {
       const { data } = await client.post('/auth/resend-verification');
       onUserUpdated?.(data.data.user);
-      if (data.data.verifyUrl) {
-        setOk(`Verification link: ${data.data.verifyUrl}`);
-      } else {
-        setOk(data.data.message || 'Verification email sent');
-      }
+      setOk(data.data.message || 'Verification email sent — check your inbox');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to resend verification');
     } finally {
@@ -612,7 +609,13 @@ async function unmuteFromList(key) {
         <div className="settings-body">
           {error && <div className="auth-error">{error}</div>}
           {ok && <div className="settings-ok">{ok}</div>}
-
+          {verifyLinkUrl && (
+            <div className="settings-ok">
+              <a href={verifyLinkUrl} target="_blank" rel="noopener noreferrer">
+                {verifyLinkUrl}
+              </a>
+            </div>
+          )}
           {tab === 'profile' && (
             <section className="settings-section">
               <div className="settings-identity">
@@ -945,284 +948,284 @@ async function unmuteFromList(key) {
             </section>
           )}
           {tab === 'notifications' && (
-  <section className="settings-section">
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Message Notifications</h3>
-      <p className="settings-section-copy">Choose which messages trigger notifications.</p>
+            <section className="settings-section">
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Message Notifications</h3>
+                <p className="settings-section-copy">Choose which messages trigger notifications.</p>
 
-      <PrivacySelect
-        label="Message Notifications"
-        description="Which messages should notify you"
-        value={notifSettings.messageNotifications}
-        options={[
-          { value: 'all', label: 'All Messages' },
-          { value: 'direct_only', label: 'Only Direct Messages' },
-          { value: 'all_except_reactions', label: 'All Messages Except Reactions' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('messageNotifications', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Muted Chats</h3>
-      <p className="settings-section-copy">Manage conversations you've muted.</p>
+                <PrivacySelect
+                  label="Message Notifications"
+                  description="Which messages should notify you"
+                  value={notifSettings.messageNotifications}
+                  options={[
+                    { value: 'all', label: 'All Messages' },
+                    { value: 'direct_only', label: 'Only Direct Messages' },
+                    { value: 'all_except_reactions', label: 'All Messages Except Reactions' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('messageNotifications', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Muted Chats</h3>
+                <p className="settings-section-copy">Manage conversations you've muted.</p>
 
-      {!Array.isArray(user?.mutedChats) || user.mutedChats.length === 0 ? (
-        <p className="settings-section-copy">No muted chats.</p>
-      ) : (
-        user.mutedChats.map((m) => {
-          const parsed = parseMutedKey(m.conversationKey, user?.id);
-          if (!parsed) return null;
-          const name =
-            parsed.type === 'group'
-              ? directoryGroups.find((g) => String(g.id) === String(parsed.id))?.name || 'Unknown group'
-              : directoryUsers.find((u) => String(u.id) === String(parsed.id))?.displayName ||
-                directoryUsers.find((u) => String(u.id) === String(parsed.id))?.username ||
-                'Unknown user';
-          return (
-            <div key={m.conversationKey} className="settings-row" style={{ cursor: 'default' }}>
-              <span className="settings-row-left">
-                <span className="settings-row-label">{name}</span>
-                <span className="settings-row-hint">{formatMuteExpiry(m.expiresAt)}</span>
-              </span>
-              <button
-                type="button"
-                className="settings-btn ghost"
-                disabled={busy}
-                onClick={() => unmuteFromList(m.conversationKey)}
-              >
-                Unmute
-              </button>
-            </div>
-          );
-        })
-      )}
-    </div>
+                {!Array.isArray(user?.mutedChats) || user.mutedChats.length === 0 ? (
+                  <p className="settings-section-copy">No muted chats.</p>
+                ) : (
+                  user.mutedChats.map((m) => {
+                    const parsed = parseMutedKey(m.conversationKey, user?.id);
+                    if (!parsed) return null;
+                    const name =
+                      parsed.type === 'group'
+                        ? directoryGroups.find((g) => String(g.id) === String(parsed.id))?.name || 'Unknown group'
+                        : directoryUsers.find((u) => String(u.id) === String(parsed.id))?.displayName ||
+                        directoryUsers.find((u) => String(u.id) === String(parsed.id))?.username ||
+                        'Unknown user';
+                    return (
+                      <div key={m.conversationKey} className="settings-row" style={{ cursor: 'default' }}>
+                        <span className="settings-row-left">
+                          <span className="settings-row-label">{name}</span>
+                          <span className="settings-row-hint">{formatMuteExpiry(m.expiresAt)}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="settings-btn ghost"
+                          disabled={busy}
+                          onClick={() => unmuteFromList(m.conversationKey)}
+                        >
+                          Unmute
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Status Notifications</h3>
-      <p className="settings-section-copy">Control updates from friends' statuses.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Status Notifications</h3>
+                <p className="settings-section-copy">Control updates from friends' statuses.</p>
 
-      <PrivacySelect
-        label="Status Notifications"
-        description="When to notify you about friend statuses"
-        value={notifSettings.statusNotifications}
-        options={[
-          { value: 'all', label: 'All Friend Statuses' },
-          { value: 'favorites_only', label: 'Favorite Friends Only' },
-          { value: 'off', label: 'Off' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('statusNotifications', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Notification Sound</h3>
-      <p className="settings-section-copy">Customize notification sounds and volume.</p>
+                <PrivacySelect
+                  label="Status Notifications"
+                  description="When to notify you about friend statuses"
+                  value={notifSettings.statusNotifications}
+                  options={[
+                    { value: 'all', label: 'All Friend Statuses' },
+                    { value: 'favorites_only', label: 'Favorite Friends Only' },
+                    { value: 'off', label: 'Off' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('statusNotifications', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Notification Sound</h3>
+                <p className="settings-section-copy">Customize notification sounds and volume.</p>
 
-      <ToggleRow
-        label="Notification sounds"
-        hint="Play a sound when new notifications arrive"
-        checked={notifSettings.soundEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifField('soundEnabled', v)}
-      />
+                <ToggleRow
+                  label="Notification sounds"
+                  hint="Play a sound when new notifications arrive"
+                  checked={notifSettings.soundEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('soundEnabled', v)}
+                />
 
-      {notifSettings.soundEnabled && (
-        <label className="settings-field">
-          <span>Volume ({notifSettings.soundVolume}%)</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={notifSettings.soundVolume}
-            disabled={busy}
-            onChange={(e) => updateNotifField('soundVolume', Number(e.target.value))}
-          />
-        </label>
-      )}
-    </div>
+                {notifSettings.soundEnabled && (
+                  <label className="settings-field">
+                    <span>Volume ({notifSettings.soundVolume}%)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={notifSettings.soundVolume}
+                      disabled={busy}
+                      onChange={(e) => updateNotifField('soundVolume', Number(e.target.value))}
+                    />
+                  </label>
+                )}
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Message Preview</h3>
-      <p className="settings-section-copy">Choose what appears in notifications.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Message Preview</h3>
+                <p className="settings-section-copy">Choose what appears in notifications.</p>
 
-      <PrivacySelect
-        label="Message Preview"
-        description="How much of a message to reveal in notifications"
-        value={notifSettings.messagePreview}
-        options={[
-          { value: 'full', label: 'Show Full Message' },
-          { value: 'sender_only', label: 'Show Sender Only' },
-          { value: 'hidden', label: 'Hide Preview' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('messagePreview', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Vibration</h3>
-      <p className="settings-section-copy">Control vibration for notifications.</p>
+                <PrivacySelect
+                  label="Message Preview"
+                  description="How much of a message to reveal in notifications"
+                  value={notifSettings.messagePreview}
+                  options={[
+                    { value: 'full', label: 'Show Full Message' },
+                    { value: 'sender_only', label: 'Show Sender Only' },
+                    { value: 'hidden', label: 'Hide Preview' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('messagePreview', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Vibration</h3>
+                <p className="settings-section-copy">Control vibration for notifications.</p>
 
-      <PrivacySelect
-        label="Vibration"
-        description="Vibrate on new notifications"
-        value={notifSettings.vibration}
-        options={[
-          { value: 'on', label: 'On' },
-          { value: 'off', label: 'Off' },
-          { value: 'custom', label: 'Custom Pattern' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('vibration', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Vibration"
+                  description="Vibrate on new notifications"
+                  value={notifSettings.vibration}
+                  options={[
+                    { value: 'on', label: 'On' },
+                    { value: 'off', label: 'Off' },
+                    { value: 'custom', label: 'Custom Pattern' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('vibration', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Do Not Disturb</h3>
-      <p className="settings-section-copy">Silence notifications during specific times.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Do Not Disturb</h3>
+                <p className="settings-section-copy">Silence notifications during specific times.</p>
 
-      <ToggleRow
-        label="Do Not Disturb"
-        hint="Silence notifications during quiet hours"
-        checked={notifSettings.doNotDisturb?.enabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('doNotDisturb', 'enabled', v)}
-      />
+                <ToggleRow
+                  label="Do Not Disturb"
+                  hint="Silence notifications during quiet hours"
+                  checked={notifSettings.doNotDisturb?.enabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('doNotDisturb', 'enabled', v)}
+                />
 
-      {notifSettings.doNotDisturb?.enabled && (
-        <>
-          <label className="settings-field">
-            <span>Quiet hours start</span>
-            <input
-              type="time"
-              value={notifSettings.doNotDisturb?.startTime || '22:00'}
-              disabled={busy}
-              onChange={(e) => updateNotifNested('doNotDisturb', 'startTime', e.target.value)}
-            />
-          </label>
-          <label className="settings-field">
-            <span>Quiet hours end</span>
-            <input
-              type="time"
-              value={notifSettings.doNotDisturb?.endTime || '07:00'}
-              disabled={busy}
-              onChange={(e) => updateNotifNested('doNotDisturb', 'endTime', e.target.value)}
-            />
-          </label>
-        </>
-      )}
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Group Notifications</h3>
-      <p className="settings-section-copy">Control notifications from group chats.</p>
+                {notifSettings.doNotDisturb?.enabled && (
+                  <>
+                    <label className="settings-field">
+                      <span>Quiet hours start</span>
+                      <input
+                        type="time"
+                        value={notifSettings.doNotDisturb?.startTime || '22:00'}
+                        disabled={busy}
+                        onChange={(e) => updateNotifNested('doNotDisturb', 'startTime', e.target.value)}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Quiet hours end</span>
+                      <input
+                        type="time"
+                        value={notifSettings.doNotDisturb?.endTime || '07:00'}
+                        disabled={busy}
+                        onChange={(e) => updateNotifNested('doNotDisturb', 'endTime', e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Group Notifications</h3>
+                <p className="settings-section-copy">Control notifications from group chats.</p>
 
-      <PrivacySelect
-        label="Group Notifications"
-        description="Which group messages should notify you"
-        value={notifSettings.groupNotifications}
-        options={[
-          { value: 'all', label: 'All Messages' },
-          { value: 'mentions_only', label: 'Mentions Only' },
-          { value: 'important_only', label: 'Important Announcements Only' },
-          { value: 'off', label: 'Off' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('groupNotifications', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Group Notifications"
+                  description="Which group messages should notify you"
+                  value={notifSettings.groupNotifications}
+                  options={[
+                    { value: 'all', label: 'All Messages' },
+                    { value: 'mentions_only', label: 'Mentions Only' },
+                    { value: 'important_only', label: 'Important Announcements Only' },
+                    { value: 'off', label: 'Off' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('groupNotifications', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Call Notifications</h3>
-      <p className="settings-section-copy">Manage incoming call alerts.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Call Notifications</h3>
+                <p className="settings-section-copy">Manage incoming call alerts.</p>
 
-      <ToggleRow
-        label="Voice call notifications"
-        checked={notifSettings.callNotifications?.voiceCallEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'voiceCallEnabled', v)}
-      />
-      <ToggleRow
-        label="Video call notifications"
-        checked={notifSettings.callNotifications?.videoCallEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'videoCallEnabled', v)}
-      />
-      <ToggleRow
-        label="Vibrate for incoming calls"
-        checked={notifSettings.callNotifications?.vibrateOnCall}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'vibrateOnCall', v)}
-      />
-      <ToggleRow
-        label="Missed call reminders"
-        checked={notifSettings.callNotifications?.missedCallReminders}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'missedCallReminders', v)}
-      />
-    </div>
+                <ToggleRow
+                  label="Voice call notifications"
+                  checked={notifSettings.callNotifications?.voiceCallEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'voiceCallEnabled', v)}
+                />
+                <ToggleRow
+                  label="Video call notifications"
+                  checked={notifSettings.callNotifications?.videoCallEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'videoCallEnabled', v)}
+                />
+                <ToggleRow
+                  label="Vibrate for incoming calls"
+                  checked={notifSettings.callNotifications?.vibrateOnCall}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'vibrateOnCall', v)}
+                />
+                <ToggleRow
+                  label="Missed call reminders"
+                  checked={notifSettings.callNotifications?.missedCallReminders}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'missedCallReminders', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Badge Count</h3>
-      <p className="settings-section-copy">Show unread message count on the app icon.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Badge Count</h3>
+                <p className="settings-section-copy">Show unread message count on the app icon.</p>
 
-      <PrivacySelect
-        label="Badge Count"
-        description="Whether to show your unread count on the app icon"
-        value={notifSettings.badgeCount}
-        options={[
-          { value: 'show', label: 'Show' },
-          { value: 'hidden', label: 'Hide' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('badgeCount', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Badge Count"
+                  description="Whether to show your unread count on the app icon"
+                  value={notifSettings.badgeCount}
+                  options={[
+                    { value: 'show', label: 'Show' },
+                    { value: 'hidden', label: 'Hide' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('badgeCount', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Desktop / Web Notifications</h3>
-      <p className="settings-section-copy">For sessions signed in on the web.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Desktop / Web Notifications</h3>
+                <p className="settings-section-copy">For sessions signed in on the web.</p>
 
-      <ToggleRow
-        label="Enable browser notifications"
-        checked={notifSettings.webNotifications?.enabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
-      />
-      <ToggleRow
-        label="Play notification sound on web"
-        checked={notifSettings.webNotifications?.soundOnWeb}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
-      />
-      <ToggleRow
-        label="Sync read notifications across devices"
-        checked={notifSettings.webNotifications?.syncReadAcrossDevices}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
-      />
-    </div>
+                <ToggleRow
+                  label="Enable browser notifications"
+                  checked={notifSettings.webNotifications?.enabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
+                />
+                <ToggleRow
+                  label="Play notification sound on web"
+                  checked={notifSettings.webNotifications?.soundOnWeb}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
+                />
+                <ToggleRow
+                  label="Sync read notifications across devices"
+                  checked={notifSettings.webNotifications?.syncReadAcrossDevices}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Notification Priority</h3>
-      <p className="settings-section-copy">Choose how notifications appear.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Notification Priority</h3>
+                <p className="settings-section-copy">Choose how notifications appear.</p>
 
-      <PrivacySelect
-        label="Priority"
-        description="How prominently notifications are displayed"
-        value={notifSettings.priority}
-        options={[
-          { value: 'high', label: 'High Priority (pop-up/banner)' },
-          { value: 'normal', label: 'Normal' },
-          { value: 'silent', label: 'Silent' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('priority', v)}
-      />
-    </div>
-  </section>
-)}
+                <PrivacySelect
+                  label="Priority"
+                  description="How prominently notifications are displayed"
+                  value={notifSettings.priority}
+                  options={[
+                    { value: 'high', label: 'High Priority (pop-up/banner)' },
+                    { value: 'normal', label: 'Normal' },
+                    { value: 'silent', label: 'Silent' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('priority', v)}
+                />
+              </div>
+            </section>
+          )}
           {tab === 'security' && (
             <section className="settings-section">
               <div className="settings-fieldset">
@@ -1453,7 +1456,7 @@ async function unmuteFromList(key) {
                   </p>
                 )}
                 <div className="settings-key-actions">
-                  <button type="button" className="settings-btn ghost" onClick={() => verifyKeySync().catch(() => {})}>
+                  <button type="button" className="settings-btn ghost" onClick={() => verifyKeySync().catch(() => { })}>
                     Verify key sync
                   </button>
                   <button type="button" className="settings-btn ghost" onClick={() => keyInputRef.current?.click()}>
