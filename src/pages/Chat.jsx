@@ -926,6 +926,14 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.mutedChats]);
   useEffect(() => {
+    if (!user?.id) return;
+    loadMyFriends();
+  }, [user?.id, loadMyFriends]);
+
+  useEffect(() => {
+    if (filter === "all") {
+      loadMyFriends();
+    }
     if (filter !== "friends") return;
     loadFriendDiscover(search);
     loadFriendRequests();
