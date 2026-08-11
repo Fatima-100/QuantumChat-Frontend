@@ -2076,6 +2076,45 @@ export default function Chat() {
     }
   }
 
+  function handleNotFriendsError(err, fallbackRecipientId) {
+    const errData = err?.response?.data || err?.data || err;
+    if (errData?.code === 'NOT_FRIENDS') {
+      const targetId = errData.recipientId || fallbackRecipientId;
+      showToast(
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span>Unable to send message — you're not friends with this user. Add them as a friend first.</span>
+          {targetId && (
+            <button
+              type="button"
+              style={{
+                alignSelf: 'flex-start',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                borderRadius: '4px',
+                border: 'none',
+                background: '#ffffff',
+                color: '#111827',
+                cursor: 'pointer',
+                marginTop: '2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSendFriendRequest(targetId);
+              }}
+            >
+              Add Friend
+            </button>
+          )}
+        </div>,
+        "error",
+        6000
+      );
+      return true;
+    }
+    return false;
+  }
+
   async function handleCancelFriendRequest(requestId) {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
@@ -2277,10 +2316,12 @@ export default function Chat() {
       }
       showToast("Encrypted AI note saved", "success");
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Could not save AI note",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Could not save AI note",
+          "error",
+        );
+      }
     }
   }
 
@@ -2853,10 +2894,12 @@ export default function Chat() {
         }
       }
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Failed to send message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Failed to send message",
+          "error",
+        );
+      }
     }
   }
 
@@ -3092,7 +3135,12 @@ export default function Chat() {
         showToast("Upload cancelled", "info", 2500);
         return;
       }
-      throw err;
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Upload failed",
+          "error",
+        );
+      }
     } finally {
       setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
@@ -3543,10 +3591,12 @@ export default function Chat() {
       showToast(`Forwarded to ${target.title}`, "success");
       setForwardMessage(null);
     } catch (err) {
-      showToast(
-        err.response?.data?.error || "Failed to forward message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, target?.id)) {
+        showToast(
+          err.response?.data?.error || "Failed to forward message",
+          "error",
+        );
+      }
     } finally {
       setForwardBusy(false);
     }
