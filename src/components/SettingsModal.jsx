@@ -1,13 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTheme, APP_ICONS, FUN_THEMES } from '../context/ThemeContext.jsx';
+import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
-import client, { updatePrivacySettings, unmuteChat } from '../api/client.js';
+import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
-import { encryptVaultPayload, decryptVaultPayload } from '../crypto/keyVault.js';
-import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
+import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
+import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
+import {
+  approveDeviceLink,
+  buildQrPayload,
+  createDeviceLinkRequest,
+  listDeviceSessions as listLinkedDeviceSessions,
+  rejectDeviceLink,
+  revokeDeviceSession as revokeDeviceSessionApi,
+  sendDeviceLinkEmail as sendDeviceLinkEmailApi,
+  verifyDeviceLink,
+} from '../api/deviceLink.js';
+import { getSocket, connectSocket } from '../api/socket.js';
+import QRCode from 'qrcode';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -57,12 +71,12 @@ const THEME_LABELS = {
   dark: 'Dark',
   eyecare: 'Eyecare',
   moonveil: 'Moonveil',
-   sakura: 'Sakura',
-   sunset: 'Sunset Ember',
+  sakura: 'Sakura',
+  sunset: 'Sunset Ember',
   aurora: 'Aurora',
   ocean: 'Bioluminescent',
-    nebula: 'Nebula',
-    dreamcloud: 'Dreamcloud',
+  nebula: 'Nebula',
+  dreamcloud: 'Dreamcloud',
 };
 
 export default function SettingsModal({
@@ -76,8 +90,8 @@ export default function SettingsModal({
   initialTab = 'profile',
   className = '',
 }) {
- const { theme, appIcon, setAppIcon } = useTheme();
-const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
+  const { theme, appIcon, setAppIcon } = useTheme();
+  const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const { settings: notifSettings, updateSettings: updateNotifSettings } = useNotificationSettings();
   const closeRef = useRef(null);
   const keyInputRef = useRef(null);
@@ -103,6 +117,10 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
       : [],
     whoCanMessage: user?.privacy?.whoCanMessage || 'everyone',
     discoverable: user?.privacy?.discoverable || 'everyone',
+    story: user?.privacy?.story || 'everyone',
+    storyViewers: Array.isArray(user?.privacy?.storyViewers)
+      ? user.privacy.storyViewers.map((id) => String(id._id || id))
+      : [],
   });
   const [friendsList, setFriendsList] = useState([]);
 
@@ -111,6 +129,25 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
   const [blocked, setBlocked] = useState([]);
   const [deletePassword, setDeletePassword] = useState('');
   const [sessions, setSessions] = useState([]);
+  const [deviceLinkModalOpen, setDeviceLinkModalOpen] = useState(false);
+  const [deviceLinkSetupModalOpen, setDeviceLinkSetupModalOpen] = useState(false);
+  const [deviceLinkRequest, setDeviceLinkRequest] = useState(null);
+  const [deviceLinkBusy, setDeviceLinkBusy] = useState(false);
+  const [deviceLinkState, setDeviceLinkState] = useState('idle');
+  const [deviceLinkQr, setDeviceLinkQr] = useState('');
+  const [deviceLinkExpiresAt, setDeviceLinkExpiresAt] = useState(null);
+  const [deviceLinkTimeLeft, setDeviceLinkTimeLeft] = useState(0);
+  const [deviceLinkError, setDeviceLinkError] = useState('');
+  const [deviceLinkLinkId, setDeviceLinkLinkId] = useState('');
+  const [deviceLinkToken, setDeviceLinkToken] = useState('');
+  const [deviceLinkLoading, setDeviceLinkLoading] = useState(false);
+  const [deviceLinkStatusText, setDeviceLinkStatusText] = useState('');
+  const [deviceLinkEmail, setDeviceLinkEmail] = useState('');
+  const [deviceLinkEmailBusy, setDeviceLinkEmailBusy] = useState(false);
+  const [deviceLinkEmailMessage, setDeviceLinkEmailMessage] = useState('');
+  const [deviceLinkConfirmOpen, setDeviceLinkConfirmOpen] = useState(false);
+  const [deviceLinkConfirmSession, setDeviceLinkConfirmSession] = useState(null);
+  const [deviceLinkRefreshing, setDeviceLinkRefreshing] = useState(false);
   const [vaultPassphrase, setVaultPassphrase] = useState('');
   const [vaultPassphraseConfirm, setVaultPassphraseConfirm] = useState('');
   const [vaultHasBackup, setVaultHasBackup] = useState(false);
@@ -120,11 +157,11 @@ const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth()
   const [totpCode, setTotpCode] = useState('');
   const [totpPassword, setTotpPassword] = useState('');
   const [totpBusy, setTotpBusy] = useState(false);
-const [directoryUsers, setDirectoryUsers] = useState([]);
+  const [directoryUsers, setDirectoryUsers] = useState([]);
   const [directoryGroups, setDirectoryGroups] = useState([]);
   const shownName = user?.displayName || user?.username || 'You';
   const currentSessionId = getSessionId();
-
+  const [verifyLinkUrl, setVerifyLinkUrl] = useState('');
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -154,6 +191,8 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
   useEffect(() => {
     if (tab !== 'security') return;
     let cancelled = false;
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
     client
       .get('/users/me/sessions')
       .then((res) => {
@@ -242,6 +281,37 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
       .catch(() => setFriendsList([]));
   }, [tab]);
 
+  useEffect(() => {
+    if (tab !== 'security') return undefined;
+    const socket = getSocket() || connectSocket();
+    if (!socket) return undefined;
+
+    const handleLinkRequest = (payload) => {
+      setDeviceLinkRequest(payload);
+      setDeviceLinkModalOpen(true);
+      setDeviceLinkState('request');
+      setDeviceLinkStatusText('A new device is waiting for your approval.');
+      setDeviceLinkError('');
+    };
+
+    const handleLinked = async () => {
+      await refreshDeviceSessions();
+    };
+
+    const handleRevoked = async () => {
+      await refreshDeviceSessions();
+    };
+
+    socket.on('device:link-request', handleLinkRequest);
+    socket.on('device:linked', handleLinked);
+    socket.on('device:revoked', handleRevoked);
+    return () => {
+      socket.off('device:link-request', handleLinkRequest);
+      socket.off('device:linked', handleLinked);
+      socket.off('device:revoked', handleRevoked);
+    };
+  }, [tab]);
+
   async function updatePrivacyField(key, val) {
     const updated = { ...privacy, [key]: val };
     setPrivacy(updated);
@@ -250,7 +320,10 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
     setOk('');
     try {
       const res = await updatePrivacySettings(updated);
-      onUserUpdated?.(res.user || { ...user, privacy: res.data });
+      if (res?.data && typeof res.data === 'object') {
+        setPrivacy((prev) => ({ ...prev, ...res.data }));
+      }
+      onUserUpdated?.(res.user || { ...user, privacy: res.data || updated });
       setOk('Privacy settings saved');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save privacy');
@@ -269,35 +342,45 @@ const [directoryUsers, setDirectoryUsers] = useState([]);
     updatePrivacyField('onlineStatusVisibleTo', [...current]);
   }
 
+  function toggleStoryViewer(friendId) {
+    const current = new Set(privacy.storyViewers || []);
+    if (current.has(friendId)) {
+      current.delete(friendId);
+    } else {
+      current.add(friendId);
+    }
+    updatePrivacyField('storyViewers', [...current]);
+  }
+
   async function savePrivacy() {
     updatePrivacyField('lastSeen', privacy.lastSeen);
   }
   async function updateNotifField(key, val) {
-  setBusy(true);
-  setError('');
-  setOk('');
-  const res = await updateNotifSettings({ [key]: val });
-  if (res.success) {
-    setOk('Notification settings saved');
-  } else {
-    setError(res.error || 'Failed to save notification settings');
+    setBusy(true);
+    setError('');
+    setOk('');
+    const res = await updateNotifSettings({ [key]: val });
+    if (res.success) {
+      setOk('Notification settings saved');
+    } else {
+      setError(res.error || 'Failed to save notification settings');
+    }
+    setBusy(false);
   }
-  setBusy(false);
-}
-async function updateNotifNested(parentKey, childKey, val) {
-  setBusy(true);
-  setError('');
-  setOk('');
-  const nextParent = { ...(notifSettings[parentKey] || {}), [childKey]: val };
-  const res = await updateNotifSettings({ [parentKey]: nextParent });
-  if (res.success) {
-    setOk('Notification settings saved');
-  } else {
-    setError(res.error || 'Failed to save notification settings');
+  async function updateNotifNested(parentKey, childKey, val) {
+    setBusy(true);
+    setError('');
+    setOk('');
+    const nextParent = { ...(notifSettings[parentKey] || {}), [childKey]: val };
+    const res = await updateNotifSettings({ [parentKey]: nextParent });
+    if (res.success) {
+      setOk('Notification settings saved');
+    } else {
+      setError(res.error || 'Failed to save notification settings');
+    }
+    setBusy(false);
   }
-  setBusy(false);
-}
-async function unmuteFromList(key) {
+  async function unmuteFromList(key) {
     const parsed = parseMutedKey(key, user?.id);
     if (!parsed) return;
     setBusy(true);
@@ -381,6 +464,109 @@ async function unmuteFromList(key) {
     }
   }
 
+  async function refreshDeviceSessions() {
+    setDeviceLinkRefreshing(true);
+    try {
+      const data = await listLinkedDeviceSessions();
+      setSessions(data || []);
+    } catch {
+      setSessions([]);
+    } finally {
+      setDeviceLinkRefreshing(false);
+    }
+  }
+
+  function closeDeviceLinkModal() {
+    setDeviceLinkModalOpen(false);
+    setDeviceLinkRequest(null);
+    setDeviceLinkState('idle');
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
+  }
+
+  function closeDeviceLinkSetupModal() {
+    setDeviceLinkSetupModalOpen(false);
+    setDeviceLinkLoading(false);
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
+  }
+
+  async function openDeviceLinkModal() {
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('Preparing a new device link…');
+    setDeviceLinkLoading(true);
+    setDeviceLinkSetupModalOpen(true);
+    try {
+      const payload = await createDeviceLinkRequest();
+      const qrPayload = buildQrPayload(payload.linkId, payload.token);
+      const qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+      setDeviceLinkLinkId(payload.linkId);
+      setDeviceLinkToken(payload.token);
+      setDeviceLinkExpiresAt(payload.expiresAt);
+      setDeviceLinkQr(qrUrl);
+      setDeviceLinkState('waiting');
+      setDeviceLinkStatusText('Scan the QR code or paste the payload from the new device.');
+    } catch (err) {
+      setDeviceLinkState('idle');
+      setDeviceLinkSetupModalOpen(true);
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to prepare the pairing request.');
+    } finally {
+      setDeviceLinkLoading(false);
+    }
+  }
+
+  async function confirmDeviceLinkApprove() {
+    if (!deviceLinkRequest?.linkId) return;
+    setDeviceLinkBusy(true);
+    try {
+      await approveDeviceLink(deviceLinkRequest.linkId);
+      setDeviceLinkState('approved');
+      setDeviceLinkStatusText('Device linked successfully.');
+      await refreshDeviceSessions();
+      setDeviceLinkModalOpen(false);
+      setDeviceLinkRequest(null);
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to approve the link request.');
+    } finally {
+      setDeviceLinkBusy(false);
+    }
+  }
+
+  async function confirmDeviceLinkReject() {
+    if (!deviceLinkRequest?.linkId) return;
+    setDeviceLinkBusy(true);
+    try {
+      await rejectDeviceLink(deviceLinkRequest.linkId);
+      setDeviceLinkState('rejected');
+      setDeviceLinkStatusText('The link request was rejected.');
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to reject the link request.');
+    } finally {
+      setDeviceLinkBusy(false);
+    }
+  }
+
+  async function sendDeviceLinkEmail() {
+    if (!deviceLinkLinkId || !deviceLinkToken) {
+      setDeviceLinkError('Create a new pairing request first.');
+      return;
+    }
+    if (!deviceLinkEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deviceLinkEmail)) {
+      setDeviceLinkError('Enter a valid email address.');
+      return;
+    }
+    setDeviceLinkEmailBusy(true);
+    setDeviceLinkEmailMessage('');
+    try {
+      const result = await sendDeviceLinkEmailApi({ linkId: deviceLinkLinkId, token: deviceLinkToken });
+      setDeviceLinkEmailMessage(result?.message || 'Pairing link sent.');
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || 'Unable to send the pairing link.');
+    } finally {
+      setDeviceLinkEmailBusy(false);
+    }
+  }
+
   async function revokeDeviceSession(sessionId) {
     const isSelf = sessionId && currentSessionId && sessionId === currentSessionId;
     if (
@@ -393,7 +579,11 @@ async function unmuteFromList(key) {
     setError('');
     setOk('');
     try {
-      await client.delete(`/users/me/sessions/${sessionId}`);
+      if (!isSelf) {
+        await revokeDeviceSessionApi(sessionId);
+      } else {
+        await client.delete(`/users/me/sessions/${sessionId}`);
+      }
       if (isSelf) {
         onLogout?.();
         return;
@@ -483,14 +673,11 @@ async function unmuteFromList(key) {
     setBusy(true);
     setError('');
     setOk('');
+    setVerifyLinkUrl('');
     try {
       const { data } = await client.post('/auth/resend-verification');
       onUserUpdated?.(data.data.user);
-      if (data.data.verifyUrl) {
-        setOk(`Verification link: ${data.data.verifyUrl}`);
-      } else {
-        setOk(data.data.message || 'Verification email sent');
-      }
+      setOk(data.data.message || 'Verification email sent — check your inbox');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to resend verification');
     } finally {
@@ -595,7 +782,13 @@ async function unmuteFromList(key) {
         <div className="settings-body">
           {error && <div className="auth-error">{error}</div>}
           {ok && <div className="settings-ok">{ok}</div>}
-
+          {verifyLinkUrl && (
+            <div className="settings-ok">
+              <a href={verifyLinkUrl} target="_blank" rel="noopener noreferrer">
+                {verifyLinkUrl}
+              </a>
+            </div>
+          )}
           {tab === 'profile' && (
             <section className="settings-section">
               <div className="settings-identity">
@@ -883,288 +1076,329 @@ async function unmuteFromList(key) {
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('discoverable', v)}
                 />
+                <PrivacySelect
+                  label="Who Can View My Stories"
+                  description="Control who can see your posted stories"
+                  value={privacy.story}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                    { value: 'selected', label: 'Selected People' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('story', v)}
+                />
+
+                {privacy.story === 'selected' && (
+                  <div className="privacy-friend-picker">
+                    <span className="privacy-select-description" style={{ marginBottom: 4 }}>
+                      Friends permitted to see your stories:
+                    </span>
+                    {friendsList.length === 0 ? (
+                      <p className="privacy-select-description">No friends added yet.</p>
+                    ) : (
+                      friendsList.map((f) => {
+                        const fId = String(f.id || f._id);
+                        const isChecked = (privacy.storyViewers || []).includes(fId);
+                        return (
+                          <label key={fId} className="privacy-friend-item">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={busy}
+                              onChange={() => toggleStoryViewer(fId)}
+                            />
+                            <UserAvatar userId={f.id} name={f.displayName || f.username} size="xs" />
+                            <span>{f.displayName || f.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
             </section>
           )}
           {tab === 'notifications' && (
-  <section className="settings-section">
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Message Notifications</h3>
-      <p className="settings-section-copy">Choose which messages trigger notifications.</p>
+            <section className="settings-section">
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Message Notifications</h3>
+                <p className="settings-section-copy">Choose which messages trigger notifications.</p>
 
-      <PrivacySelect
-        label="Message Notifications"
-        description="Which messages should notify you"
-        value={notifSettings.messageNotifications}
-        options={[
-          { value: 'all', label: 'All Messages' },
-          { value: 'direct_only', label: 'Only Direct Messages' },
-          { value: 'all_except_reactions', label: 'All Messages Except Reactions' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('messageNotifications', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Muted Chats</h3>
-      <p className="settings-section-copy">Manage conversations you've muted.</p>
+                <PrivacySelect
+                  label="Message Notifications"
+                  description="Which messages should notify you"
+                  value={notifSettings.messageNotifications}
+                  options={[
+                    { value: 'all', label: 'All Messages' },
+                    { value: 'direct_only', label: 'Only Direct Messages' },
+                    { value: 'all_except_reactions', label: 'All Messages Except Reactions' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('messageNotifications', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Muted Chats</h3>
+                <p className="settings-section-copy">Manage conversations you've muted.</p>
 
-      {!Array.isArray(user?.mutedChats) || user.mutedChats.length === 0 ? (
-        <p className="settings-section-copy">No muted chats.</p>
-      ) : (
-        user.mutedChats.map((m) => {
-          const parsed = parseMutedKey(m.conversationKey, user?.id);
-          if (!parsed) return null;
-          const name =
-            parsed.type === 'group'
-              ? directoryGroups.find((g) => String(g.id) === String(parsed.id))?.name || 'Unknown group'
-              : directoryUsers.find((u) => String(u.id) === String(parsed.id))?.displayName ||
-                directoryUsers.find((u) => String(u.id) === String(parsed.id))?.username ||
-                'Unknown user';
-          return (
-            <div key={m.conversationKey} className="settings-row" style={{ cursor: 'default' }}>
-              <span className="settings-row-left">
-                <span className="settings-row-label">{name}</span>
-                <span className="settings-row-hint">{formatMuteExpiry(m.expiresAt)}</span>
-              </span>
-              <button
-                type="button"
-                className="settings-btn ghost"
-                disabled={busy}
-                onClick={() => unmuteFromList(m.conversationKey)}
-              >
-                Unmute
-              </button>
-            </div>
-          );
-        })
-      )}
-    </div>
+                {!Array.isArray(user?.mutedChats) || user.mutedChats.length === 0 ? (
+                  <p className="settings-section-copy">No muted chats.</p>
+                ) : (
+                  user.mutedChats.map((m) => {
+                    const parsed = parseMutedKey(m.conversationKey, user?.id);
+                    if (!parsed) return null;
+                    const name =
+                      parsed.type === 'group'
+                        ? directoryGroups.find((g) => String(g.id) === String(parsed.id))?.name || 'Unknown group'
+                        : directoryUsers.find((u) => String(u.id) === String(parsed.id))?.displayName ||
+                        directoryUsers.find((u) => String(u.id) === String(parsed.id))?.username ||
+                        'Unknown user';
+                    return (
+                      <div key={m.conversationKey} className="settings-row" style={{ cursor: 'default' }}>
+                        <span className="settings-row-left">
+                          <span className="settings-row-label">{name}</span>
+                          <span className="settings-row-hint">{formatMuteExpiry(m.expiresAt)}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="settings-btn ghost"
+                          disabled={busy}
+                          onClick={() => unmuteFromList(m.conversationKey)}
+                        >
+                          Unmute
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Status Notifications</h3>
-      <p className="settings-section-copy">Control updates from friends' statuses.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Status Notifications</h3>
+                <p className="settings-section-copy">Control updates from friends' statuses.</p>
 
-      <PrivacySelect
-        label="Status Notifications"
-        description="When to notify you about friend statuses"
-        value={notifSettings.statusNotifications}
-        options={[
-          { value: 'all', label: 'All Friend Statuses' },
-          { value: 'favorites_only', label: 'Favorite Friends Only' },
-          { value: 'off', label: 'Off' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('statusNotifications', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Notification Sound</h3>
-      <p className="settings-section-copy">Customize notification sounds and volume.</p>
+                <PrivacySelect
+                  label="Status Notifications"
+                  description="When to notify you about friend statuses"
+                  value={notifSettings.statusNotifications}
+                  options={[
+                    { value: 'all', label: 'All Friend Statuses' },
+                    { value: 'favorites_only', label: 'Favorite Friends Only' },
+                    { value: 'off', label: 'Off' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('statusNotifications', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Notification Sound</h3>
+                <p className="settings-section-copy">Customize notification sounds and volume.</p>
 
-      <ToggleRow
-        label="Notification sounds"
-        hint="Play a sound when new notifications arrive"
-        checked={notifSettings.soundEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifField('soundEnabled', v)}
-      />
+                <ToggleRow
+                  label="Notification sounds"
+                  hint="Play a sound when new notifications arrive"
+                  checked={notifSettings.soundEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('soundEnabled', v)}
+                />
 
-      {notifSettings.soundEnabled && (
-        <label className="settings-field">
-          <span>Volume ({notifSettings.soundVolume}%)</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={notifSettings.soundVolume}
-            disabled={busy}
-            onChange={(e) => updateNotifField('soundVolume', Number(e.target.value))}
-          />
-        </label>
-      )}
-    </div>
+                {notifSettings.soundEnabled && (
+                  <label className="settings-field">
+                    <span>Volume ({notifSettings.soundVolume}%)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={notifSettings.soundVolume}
+                      disabled={busy}
+                      onChange={(e) => updateNotifField('soundVolume', Number(e.target.value))}
+                    />
+                  </label>
+                )}
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Message Preview</h3>
-      <p className="settings-section-copy">Choose what appears in notifications.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Message Preview</h3>
+                <p className="settings-section-copy">Choose what appears in notifications.</p>
 
-      <PrivacySelect
-        label="Message Preview"
-        description="How much of a message to reveal in notifications"
-        value={notifSettings.messagePreview}
-        options={[
-          { value: 'full', label: 'Show Full Message' },
-          { value: 'sender_only', label: 'Show Sender Only' },
-          { value: 'hidden', label: 'Hide Preview' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('messagePreview', v)}
-      />
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Vibration</h3>
-      <p className="settings-section-copy">Control vibration for notifications.</p>
+                <PrivacySelect
+                  label="Message Preview"
+                  description="How much of a message to reveal in notifications"
+                  value={notifSettings.messagePreview}
+                  options={[
+                    { value: 'full', label: 'Show Full Message' },
+                    { value: 'sender_only', label: 'Show Sender Only' },
+                    { value: 'hidden', label: 'Hide Preview' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('messagePreview', v)}
+                />
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Vibration</h3>
+                <p className="settings-section-copy">Control vibration for notifications.</p>
 
-      <PrivacySelect
-        label="Vibration"
-        description="Vibrate on new notifications"
-        value={notifSettings.vibration}
-        options={[
-          { value: 'on', label: 'On' },
-          { value: 'off', label: 'Off' },
-          { value: 'custom', label: 'Custom Pattern' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('vibration', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Vibration"
+                  description="Vibrate on new notifications"
+                  value={notifSettings.vibration}
+                  options={[
+                    { value: 'on', label: 'On' },
+                    { value: 'off', label: 'Off' },
+                    { value: 'custom', label: 'Custom Pattern' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('vibration', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Do Not Disturb</h3>
-      <p className="settings-section-copy">Silence notifications during specific times.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Do Not Disturb</h3>
+                <p className="settings-section-copy">Silence notifications during specific times.</p>
 
-      <ToggleRow
-        label="Do Not Disturb"
-        hint="Silence notifications during quiet hours"
-        checked={notifSettings.doNotDisturb?.enabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('doNotDisturb', 'enabled', v)}
-      />
+                <ToggleRow
+                  label="Do Not Disturb"
+                  hint="Silence notifications during quiet hours"
+                  checked={notifSettings.doNotDisturb?.enabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('doNotDisturb', 'enabled', v)}
+                />
 
-      {notifSettings.doNotDisturb?.enabled && (
-        <>
-          <label className="settings-field">
-            <span>Quiet hours start</span>
-            <input
-              type="time"
-              value={notifSettings.doNotDisturb?.startTime || '22:00'}
-              disabled={busy}
-              onChange={(e) => updateNotifNested('doNotDisturb', 'startTime', e.target.value)}
-            />
-          </label>
-          <label className="settings-field">
-            <span>Quiet hours end</span>
-            <input
-              type="time"
-              value={notifSettings.doNotDisturb?.endTime || '07:00'}
-              disabled={busy}
-              onChange={(e) => updateNotifNested('doNotDisturb', 'endTime', e.target.value)}
-            />
-          </label>
-        </>
-      )}
-    </div>
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Group Notifications</h3>
-      <p className="settings-section-copy">Control notifications from group chats.</p>
+                {notifSettings.doNotDisturb?.enabled && (
+                  <>
+                    <label className="settings-field">
+                      <span>Quiet hours start</span>
+                      <input
+                        type="time"
+                        value={notifSettings.doNotDisturb?.startTime || '22:00'}
+                        disabled={busy}
+                        onChange={(e) => updateNotifNested('doNotDisturb', 'startTime', e.target.value)}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Quiet hours end</span>
+                      <input
+                        type="time"
+                        value={notifSettings.doNotDisturb?.endTime || '07:00'}
+                        disabled={busy}
+                        onChange={(e) => updateNotifNested('doNotDisturb', 'endTime', e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Group Notifications</h3>
+                <p className="settings-section-copy">Control notifications from group chats.</p>
 
-      <PrivacySelect
-        label="Group Notifications"
-        description="Which group messages should notify you"
-        value={notifSettings.groupNotifications}
-        options={[
-          { value: 'all', label: 'All Messages' },
-          { value: 'mentions_only', label: 'Mentions Only' },
-          { value: 'important_only', label: 'Important Announcements Only' },
-          { value: 'off', label: 'Off' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('groupNotifications', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Group Notifications"
+                  description="Which group messages should notify you"
+                  value={notifSettings.groupNotifications}
+                  options={[
+                    { value: 'all', label: 'All Messages' },
+                    { value: 'mentions_only', label: 'Mentions Only' },
+                    { value: 'important_only', label: 'Important Announcements Only' },
+                    { value: 'off', label: 'Off' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('groupNotifications', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Call Notifications</h3>
-      <p className="settings-section-copy">Manage incoming call alerts.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Call Notifications</h3>
+                <p className="settings-section-copy">Manage incoming call alerts.</p>
 
-      <ToggleRow
-        label="Voice call notifications"
-        checked={notifSettings.callNotifications?.voiceCallEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'voiceCallEnabled', v)}
-      />
-      <ToggleRow
-        label="Video call notifications"
-        checked={notifSettings.callNotifications?.videoCallEnabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'videoCallEnabled', v)}
-      />
-      <ToggleRow
-        label="Vibrate for incoming calls"
-        checked={notifSettings.callNotifications?.vibrateOnCall}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'vibrateOnCall', v)}
-      />
-      <ToggleRow
-        label="Missed call reminders"
-        checked={notifSettings.callNotifications?.missedCallReminders}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('callNotifications', 'missedCallReminders', v)}
-      />
-    </div>
+                <ToggleRow
+                  label="Voice call notifications"
+                  checked={notifSettings.callNotifications?.voiceCallEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'voiceCallEnabled', v)}
+                />
+                <ToggleRow
+                  label="Video call notifications"
+                  checked={notifSettings.callNotifications?.videoCallEnabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'videoCallEnabled', v)}
+                />
+                <ToggleRow
+                  label="Vibrate for incoming calls"
+                  checked={notifSettings.callNotifications?.vibrateOnCall}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'vibrateOnCall', v)}
+                />
+                <ToggleRow
+                  label="Missed call reminders"
+                  checked={notifSettings.callNotifications?.missedCallReminders}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('callNotifications', 'missedCallReminders', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Badge Count</h3>
-      <p className="settings-section-copy">Show unread message count on the app icon.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Badge Count</h3>
+                <p className="settings-section-copy">Show unread message count on the app icon.</p>
 
-      <PrivacySelect
-        label="Badge Count"
-        description="Whether to show your unread count on the app icon"
-        value={notifSettings.badgeCount}
-        options={[
-          { value: 'show', label: 'Show' },
-          { value: 'hidden', label: 'Hide' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('badgeCount', v)}
-      />
-    </div>
+                <PrivacySelect
+                  label="Badge Count"
+                  description="Whether to show your unread count on the app icon"
+                  value={notifSettings.badgeCount}
+                  options={[
+                    { value: 'show', label: 'Show' },
+                    { value: 'hidden', label: 'Hide' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('badgeCount', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Desktop / Web Notifications</h3>
-      <p className="settings-section-copy">For sessions signed in on the web.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Desktop / Web Notifications</h3>
+                <p className="settings-section-copy">For sessions signed in on the web.</p>
 
-      <ToggleRow
-        label="Enable browser notifications"
-        checked={notifSettings.webNotifications?.enabled}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
-      />
-      <ToggleRow
-        label="Play notification sound on web"
-        checked={notifSettings.webNotifications?.soundOnWeb}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
-      />
-      <ToggleRow
-        label="Sync read notifications across devices"
-        checked={notifSettings.webNotifications?.syncReadAcrossDevices}
-        disabled={busy}
-        onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
-      />
-    </div>
+                <ToggleRow
+                  label="Enable browser notifications"
+                  checked={notifSettings.webNotifications?.enabled}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
+                />
+                <ToggleRow
+                  label="Play notification sound on web"
+                  checked={notifSettings.webNotifications?.soundOnWeb}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
+                />
+                <ToggleRow
+                  label="Sync read notifications across devices"
+                  checked={notifSettings.webNotifications?.syncReadAcrossDevices}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
+                />
+              </div>
 
-    <div className="settings-fieldset">
-      <h3 className="settings-section-title">Notification Priority</h3>
-      <p className="settings-section-copy">Choose how notifications appear.</p>
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Notification Priority</h3>
+                <p className="settings-section-copy">Choose how notifications appear.</p>
 
-      <PrivacySelect
-        label="Priority"
-        description="How prominently notifications are displayed"
-        value={notifSettings.priority}
-        options={[
-          { value: 'high', label: 'High Priority (pop-up/banner)' },
-          { value: 'normal', label: 'Normal' },
-          { value: 'silent', label: 'Silent' },
-        ]}
-        disabled={busy}
-        onChange={(v) => updateNotifField('priority', v)}
-      />
-    </div>
-  </section>
-)}
+                <PrivacySelect
+                  label="Priority"
+                  description="How prominently notifications are displayed"
+                  value={notifSettings.priority}
+                  options={[
+                    { value: 'high', label: 'High Priority (pop-up/banner)' },
+                    { value: 'normal', label: 'Normal' },
+                    { value: 'silent', label: 'Silent' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('priority', v)}
+                />
+              </div>
+            </section>
+          )}
           {tab === 'security' && (
             <section className="settings-section">
               <div className="settings-fieldset">
@@ -1297,35 +1531,51 @@ async function unmuteFromList(key) {
               </div>
 
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">Devices</h3>
+                <h3 className="settings-section-title">Linked devices</h3>
                 <p className="settings-section-copy">
-                  Active logins across your devices. Revoking signs that device out conceptually.
+                  Manage the devices connected to your account. Revoking signs that device out conceptually.
                 </p>
+                <div className="settings-key-actions" style={{ marginBottom: 12 }}>
+                  <button type="button" className="settings-btn primary" onClick={openDeviceLinkModal} disabled={deviceLinkLoading}>
+                    {deviceLinkLoading ? 'Preparing…' : '+ Link a new device'}
+                  </button>
+                  <button type="button" className="settings-btn ghost" onClick={refreshDeviceSessions} disabled={deviceLinkRefreshing}>
+                    {deviceLinkRefreshing ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                {deviceLinkStatusText ? <p className="settings-section-copy">{deviceLinkStatusText}</p> : null}
+                {deviceLinkError ? <p className="settings-section-copy" style={{ color: 'var(--danger-color, #d45d5d)' }}>{deviceLinkError}</p> : null}
                 {sessions.length === 0 ? (
-                  <p className="settings-section-copy">No active device sessions.</p>
+                  <p className="settings-section-copy">No linked devices yet.</p>
                 ) : (
                   sessions.map((s) => {
                     const isCurrent = currentSessionId && s.sessionId === currentSessionId;
+                    const label = s.label || 'Unknown device';
+                    const browser = s.userAgent ? (s.userAgent.includes('Chrome') ? 'Chrome' : 'Browser') : 'Browser';
+                    const os = s.userAgent ? (s.userAgent.includes('Windows') ? 'Windows' : s.userAgent.includes('Android') ? 'Android' : 'Unknown') : 'Unknown';
                     return (
-                      <div key={s.sessionId} className="settings-row" style={{ cursor: 'default' }}>
+                      <div key={s.sessionId} className="settings-row" style={{ cursor: 'default', alignItems: 'center' }}>
                         <span className="settings-row-left">
                           <span className="settings-row-label">
-                            {s.label || 'Unknown device'}
+                            {label}
                             {isCurrent ? ' (this device)' : ''}
                           </span>
                           <span className="settings-row-hint">
-                            Last seen {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : '—'}
-                            {s.ip ? ` · ${s.ip}` : ''}
+                            {browser} · {os}
+                            {s.lastSeenAt ? ` · Last active ${new Date(s.lastSeenAt).toLocaleString()}` : ''}
+                            {isCurrent ? ' · Current device' : ''}
                           </span>
                         </span>
-                        <button
-                          type="button"
-                          className="settings-btn ghost"
-                          disabled={busy}
-                          onClick={() => revokeDeviceSession(s.sessionId)}
-                        >
-                          Revoke
-                        </button>
+                        {!isCurrent ? (
+                          <button
+                            type="button"
+                            className="settings-btn ghost"
+                            disabled={busy}
+                            onClick={() => revokeDeviceSession(s.sessionId)}
+                          >
+                            Log out
+                          </button>
+                        ) : null}
                       </div>
                     );
                   })
@@ -1395,7 +1645,7 @@ async function unmuteFromList(key) {
                   </p>
                 )}
                 <div className="settings-key-actions">
-                  <button type="button" className="settings-btn ghost" onClick={() => verifyKeySync().catch(() => {})}>
+                  <button type="button" className="settings-btn ghost" onClick={() => verifyKeySync().catch(() => { })}>
                     Verify key sync
                   </button>
                   <button type="button" className="settings-btn ghost" onClick={() => keyInputRef.current?.click()}>
@@ -1494,6 +1744,23 @@ async function unmuteFromList(key) {
           )}
         </div>
       </div>
+      <DeviceLinkSetupModal
+        open={deviceLinkSetupModalOpen}
+        qrDataUrl={deviceLinkQr}
+        loading={deviceLinkLoading}
+        statusText={deviceLinkStatusText}
+        error={deviceLinkError}
+        timeLeft={deviceLinkExpiresAt ? Math.max(0, new Date(deviceLinkExpiresAt).getTime() - Date.now()) : 0}
+        onClose={closeDeviceLinkSetupModal}
+      />
+      <DeviceLinkRequestModal
+        open={deviceLinkModalOpen}
+        request={deviceLinkRequest}
+        busy={deviceLinkLoading || deviceLinkBusy}
+        onApprove={confirmDeviceLinkApprove}
+        onReject={confirmDeviceLinkReject}
+        onClose={closeDeviceLinkModal}
+      />
     </div>
   );
 }

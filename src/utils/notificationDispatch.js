@@ -1,4 +1,4 @@
-import { playReceiveSound } from "./sounds";
+import { playReceiveSound, unlockAudio } from './sounds.js';
 
 /** Returns true if the current time falls inside the configured DND window (handles overnight ranges). */
 function isWithinDoNotDisturb(dnd) {
@@ -45,7 +45,7 @@ export function shouldNotify(notifSettings, { kind, isMention = false } = {}) {
     return true; // 'all', 'direct_only', 'all_except_reactions' all permit DMs
   }
 
- if (kind === 'status') {
+  if (kind === 'status') {
     return notifSettings.statusNotifications !== 'off';
   }
 
@@ -58,39 +58,98 @@ export function shouldNotify(notifSettings, { kind, isMention = false } = {}) {
 
 /** Plays the notification sound if enabled, scaled by the configured volume. */
 export function playNotificationSound(notifSettings) {
-  if (!notifSettings?.soundEnabled) return;
-  const scale = typeof notifSettings.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 1;
+  if (notifSettings?.soundEnabled === false) return;
+  unlockAudio();
+  const scale =
+    typeof notifSettings?.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 1;
   playReceiveSound(scale);
 }
+/** Detects a JSON system payload (call summary, meeting summary, story reaction/reply, etc.) embedded as message text. */
+export function parseSystemPayload(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(trimmed);
+    if (obj && (obj.__type || obj.type)) return obj;
+  } catch {
+    return null;
+  }
+  return null;
+}
 
+/** Turns a parsed system payload into a short, human-readable notification line. Returns null for unknown types. */
+export function describeSystemPayload(obj) {
+  if (!obj) return null;
+  const kind = obj.__type || obj.type;
+  const durationStr = (seconds) => {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+  };
+
+  switch (kind) {
+    case 'call':
+      if (!obj.answered) return `Missed ${obj.video ? 'video' : 'voice'} call`;
+      return `${obj.video ? 'Video' : 'Voice'} call ended · ${durationStr(obj.durationSeconds)}`;
+    case 'meeting':
+      return `${obj.video ? 'Video' : 'Voice'} meeting ended · ${durationStr(obj.durationSeconds)} · ${obj.participantCount || 0} joined`;
+    case 'story_reaction':
+      return `Reacted ${obj.emoji || '❤️'} to your story`;
+    case 'story_reply':
+      return `Replied to your story: "${(obj.text || '').slice(0, 80)}"`;
+    default:
+      return null;
+  }
+}
 /** Builds the { title, body } text for a popup, respecting the messagePreview setting. */
-export function buildNotificationText({ senderName, messageText, isGroup, groupName }, notifSettings) {
+export function buildNotificationText(
+  { senderName, messageText, isGroup, groupName },
+  notifSettings,
+) {
   const preview = notifSettings?.messagePreview || 'full';
   const context = isGroup ? groupName : senderName;
+  const systemLine = describeSystemPayload(parseSystemPayload(messageText));
 
   if (preview === 'hidden') {
     return { title: 'QuantumChat', body: 'New message' };
   }
   if (preview === 'sender_only') {
-    return { title: context || 'QuantumChat', body: 'New message' };
+    return { title: context || 'QuantumChat', body: systemLine ? systemLine : 'New message' };
   }
-  // 'full'
-  const body = messageText?.trim() ? messageText : '[Attachment]';
+  const body = systemLine || (messageText?.trim() ? messageText : '[Attachment]');
   return { title: context || 'QuantumChat', body };
 }
 
-/** Shows a real browser Notification popup, if permission is already granted. */
-export function showNotificationPopup({ title, body }, notifSettings, onClick) {
+/**
+ * Shows a real browser Notification popup, if permission is already granted.
+ * When the tab is hidden, prefer OS sound (silent:false) because Web Audio is
+ * often suspended in background tabs.
+ */
+export function showNotificationPopup(
+  { title, body, requireInteraction, icon, tag },
+  notifSettings,
+  onClick,
+) {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   if (notifSettings?.webNotifications?.enabled === false) return;
 
+  const tabHidden =
+    typeof document !== 'undefined' && document.visibilityState === 'hidden';
+  const soundOnWeb = notifSettings?.webNotifications?.soundOnWeb !== false;
+  const allowOsSound = soundOnWeb && notifSettings?.soundEnabled !== false;
+  const silent = tabHidden ? !allowOsSound : true;
+
   try {
     const n = new Notification(title, {
       body,
-      icon: '/logo.png',
-      silent: true, // sound is handled separately via playNotificationSound to respect volume
-      requireInteraction: notifSettings?.priority === 'high',
+      icon: icon || '/logo.png',
+      badge: '/logo.png',
+      silent,
+      requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
+      tag: tag || 'quantumchat-alert',
+      renotify: true,
     });
     if (onClick) {
       n.onclick = () => {
@@ -102,4 +161,32 @@ export function showNotificationPopup({ title, body }, notifSettings, onClick) {
   } catch {
     // ignore unsupported/blocked notifications
   }
+}
+/** Builds { title, body } for multiple buffered messages in one conversation, WhatsApp-style. */
+export function buildGroupedNotificationText(entries, { isGroup, groupName, notifSettings }) {
+  const preview = notifSettings?.messagePreview || 'full';
+  const title = isGroup ? groupName || 'QuantumChat' : entries[0]?.senderName || 'QuantumChat';
+
+  const lineFor = (e) => describeSystemPayload(parseSystemPayload(e.text)) || e.text?.trim() || '[Attachment]';
+
+  if (preview === 'hidden') {
+    return { title, body: entries.length > 1 ? `${entries.length} new messages` : 'New message' };
+  }
+
+  if (entries.length === 1) {
+    const e = entries[0];
+    const text = preview === 'sender_only' ? (describeSystemPayload(parseSystemPayload(e.text)) || 'New message') : lineFor(e);
+    return { title, body: isGroup && e.senderName ? `${e.senderName}: ${text}` : text };
+  }
+
+  if (preview === 'sender_only') {
+    return { title, body: `${entries.length} new messages` };
+  }
+  const lines = entries.slice(-2).map((e) => {
+    const text = lineFor(e);
+    return isGroup && e.senderName ? `${e.senderName}: ${text}` : text;
+  });
+  const extra = entries.length - lines.length;
+  const body = extra > 0 ? `${lines.join('\n')}\n+${extra} more` : lines.join('\n');
+  return { title, body };
 }

@@ -34,6 +34,8 @@ self.addEventListener('push', (event) => {
     data: data.data || { url: data.url || '/' },
     tag: data.tag || 'quantumchat',
     renotify: true,
+    // Let the OS play sound when the app is backgrounded / closed.
+    silent: data.silent === true,
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

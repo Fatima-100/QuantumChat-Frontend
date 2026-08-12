@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Copy, Link2, Shield, Trash2, UserMinus, UserPlus, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Camera, Copy, FileText, Link2, Shield, Trash2, UserMinus, UserPlus, X } from 'lucide-react';
 import client from '../api/client.js';
-import { getApiBaseUrl } from '../api/baseUrl.js';
-import { getToken } from '../crypto/keyStorage.js';
 import { isGroupAdmin } from '../utils/groupPayload.js';
 import useFocusTrap from '../hooks/useFocusTrap.js';
 
-const API = getApiBaseUrl();
 export default function GroupSettingsModal({
   group,
   currentUserId,
@@ -20,7 +18,7 @@ export default function GroupSettingsModal({
   const [description, setDescription] = useState(group?.description || '');
   const [onlyAdminsCanPost, setOnlyAdminsCanPost] = useState(Boolean(group?.onlyAdminsCanPost));
   const [onlyAdminsCanAddMembers, setOnlyAdminsCanAddMembers] = useState(
-    group?.onlyAdminsCanAddMembers !== false
+    group?.onlyAdminsCanAddMembers !== false,
   );
   const [quantumAIEnabled, setQuantumAIEnabled] = useState(Boolean(group?.quantumAI?.enabled));
   const [quantumAIPolicy, setQuantumAIPolicy] = useState(group?.quantumAI?.invocationPolicy || 'members');
@@ -40,10 +38,12 @@ export default function GroupSettingsModal({
 
   useFocusTrap(containerRef, true);
 
-
   const admin = isGroupAdmin(group, currentUserId);
   const isOwner = String(group?.createdBy) === String(currentUserId);
-  const memberIds = useMemo(() => new Set((group?.members || []).map((m) => String(m.id || m._id))), [group]);
+  const memberIds = useMemo(
+    () => new Set((group?.members || []).map((m) => String(m.id || m._id))),
+    [group],
+  );
   const adminIds = useMemo(() => new Set((group?.admins || []).map(String)), [group]);
 
   const candidates = useMemo(() => {
@@ -52,9 +52,26 @@ export default function GroupSettingsModal({
       const id = String(u.id);
       if (memberIds.has(id)) return false;
       if (!q) return true;
-      return (u.username || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+      return (
+        (u.username || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+      );
     });
   }, [users, memberIds, addSearch]);
+
+  const tabs = useMemo(
+    () => [
+      ['info', 'Info'],
+      ['members', 'Members'],
+      ...(group?.visibility === 'public' ? [['requests', 'Requests']] : [['invite', 'Invite']]),
+      ['media', 'Files'],
+    ],
+    [group?.visibility],
+  );
+
+  useEffect(() => {
+    const ids = new Set(tabs.map(([id]) => id));
+    if (!ids.has(tab)) setTab('info');
+  }, [tabs, tab]);
 
   useEffect(() => {
     setName(group?.name || '');
@@ -171,7 +188,9 @@ export default function GroupSettingsModal({
       const path = accept ? 'accept' : 'reject';
       const { data } = await client.post(`/groups/${group.id}/join-requests/${userId}/${path}`);
       if (accept) await refreshAndClosePayload(data.data);
-      setJoinRequests((prev) => prev.filter((r) => String(r.user?.id || r.user?._id) !== String(userId)));
+      setJoinRequests((prev) =>
+        prev.filter((r) => String(r.user?.id || r.user?._id) !== String(userId)),
+      );
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update request');
     } finally {
@@ -278,12 +297,7 @@ export default function GroupSettingsModal({
       ? `${window.location.origin}/join/${group.inviteCode}`
       : '';
 
-  const photoUrl = group?.hasPhoto
-    ? `${API}/api/groups/${group.id}/photo?token=${encodeURIComponent(getToken() || '')}`
-    : null;
-
-  // Auth header photo fetch won't work via img src with query token unless backend supports it.
-  // Prefer blob URL fetched with client.
+  // Prefer blob URL fetched with auth header (query-token img src is unreliable).
   const [photoBlob, setPhotoBlob] = useState(null);
   useEffect(() => {
     let revoked;
@@ -304,7 +318,7 @@ export default function GroupSettingsModal({
     };
   }, [group?.id, group?.hasPhoto, group?.updatedAt]);
 
-  return (
+  return createPortal(
     <div className="create-group-overlay" role="presentation" onClick={() => !busy && onClose?.()}>
       <div
         className="create-group-modal group-settings-modal"
@@ -314,359 +328,567 @@ export default function GroupSettingsModal({
         aria-labelledby="group-settings-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="create-group-modal-header">
-          <div className="create-group-modal-heading">
-            <h2 id="group-settings-title">Group settings</h2>
-            <p>{group?.name}</p>
-          </div>
-          <button type="button" className="create-group-close" onClick={onClose} disabled={busy} aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="group-settings-tabs">
-          {[
-            ['info', 'Info'],
-            ['members', 'Members'],
-            ...(group?.visibility === 'public' ? [['requests', 'Requests']] : [['invite', 'Invite']]),
-            ['media', 'Files'],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`group-settings-tab ${tab === id ? 'active' : ''}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {error && <p className="create-group-error">{error}</p>}
-
-        {tab === 'info' && (
-          <div className="group-settings-section">
-            <div className="group-photo-row">
-              <div className="group-photo-preview">
-                {photoBlob ? <img src={photoBlob} alt="" /> : <span>{(group?.name || '?').slice(0, 2).toUpperCase()}</span>}
-              </div>
-              {admin && (
-                <>
-                  <button type="button" className="btn-secondary" onClick={() => photoRef.current?.click()} disabled={busy}>
-                    <Camera size={16} /> Change photo
-                  </button>
-                  <input ref={photoRef} type="file" accept="image/*" hidden onChange={handlePhoto} />
-                </>
-              )}
+        <div className="group-settings-chrome">
+          <div className="create-group-modal-header">
+            <div className="create-group-modal-heading">
+              <h2 id="group-settings-title">Group settings</h2>
+              <p>{group?.name}</p>
             </div>
+            <button
+              type="button"
+              className="create-group-close"
+              onClick={onClose}
+              disabled={busy}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-            <label className="create-group-label">Name</label>
-            <input
-              className="create-group-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={!admin || busy}
-              maxLength={60}
-            />
-
-            <label className="create-group-label">Description</label>
-            <textarea
-              className="create-group-input group-desc-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={!admin || busy}
-              maxLength={500}
-              rows={3}
-              placeholder="What is this group about?"
-            />
-
-            <label className="create-group-label">Visibility</label>
-            <p className="group-visibility-badge">
-              {group?.visibility === 'public' ? 'Public · not encrypted' : 'Private · end-to-end encrypted'}
-            </p>
-
-            {admin && group?.visibility === 'public' && (
-              <div className="group-settings-toggles">
-                <label>
-                  Who can join
-                  <select
-                    value={joinPolicy}
-                    onChange={(e) => setJoinPolicy(e.target.value)}
-                    disabled={busy}
-                  >
-                    <option value="open">Anyone can join</option>
-                    <option value="request">Request to join</option>
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {admin && (
-              <div className="group-settings-toggles">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={onlyAdminsCanPost}
-                    onChange={(e) => setOnlyAdminsCanPost(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Only admins can post
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={onlyAdminsCanAddMembers}
-                    onChange={(e) => setOnlyAdminsCanAddMembers(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Only admins can add members
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={quantumAIEnabled}
-                    onChange={(e) => setQuantumAIEnabled(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Enable @QuantumAI (add QuantumAI as a member first)
-                </label>
-                <label>
-                  Who can invoke QuantumAI
-                  <select value={quantumAIPolicy} onChange={(e) => setQuantumAIPolicy(e.target.value)} disabled={busy}>
-                    <option value="members">All members</option>
-                    <option value="admins">Admins only</option>
-                  </select>
-                </label>
-                <label>
-                  Context messages shared after confirmation
-                  <input
-                    type="number"
-                    min="0"
-                    max="20"
-                    value={quantumAIContext}
-                    onChange={(e) => setQuantumAIContext(e.target.value)}
-                    disabled={busy}
-                  />
-                </label>
-                <label>
-                  Daily QuantumAI request limit
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={quantumAIDailyLimit}
-                    onChange={(e) => setQuantumAIDailyLimit(e.target.value)}
-                    disabled={busy}
-                  />
-                </label>
-              </div>
-            )}
-
-            {admin && (
-              <button type="button" className="confirm-btn" onClick={saveInfo} disabled={busy || name.trim().length < 2}>
-                Save changes
+          <div className="group-settings-tabs" role="tablist" aria-label="Group settings sections">
+            {tabs.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`group-settings-tab-${id}`}
+                aria-selected={tab === id}
+                aria-controls={`group-settings-panel-${id}`}
+                className={`group-settings-tab ${tab === id ? 'active' : ''}`}
+                onClick={() => setTab(id)}
+              >
+                {label}
               </button>
-            )}
+            ))}
+          </div>
+        </div>
 
-            <div className="group-danger-zone">
-              <button type="button" className="btn-danger-outline" onClick={() => removeMember(currentUserId)} disabled={busy}>
-                Leave group
-              </button>
-              {isOwner && (
-                <button type="button" className="btn-danger" onClick={deleteGroup} disabled={busy}>
-                  <Trash2 size={14} /> Delete group
+        {error && <p className="create-group-error group-settings-error">{error}</p>}
+
+        <div className="group-settings-body">
+          {tab === 'info' && (
+            <div
+              className="group-settings-section"
+              role="tabpanel"
+              id="group-settings-panel-info"
+              aria-labelledby="group-settings-tab-info"
+            >
+              <section className="gs-card">
+                <div className="group-photo-row">
+                  <div className="group-photo-preview">
+                    {photoBlob ? (
+                      <img src={photoBlob} alt="" />
+                    ) : (
+                      <span>{(group?.name || '?').slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="group-photo-meta">
+                    <strong>Group photo</strong>
+                    <span>Shown in the chat list and header</span>
+                    {admin && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-secondary gs-btn"
+                          onClick={() => photoRef.current?.click()}
+                          disabled={busy}
+                        >
+                          <Camera size={16} /> Change photo
+                        </button>
+                        <input
+                          ref={photoRef}
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          onChange={handlePhoto}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="gs-field">
+                  <label className="create-group-label" htmlFor="gs-name">
+                    Name
+                  </label>
+                  <input
+                    id="gs-name"
+                    className="create-group-input"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={!admin || busy}
+                    maxLength={60}
+                  />
+                </div>
+
+                <div className="gs-field">
+                  <label className="create-group-label" htmlFor="gs-desc">
+                    Description
+                  </label>
+                  <textarea
+                    id="gs-desc"
+                    className="create-group-input group-desc-input"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={!admin || busy}
+                    maxLength={500}
+                    rows={3}
+                    placeholder="What is this group about?"
+                  />
+                </div>
+
+                <div className="gs-field">
+                  <span className="create-group-label">Visibility</span>
+                  <p className="group-visibility-badge">
+                    {group?.visibility === 'public'
+                      ? 'Public · not encrypted'
+                      : 'Private · end-to-end encrypted'}
+                  </p>
+                </div>
+              </section>
+
+              {admin && group?.visibility === 'public' && (
+                <section className="gs-card">
+                  <h3 className="gs-card-title">Join policy</h3>
+                  <div className="gs-field">
+                    <label className="create-group-label" htmlFor="gs-join-policy">
+                      Who can join
+                    </label>
+                    <select
+                      id="gs-join-policy"
+                      className="create-group-input gs-select"
+                      value={joinPolicy}
+                      onChange={(e) => setJoinPolicy(e.target.value)}
+                      disabled={busy}
+                    >
+                      <option value="open">Anyone can join</option>
+                      <option value="request">Request to join</option>
+                    </select>
+                  </div>
+                </section>
+              )}
+
+              {admin && (
+                <section className="gs-card">
+                  <h3 className="gs-card-title">Permissions</h3>
+                  <div className="group-settings-toggles">
+                    <label className="gs-check">
+                      <input
+                        type="checkbox"
+                        checked={onlyAdminsCanPost}
+                        onChange={(e) => setOnlyAdminsCanPost(e.target.checked)}
+                        disabled={busy}
+                      />
+                      <span>Only admins can post</span>
+                    </label>
+                    <label className="gs-check">
+                      <input
+                        type="checkbox"
+                        checked={onlyAdminsCanAddMembers}
+                        onChange={(e) => setOnlyAdminsCanAddMembers(e.target.checked)}
+                        disabled={busy}
+                      />
+                      <span>Only admins can add members</span>
+                    </label>
+                  </div>
+                </section>
+              )}
+
+              {admin && (
+                <section className="gs-card">
+                  <h3 className="gs-card-title">QuantumAI</h3>
+                  <p className="gs-card-copy">
+                    Add QuantumAI as a member before enabling mentions in this group.
+                  </p>
+                  <div className="group-settings-toggles">
+                    <label className="gs-check">
+                      <input
+                        type="checkbox"
+                        checked={quantumAIEnabled}
+                        onChange={(e) => setQuantumAIEnabled(e.target.checked)}
+                        disabled={busy}
+                      />
+                      <span>Enable @QuantumAI</span>
+                    </label>
+                  </div>
+                  <div className="gs-field">
+                    <label className="create-group-label" htmlFor="gs-ai-policy">
+                      Who can invoke QuantumAI
+                    </label>
+                    <select
+                      id="gs-ai-policy"
+                      className="create-group-input gs-select"
+                      value={quantumAIPolicy}
+                      onChange={(e) => setQuantumAIPolicy(e.target.value)}
+                      disabled={busy}
+                    >
+                      <option value="members">All members</option>
+                      <option value="admins">Admins only</option>
+                    </select>
+                  </div>
+                  <div className="gs-field-row">
+                    <div className="gs-field">
+                      <label className="create-group-label" htmlFor="gs-ai-context">
+                        Context messages
+                      </label>
+                      <input
+                        id="gs-ai-context"
+                        className="create-group-input"
+                        type="number"
+                        min="0"
+                        max="20"
+                        value={quantumAIContext}
+                        onChange={(e) => setQuantumAIContext(e.target.value)}
+                        disabled={busy}
+                      />
+                      <span className="gs-field-hint">Shared after confirmation</span>
+                    </div>
+                    <div className="gs-field">
+                      <label className="create-group-label" htmlFor="gs-ai-limit">
+                        Daily request limit
+                      </label>
+                      <input
+                        id="gs-ai-limit"
+                        className="create-group-input"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={quantumAIDailyLimit}
+                        onChange={(e) => setQuantumAIDailyLimit(e.target.value)}
+                        disabled={busy}
+                      />
+                      <span className="gs-field-hint">Per group, per day</span>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {admin && (
+                <button
+                  type="button"
+                  className="confirm-btn gs-save"
+                  onClick={saveInfo}
+                  disabled={busy || name.trim().length < 2}
+                >
+                  Save changes
                 </button>
               )}
-            </div>
-          </div>
-        )}
 
-        {tab === 'members' && (
-          <div className="group-settings-section">
-            <ul className="group-member-list">
-              {(group?.members || []).map((m) => {
-                const id = String(m.id || m._id);
-                const isAdm = adminIds.has(id);
-                const isCreator = String(group.createdBy) === id;
-                return (
-                  <li key={id}>
-                    <div>
-                      <strong>{m.username || 'Member'}</strong>
-                      <span className="group-member-meta">
-                        {isCreator ? 'Owner' : isAdm ? 'Admin' : 'Member'}
-                        {id === String(currentUserId) ? ' · you' : ''}
-                      </span>
-                    </div>
-                    <div className="group-member-actions">
-                      {admin && !isCreator && id !== String(currentUserId) && (
+              <section className="gs-card gs-card-danger">
+                <h3 className="gs-card-title">Danger zone</h3>
+                <div className="group-danger-zone">
+                  <button
+                    type="button"
+                    className="btn-danger-outline"
+                    onClick={() => removeMember(currentUserId)}
+                    disabled={busy}
+                  >
+                    Leave group
+                  </button>
+                  {isOwner && (
+                    <button type="button" className="btn-danger" onClick={deleteGroup} disabled={busy}>
+                      <Trash2 size={14} /> Delete group
+                    </button>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {tab === 'members' && (
+            <div
+              className="group-settings-section"
+              role="tabpanel"
+              id="group-settings-panel-members"
+              aria-labelledby="group-settings-tab-members"
+            >
+              <section className="gs-card">
+                <div className="gs-card-heading-row">
+                  <h3 className="gs-card-title">Members</h3>
+                  <span className="gs-count">{(group?.members || []).length}</span>
+                </div>
+                <ul className="group-member-list">
+                  {(group?.members || []).map((m) => {
+                    const id = String(m.id || m._id);
+                    const isAdm = adminIds.has(id);
+                    const isCreator = String(group.createdBy) === id;
+                    return (
+                      <li key={id}>
+                        <div>
+                          <strong>{m.username || 'Member'}</strong>
+                          <span className="group-member-meta">
+                            {isCreator ? 'Owner' : isAdm ? 'Admin' : 'Member'}
+                            {id === String(currentUserId) ? ' · you' : ''}
+                          </span>
+                        </div>
+                        <div className="group-member-actions">
+                          {admin && !isCreator && id !== String(currentUserId) && (
+                            <>
+                              {isAdm && isOwner ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAdmin(id, false)}
+                                  disabled={busy}
+                                  title="Demote"
+                                  aria-label={`Demote ${m.username || 'member'}`}
+                                >
+                                  <Shield size={14} />
+                                </button>
+                              ) : !isAdm ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAdmin(id, true)}
+                                  disabled={busy}
+                                  title="Make admin"
+                                  aria-label={`Make ${m.username || 'member'} admin`}
+                                >
+                                  <UserPlus size={14} />
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => removeMember(id)}
+                                disabled={busy}
+                                title="Remove"
+                                aria-label={`Remove ${m.username || 'member'}`}
+                              >
+                                <UserMinus size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              {(admin || group?.onlyAdminsCanAddMembers === false) && (
+                <section className="gs-card">
+                  <h3 className="gs-card-title">Add members</h3>
+                  <div className="gs-field">
+                    <label className="create-group-label" htmlFor="gs-add-search">
+                      Search
+                    </label>
+                    <input
+                      id="gs-add-search"
+                      className="create-group-input"
+                      placeholder="Search users…"
+                      value={addSearch}
+                      onChange={(e) => setAddSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="create-group-user-list gs-add-list">
+                    {candidates.slice(0, 40).length === 0 ? (
+                      <p className="gs-empty">No matching users to add.</p>
+                    ) : (
+                      candidates.slice(0, 40).map((u) => {
+                        const id = String(u.id);
+                        const checked = selectedAdd.has(id);
+                        return (
+                          <label key={id} className="create-group-user-row">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setSelectedAdd((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(id)) next.delete(id);
+                                  else next.add(id);
+                                  return next;
+                                })
+                              }
+                            />
+                            <span>{u.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="confirm-btn gs-save"
+                    disabled={!selectedAdd.size || busy}
+                    onClick={addSelectedMembers}
+                  >
+                    Add selected{selectedAdd.size ? ` (${selectedAdd.size})` : ''}
+                  </button>
+                </section>
+              )}
+            </div>
+          )}
+
+          {tab === 'requests' && (
+            <div
+              className="group-settings-section"
+              role="tabpanel"
+              id="group-settings-panel-requests"
+              aria-labelledby="group-settings-tab-requests"
+            >
+              <section className="gs-card">
+                <h3 className="gs-card-title">Join requests</h3>
+                {!admin ? (
+                  <p className="gs-empty">Only admins can manage join requests.</p>
+                ) : group?.joinPolicy !== 'request' ? (
+                  <p className="gs-empty">
+                    Switch join policy to “Request to join” on the Info tab to review requests.
+                  </p>
+                ) : requestsLoading ? (
+                  <p className="gs-empty">Loading requests…</p>
+                ) : joinRequests.length === 0 ? (
+                  <p className="gs-empty">No pending join requests.</p>
+                ) : (
+                  <ul className="group-member-list">
+                    {joinRequests.map((r) => {
+                      const uid = String(r.user?.id || r.user?._id);
+                      return (
+                        <li key={r.id || uid}>
+                          <div>
+                            <strong>{r.user?.username || 'User'}</strong>
+                            <span className="group-member-meta">Requested to join</span>
+                          </div>
+                          <div className="group-member-actions group-member-actions--wide">
+                            <button
+                              type="button"
+                              className="confirm-btn gs-mini-btn"
+                              disabled={busy}
+                              onClick={() => respondToJoinRequest(uid, true)}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-danger-outline gs-mini-btn"
+                              disabled={busy}
+                              onClick={() => respondToJoinRequest(uid, false)}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            </div>
+          )}
+
+          {tab === 'invite' && (
+            <div
+              className="group-settings-section"
+              role="tabpanel"
+              id="group-settings-panel-invite"
+              aria-labelledby="group-settings-tab-invite"
+            >
+              <section className="gs-card">
+                <h3 className="gs-card-title">Invite link</h3>
+                {!admin ? (
+                  <p className="gs-empty">Only admins can manage invite links.</p>
+                ) : (
+                  <>
+                    <p className="gs-card-copy">
+                      Anyone with the link can join. New members only decrypt future messages.
+                    </p>
+                    {inviteUrl ? (
+                      <div className="group-invite-box">
+                        <code>{inviteUrl}</code>
+                        <button
+                          type="button"
+                          className="gs-icon-btn"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(inviteUrl);
+                          }}
+                          aria-label="Copy invite link"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="gs-empty">Invite link is currently off.</p>
+                    )}
+                    <div className="group-invite-actions">
+                      {!group?.inviteEnabled ? (
+                        <button
+                          type="button"
+                          className="confirm-btn"
+                          disabled={busy}
+                          onClick={() => setInvite({ enabled: true })}
+                        >
+                          <Link2 size={14} /> Enable invite link
+                        </button>
+                      ) : (
                         <>
-                          {isAdm && isOwner ? (
-                            <button type="button" onClick={() => toggleAdmin(id, false)} disabled={busy} title="Demote">
-                              <Shield size={14} />
-                            </button>
-                          ) : !isAdm ? (
-                            <button type="button" onClick={() => toggleAdmin(id, true)} disabled={busy} title="Make admin">
-                              <UserPlus size={14} />
-                            </button>
-                          ) : null}
-                          <button type="button" onClick={() => removeMember(id)} disabled={busy} title="Remove">
-                            <UserMinus size={14} />
+                          <button
+                            type="button"
+                            className="btn-secondary gs-btn"
+                            disabled={busy}
+                            onClick={() => setInvite({ enabled: true, rotate: true })}
+                          >
+                            Rotate link
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-danger-outline"
+                            disabled={busy}
+                            onClick={() => setInvite({ enabled: false })}
+                          >
+                            Disable link
                           </button>
                         </>
                       )}
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
+                  </>
+                )}
+              </section>
+            </div>
+          )}
 
-            {(admin || group?.onlyAdminsCanAddMembers === false) && (
-              <>
-                <label className="create-group-label">Add members</label>
-                <input
-                  className="create-group-input"
-                  placeholder="Search users…"
-                  value={addSearch}
-                  onChange={(e) => setAddSearch(e.target.value)}
-                />
-                <div className="create-group-user-list" style={{ maxHeight: 160 }}>
-                  {candidates.slice(0, 40).map((u) => {
-                    const id = String(u.id);
-                    const checked = selectedAdd.has(id);
-                    return (
-                      <label key={id} className="create-group-user-row">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedAdd((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(id)) next.delete(id);
-                              else next.add(id);
-                              return next;
-                            })
-                          }
-                        />
-                        <span>{u.username}</span>
-                      </label>
-                    );
-                  })}
+          {tab === 'media' && (
+            <div
+              className="group-settings-section"
+              role="tabpanel"
+              id="group-settings-panel-media"
+              aria-labelledby="group-settings-tab-media"
+            >
+              <section className="gs-card">
+                <div className="gs-card-heading-row">
+                  <h3 className="gs-card-title">Shared files</h3>
+                  {!galleryLoading && gallery.length > 0 ? (
+                    <span className="gs-count">{gallery.length}</span>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="confirm-btn"
-                  disabled={!selectedAdd.size || busy}
-                  onClick={addSelectedMembers}
-                >
-                  Add selected
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {tab === 'requests' && (
-          <div className="group-settings-section">
-            {!admin ? (
-              <p className="muted">Only admins can manage join requests.</p>
-            ) : group?.joinPolicy !== 'request' ? (
-              <p className="muted">Switch join policy to “Request to join” to review requests.</p>
-            ) : requestsLoading ? (
-              <p className="muted">Loading requests…</p>
-            ) : joinRequests.length === 0 ? (
-              <p className="muted">No pending join requests.</p>
-            ) : (
-              <ul className="group-member-list">
-                {joinRequests.map((r) => {
-                  const uid = String(r.user?.id || r.user?._id);
-                  return (
-                    <li key={r.id || uid}>
-                      <div>
-                        <strong>{r.user?.username || 'User'}</strong>
-                        <span className="group-member-meta">Requested to join</span>
-                      </div>
-                      <div className="group-member-actions">
-                        <button type="button" className="confirm-btn" disabled={busy} onClick={() => respondToJoinRequest(uid, true)}>
-                          Accept
-                        </button>
-                        <button type="button" className="btn-danger-outline" disabled={busy} onClick={() => respondToJoinRequest(uid, false)}>
-                          Reject
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {tab === 'invite' && (
-          <div className="group-settings-section">
-            {!admin ? (
-              <p className="muted">Only admins can manage invite links.</p>
-            ) : (
-              <>
-                <p className="muted">Anyone with the link can join. New members only decrypt future messages.</p>
-                {inviteUrl ? (
-                  <div className="group-invite-box">
-                    <code>{inviteUrl}</code>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(inviteUrl);
-                      }}
-                      aria-label="Copy invite link"
-                    >
-                      <Copy size={14} />
-                    </button>
+                <p className="gs-card-copy">
+                  Encrypted files shared in this group. Open them from chat to decrypt.
+                </p>
+                {galleryLoading ? (
+                  <p className="gs-empty">Loading…</p>
+                ) : gallery.length === 0 ? (
+                  <div className="gs-empty-state">
+                    <FileText size={22} strokeWidth={1.75} aria-hidden="true" />
+                    <p>No shared files yet.</p>
                   </div>
                 ) : (
-                  <p className="muted">Invite link is off.</p>
+                  <ul className="group-shared-files">
+                    {gallery.map((item) => (
+                      <li key={item.id}>
+                        <span className="group-shared-file-name">
+                          {item.attachment?.filename || 'Encrypted file'}
+                        </span>
+                        <span className="group-member-meta">
+                          {item.attachment?.mimetype || item.kind} ·{' '}
+                          {new Date(item.createdAt).toLocaleDateString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-                <div className="group-invite-actions">
-                  {!group?.inviteEnabled ? (
-                    <button type="button" className="confirm-btn" disabled={busy} onClick={() => setInvite({ enabled: true })}>
-                      <Link2 size={14} /> Enable invite link
-                    </button>
-                  ) : (
-                    <>
-                      <button type="button" className="btn-secondary" disabled={busy} onClick={() => setInvite({ enabled: true, rotate: true })}>
-                        Rotate link
-                      </button>
-                      <button type="button" className="btn-danger-outline" disabled={busy} onClick={() => setInvite({ enabled: false })}>
-                        Disable link
-                      </button>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {tab === 'media' && (
-          <div className="group-settings-section">
-            <p className="muted">Shared encrypted files in this group (decrypt in chat to open).</p>
-            {galleryLoading ? (
-              <p className="muted">Loading…</p>
-            ) : gallery.length === 0 ? (
-              <p className="muted">No shared files yet.</p>
-            ) : (
-              <ul className="group-shared-files">
-                {gallery.map((item) => (
-                  <li key={item.id}>
-                    <span>{item.attachment?.filename || 'Encrypted file'}</span>
-                    <span className="group-member-meta">
-                      {item.attachment?.mimetype || item.kind} · {new Date(item.createdAt).toLocaleDateString()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+              </section>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

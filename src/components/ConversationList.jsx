@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Check, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -21,17 +21,47 @@ function formatShortLastSeen(iso) {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
+function isOnlineUser(u, onlineUserIds) {
+  if (!u || !onlineUserIds) return false;
+  const allowed = (u.privacy?.online || 'everyone') !== 'nobody';
+  return allowed && onlineUserIds.has(String(u.id));
+}
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
   { id: 'groups', label: 'Groups' },
   { id: 'friends', label: 'Friends' },
-  { id: 'discover', label: 'Discover' },
+  // { id: 'discover', label: 'Discover' },
+  { id: 'public', label: 'Discover' },
   { id: 'archived', label: 'Archived' },
 ];
 
+const FILTER_WINDOW = 3;
+const CONV_MENU_WIDTH = 190;
+const CONV_MENU_EST_HEIGHT = 230;
+
+function computeConvMenuPosition(triggerEl) {
+  const rect = triggerEl.getBoundingClientRect();
+  const gap = 8;
+  const pad = 12;
+  const spaceBelow = window.innerHeight - rect.bottom - pad;
+  const spaceAbove = rect.top - pad;
+  const openUp = spaceBelow < CONV_MENU_EST_HEIGHT && spaceAbove > spaceBelow;
+
+  let top = openUp
+    ? rect.top - CONV_MENU_EST_HEIGHT - gap
+    : rect.bottom + gap;
+
+  top = Math.max(pad, Math.min(top, window.innerHeight - CONV_MENU_EST_HEIGHT - pad));
+
+  let right = window.innerWidth - rect.right;
+  right = Math.max(pad, Math.min(right, window.innerWidth - CONV_MENU_WIDTH - pad));
+
+  return { top, right, openUp };
+}
+
 export default function ConversationList({
+  currentUser,
   conversations,
   filter,
   onFilterChange,
@@ -44,12 +74,16 @@ export default function ConversationList({
   onMute,
   onArchive,
   loading,
+  hasMoreContacts,
+  onLoadMoreContacts,
   searchQuery = '',
   friendCandidates = [],
   friendCandidatesLoading = false,
   incomingRequests = [],
+  outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
+  onlineUserIds = new Set(),
   contactQuery = '',
   onContactQueryChange,
   contactLookupResult = null,
@@ -67,31 +101,104 @@ export default function ConversationList({
   const [discoverError, setDiscoverError] = useState('');
   const [joiningId, setJoiningId] = useState(null);
   const [openMenuKey, setOpenMenuKey] = useState(null);
+  const [filterStart, setFilterStart] = useState(0);
   const panelRef = useRef(null);
-const [menuPos, setMenuPos] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
+
+  const friendSet = useMemo(() => {
+    const ids = new Set();
+    if (Array.isArray(myFriends)) {
+      myFriends.forEach((f) => {
+        if (f?.id) ids.add(String(f.id));
+        if (f?._id) ids.add(String(f._id));
+      });
+    }
+    if (Array.isArray(currentUser?.friends)) {
+      currentUser.friends.forEach((id) => ids.add(String(id)));
+    }
+    return ids;
+  }, [myFriends, currentUser?.friends]);
+
+  const { friendItems, otherItems } = useMemo(() => {
+    if (filter !== 'all') {
+      return { friendItems: conversations, otherItems: [] };
+    }
+    const friends = [];
+    const others = [];
+    for (const c of conversations) {
+      if (c.type === 'group' || c.isSelfChat || friendSet.has(String(c.id))) {
+        friends.push(c);
+      } else {
+        others.push(c);
+      }
+    }
+    return { friendItems: friends, otherItems: others };
+  }, [filter, conversations, friendSet]);
+
+  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+
+  const visibleFilters = useMemo(
+    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
+    [filterStart],
+  );
+
+  useEffect(() => {
+    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    if (activeIndex < 0) return;
+    setFilterStart((start) => {
+      if (activeIndex < start) return activeIndex;
+      if (activeIndex >= start + FILTER_WINDOW) {
+        return Math.min(activeIndex - FILTER_WINDOW + 1, maxFilterStart);
+      }
+      return start;
+    });
+  }, [filter, maxFilterStart]);
+
   useEffect(() => {
     if (!openMenuKey) return undefined;
 
     function closeMenu(e) {
-if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dropdown')) {
-    setOpenMenuKey(null);
-    setMenuPos(null);
-  }
-}
+      if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dropdown')) {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+      }
+    }
+
     function closeOnEscape(e) {
-      if (e.key === 'Escape') setOpenMenuKey(null);
+      if (e.key === 'Escape') {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+      }
+    }
+
+    function closeOnScroll(e) {
+      // Don't close when scrolling inside the menu itself.
+      if (e.target?.closest?.('.conv-row-dropdown')) return;
+      setOpenMenuKey(null);
+      setMenuPos(null);
+    }
+
+    function closeOnResize() {
+      setOpenMenuKey(null);
+      setMenuPos(null);
     }
 
     document.addEventListener('pointerdown', closeMenu);
     window.addEventListener('keydown', closeOnEscape);
+    // Capture scroll from the conversation list (and nested scrollers).
+    window.addEventListener('scroll', closeOnScroll, true);
+    window.addEventListener('resize', closeOnResize);
     return () => {
       document.removeEventListener('pointerdown', closeMenu);
       window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('scroll', closeOnScroll, true);
+      window.removeEventListener('resize', closeOnResize);
     };
   }, [openMenuKey]);
 
   function runMenuAction(action) {
     setOpenMenuKey(null);
+    setMenuPos(null);
     action?.();
   }
 
@@ -112,10 +219,20 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
   }, []);
 
   useEffect(() => {
-    if (filter !== 'discover') return undefined;
+    if (filter !== 'discover' && filter !== 'public') return undefined;
     loadDiscover(searchQuery);
     return undefined;
   }, [filter, searchQuery, loadDiscover]);
+
+  const visibleDiscoverItems =
+    filter === 'public' ? discoverItems.filter((g) => g.joinPolicy !== 'request') : discoverItems;
+  const discoverEmptyMessage = searchQuery.trim()
+    ? filter === 'public'
+      ? 'No open public groups match your search.'
+      : 'No public groups match your search.'
+    : filter === 'public'
+      ? 'No open public groups to join right now.'
+      : 'No public groups to join right now.';
 
   async function handleJoin(item) {
     if (!onDiscoverJoin || joiningId) return;
@@ -136,21 +253,197 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
     }
   }
 
+  const renderConvItem = (c, index, isOtherUser = false) => (
+    <motion.div
+      key={c.key}
+      className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+        onSelect(c);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(c);
+        }
+      }}
+      aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
+      whileHover={{ y: -1 }}
+    >
+      <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
+        {c.type === 'group' ? (
+          <span className="avatar group-avatar">
+            <Users size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : c.isSelfChat ? (
+          <span className="avatar group-avatar self-chat-avatar">
+            <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : (
+          <span className="avatar-wrap" style={{ position: 'relative' }}>
+            <UserAvatar
+              userId={c.id}
+              name={c.title}
+              hasAvatar={Boolean(c.peer?.hasAvatar)}
+              className="conv-row-avatar"
+            />
+            {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
+          </span>
+        )}
+      </span>
+      <span className="user-list-meta">
+        <span className="user-list-name-row">
+          <span className="user-list-name">{c.title}</span>
+          {c.muted && (
+            <span className="conv-muted-icon" title="Muted" aria-label="Muted">
+              <BellOff size={12} strokeWidth={2} aria-hidden="true" />
+            </span>
+          )}
+          {c.unread && <span className="unread-dot" aria-hidden="true" />}
+          <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
+        </span>
+        <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
+      </span>
+
+      {isOtherUser && (
+        <button
+          type="button"
+          className="friend-action-btn add"
+          style={{ marginRight: '6px' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSendFriendRequest?.(c.id);
+          }}
+        >
+          Add
+        </button>
+      )}
+
+      {(onHide || onBlock || onMute || onArchive) && (
+        <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
+            aria-label={`Options for ${c.title}`}
+            aria-haspopup="menu"
+            aria-expanded={openMenuKey === c.key}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (openMenuKey === c.key) {
+                setOpenMenuKey(null);
+                setMenuPos(null);
+                return;
+              }
+              setMenuPos(computeConvMenuPosition(e.currentTarget));
+              setOpenMenuKey(c.key);
+            }}
+          >
+            <MoreVertical size={16} />
+          </button>
+          {openMenuKey === c.key && menuPos
+            ? createPortal(
+                <div
+                  className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
+                  role="menu"
+                  aria-label={`Conversation options for ${c.title}`}
+                  style={{
+                    position: 'fixed',
+                    top: menuPos.top,
+                    right: menuPos.right,
+                    left: 'auto',
+                    bottom: 'auto',
+                  }}
+                >
+                  <div className="conv-row-dropdown-title">Conversation options</div>
+                  {onMute && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onMute(c))}
+                    >
+                      <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+                    </button>
+                  )}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onArchive(c))}
+                    >
+                      <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                  )}
+                  {c.type === 'dm' && onHide && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onHide(c.peer || c))}
+                    >
+                      <X size={14} /> Hide chat
+                    </button>
+                  )}
+                  {c.type === 'dm' && onBlock && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                    >
+                      <Ban size={14} /> Block user
+                    </button>
+                  )}
+                </div>,
+                document.body,
+              )
+            : null}
+        </div>
+      )}
+    </motion.div>
+  );
+
   return (
     <div className="conversation-panel" ref={panelRef}>
-      <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.id}
-            className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-            onClick={() => onFilterChange(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="sidebar-filters-wrap">
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Previous filters"
+          disabled={filterStart <= 0}
+          onClick={() => setFilterStart((start) => Math.max(0, start - 1))}
+        >
+          <ChevronLeft size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
+
+        <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
+          {visibleFilters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
+              onClick={() => onFilterChange(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="sidebar-filter-nav"
+          aria-label="Next filters"
+          disabled={filterStart >= maxFilterStart}
+          onClick={() => setFilterStart((start) => Math.min(maxFilterStart, start + 1))}
+        >
+          <ChevronRight size={16} strokeWidth={2.25} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="sidebar-create-row">
@@ -160,7 +453,7 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
         </button>
       </div>
 
-      {filter === 'discover' ? (
+      {filter === 'discover' || filter === 'public' ? (
         <div className="user-list discover-list">
           {discoverLoading ? (
             [1, 2, 3].map((i) => (
@@ -174,14 +467,10 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
             ))
           ) : discoverError ? (
             <p className="empty-hint">{discoverError}</p>
-          ) : discoverItems.length === 0 ? (
-            <p className="empty-hint">
-              {searchQuery.trim()
-                ? 'No public groups match your search.'
-                : 'No public groups to join right now.'}
-            </p>
+          ) : visibleDiscoverItems.length === 0 ? (
+            <p className="empty-hint">{discoverEmptyMessage}</p>
           ) : (
-            discoverItems.map((g, index) => (
+            visibleDiscoverItems.map((g, index) => (
               <motion.div
                 key={g.id}
                 className="user-list-item discover-item"
@@ -230,48 +519,81 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
           <div className="friend-requests-incoming">
             <p className="friend-requests-heading">
               Requests
-              {incomingRequests.length > 0 ? (
-                <span className="friend-section-count">{incomingRequests.length}</span>
+              {incomingRequests.length + outgoingRequests.length > 0 ? (
+                <span className="friend-section-count">
+                  {incomingRequests.length + outgoingRequests.length}
+                </span>
               ) : null}
             </p>
-            {incomingRequests.length === 0 ? (
+            {incomingRequests.length === 0 && outgoingRequests.length === 0 ? (
               <div className="friends-empty-card" role="status">
                 <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" />
                 <p className="friends-empty-title">No pending requests</p>
-                <p className="friends-empty-copy">When someone wants to connect, their request shows up here.</p>
+                <p className="friends-empty-copy">
+                  Incoming requests and ones you&apos;ve sent appear here until they&apos;re accepted.
+                </p>
               </div>
             ) : (
-              incomingRequests.map((r) => (
-                <div key={r.id} className="user-list-item friend-request-item">
-                  <UserAvatar
-                    userId={r.user.id}
-                    name={r.user.displayName || r.user.username}
-                    hasAvatar={Boolean(r.user.hasAvatar)}
-                  />
-                  <span className="user-list-meta">
-                    <span className="user-list-name">{r.user.displayName || r.user.username}</span>
-                    <span className="user-list-lastseen">@{r.user.username}</span>
-                  </span>
-                  <div className="friend-request-actions">
+              <>
+                {incomingRequests.map((r) => (
+                  <div key={`in-${r.id}`} className="user-list-item friend-request-item">
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                    </span>
+                    <div className="friend-request-actions">
+                      <button
+                        type="button"
+                        className="friend-action-btn accept"
+                        aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onAcceptFriendRequest?.(r.id)}
+                      >
+                        <Check size={15} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        className="friend-action-btn decline"
+                        aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
+                        onClick={() => onDeclineFriendRequest?.(r.id)}
+                      >
+                        <X size={15} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {outgoingRequests.map((r) => (
+                  <div key={`out-${r.id}`} className="user-list-item friend-request-item">
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
+                    <span className="user-list-meta">
+                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
+                      <span className="user-list-lastseen">Pending · @{r.user.username}</span>
+                    </span>
                     <button
                       type="button"
-                      className="friend-action-btn accept"
-                      aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onAcceptFriendRequest?.(r.id)}
+                      className="friend-action-btn cancel"
+                      aria-label={`Cancel request to ${r.user.displayName || r.user.username}`}
+                      onClick={() => onCancelFriendRequest?.(r.id)}
                     >
-                      <Check size={15} strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
-                      className="friend-action-btn decline"
-                      aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
-                      onClick={() => onDeclineFriendRequest?.(r.id)}
-                    >
-                      <X size={15} strokeWidth={2.5} />
+                      Cancel
                     </button>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
 
@@ -324,11 +646,14 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                       }
                     }}
                   >
-                    <UserAvatar
-                      userId={u.id}
-                      name={u.displayName || u.username}
-                      hasAvatar={Boolean(u.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={u.id}
+                        name={u.displayName || u.username}
+                        hasAvatar={Boolean(u.hasAvatar)}
+                      />
+                      {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{u.displayName || u.username}</span>
                       <span className="user-list-lastseen">@{u.username}</span>
@@ -383,11 +708,14 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <UserAvatar
-                  userId={contactLookupResult.id}
-                  name={contactLookupResult.displayName || contactLookupResult.username}
-                  hasAvatar={Boolean(contactLookupResult.hasAvatar)}
-                />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar
+                    userId={contactLookupResult.id}
+                    name={contactLookupResult.displayName || contactLookupResult.username}
+                    hasAvatar={Boolean(contactLookupResult.hasAvatar)}
+                  />
+                  {isOnlineUser(contactLookupResult, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">
                     {contactLookupResult.displayName || contactLookupResult.username}
@@ -477,7 +805,10 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               >
-                <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                  {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">{u.displayName || u.username}</span>
                   <span className="user-list-lastseen">@{u.username}</span>
@@ -536,120 +867,29 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
         </div>
       ) : (
         <div className="user-list">
-          {conversations.map((c, index) => (
-            <motion.div
-              key={c.key}
-              className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setOpenMenuKey(null);
-                 setMenuPos(null);
-                onSelect(c);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(c);
-                }
-              }}
-              aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
-              whileHover={{ y: -1 }}
-            >
-              <span className={`avatar-container ${c.type === 'group' ? 'group' : ''}`}>
-                {c.type === 'group' ? (
-                  <span className="avatar group-avatar">
-                    <Users size={18} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                ) : (
-                  <span className="avatar-wrap" style={{ position: 'relative' }}>
-                    <UserAvatar
-                      userId={c.id}
-                      name={c.title}
-                      hasAvatar={Boolean(c.peer?.hasAvatar)}
-                      className="conv-row-avatar"
-                    />
-                    {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
-                  </span>
-                )}
-              </span>
-              <span className="user-list-meta">
-                <span className="user-list-name-row">
-                  <span className="user-list-name">{c.title}</span>
-                  {c.muted && (
-                    <span className="conv-muted-icon" title="Muted" aria-label="Muted">
-                      <BellOff size={12} strokeWidth={2} aria-hidden="true" />
-                    </span>
-                  )}
-                  {c.unread && <span className="unread-dot" aria-hidden="true" />}
-                  <span className="conv-row-time">{formatShortLastSeen(c.lastLoginAt)}</span>
-                </span>
-                <span className="user-list-lastseen">{c.subtitle}</span>
-              </span>
-              {(onHide || onBlock || onMute || onArchive) && (
-                <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
-                    aria-label={`Options for ${c.title}`}
-                    aria-haspopup="menu"
-                    aria-expanded={openMenuKey === c.key}
-                   onClick={(e) => {
-  if (openMenuKey === c.key) {
-    setOpenMenuKey(null);
-    setMenuPos(null);
-    return;
-  }
-  const rect = e.currentTarget.getBoundingClientRect();
-  setMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
-  setOpenMenuKey(c.key);
-}}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                  {openMenuKey === c.key && menuPos && createPortal(
-  <div
-    className="conv-row-dropdown open"
-    role="menu"
-    aria-label={`Conversation options for ${c.title}`}
-    style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' }}
-  >
-    <div className="conv-row-dropdown-title">Conversation options</div>
-    {onMute && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onMute(c))}>
-        <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
-      </button>
+{filter === 'all' ? (
+  <>
+    {friendItems.length > 0 && (
+      <>
+        <p className="friend-requests-heading" style={{ padding: '0 12px 4px' }}>Friends</p>
+        {friendItems.map((c, index) => renderConvItem(c, index, false))}
+      </>
     )}
-    {onArchive && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onArchive(c))}>
-        <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
-      </button>
+    {otherItems.length > 0 && (
+      <>
+        <p
+          className="friend-requests-heading"
+          style={{ marginTop: friendItems.length > 0 ? '12px' : '0px', padding: '0 12px 4px' }}
+        >
+          Other users
+        </p>
+        {otherItems.map((c, index) => renderConvItem(c, index, true))}
+      </>
     )}
-    {c.type === 'dm' && onHide && (
-      <button type="button" role="menuitem" onClick={() => runMenuAction(() => onHide(c.peer || c))}>
-        <X size={14} /> Hide chat
-      </button>
-    )}
-    {c.type === 'dm' && onBlock && (
-      <button
-        type="button"
-        role="menuitem"
-        className="danger"
-        onClick={() => runMenuAction(() => onBlock(c.peer || c))}
-      >
-        <Ban size={14} /> Block user
-      </button>
-    )}
-  </div>,
-  document.body
+  </>
+) : (
+  conversations.map((c, index) => renderConvItem(c, index, false))
 )}
-                </div>
-              )}
-            </motion.div>
-          ))}
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -663,8 +903,18 @@ if (!e.target.closest('.conv-row-menu-wrap') && !e.target.closest('.conv-row-dro
                       : 'No conversations yet.'}
             </p>
           )}
+          {hasMoreContacts && !searchQuery.trim() && (
+            <button
+              type="button"
+              className="load-older-btn"
+              onClick={onLoadMoreContacts}
+            >
+              Load more contacts
+            </button>
+          )}
         </div>
       )}
+
     </div>
   );
 }

@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
@@ -17,47 +15,115 @@ import {
   Settings2,
   Smile,
   Square,
+  Bookmark,
   Users,
   Video,
   X,
 } from "lucide-react";
-import { useAuth } from "../context/AuthContext.jsx";
+import axios from "axios";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { streamQuantumAI } from "../api/aiClient.js";
+import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { connectSocket, getSocket } from "../api/socket.js";
+import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
+import CallOverlay from "../components/CallOverlay.jsx";
+import CameraCapture from "../components/CameraCapture.jsx";
+import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
+import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
-import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
-import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import ChatThemeModal from '../components/ChatThemeModal.jsx';
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import CreateGroupModal from "../components/CreateGroupModal.jsx";
+import DateSeparator from "../components/DateSeparator.jsx";
+import DragDropOverlay from "../components/DragDropOverlay.jsx";
+import EmojiPicker from "../components/EmojiPicker.jsx";
+import ForwardModal from "../components/ForwardModal.jsx";
+import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
+import ImageLightbox from "../components/ImageLightbox.jsx";
+import MeetingOverlay from "../components/MeetingOverlay.jsx";
+import MessageSearch from "../components/MessageSearch.jsx";
+import SettingsModal from "../components/SettingsModal.jsx";
+import { useToast } from "../components/ToastProvider.jsx";
+import TypingIndicator from "../components/TypingIndicator.jsx";
+import UserAvatar from "../components/UserAvatar.jsx";
+import UserProfileModal from "../components/UserProfileModal.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
+import {
+  downloadKeyFile,
+  formatKeyFile,
+  parseKeyFile,
+} from "../crypto/keyFile.js";
+import {
+  pickRandom,
+  sealBytes,
+  sealMessage,
+  secretboxSeal,
+  unsealMessage,
+} from "../crypto/keys.js";
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+} from "../crypto/keyStorage.js";
+import {
+  attachmentIdOf,
+  normalizeAttachment,
+  pickRecorderMimeType,
+} from "../crypto/voiceCache.js";
+import useMeetingCall from "../hooks/useMeetingCall.js";
+import useWebRTCCall from "../hooks/useWebRTCCall.js";
+import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
+import {
+  getArchivedChatKeys,
+  getInfoPanelOpen,
+  getLastQuickReaction,
+  getMutedChatKeys,
+  isChatMuted,
+  setInfoPanelOpen,
+  setLastQuickReaction,
+  toggleArchiveChat,
+  toggleMuteChat,
+} from "../utils/chatPrefs.js";
 import {
   chatPathForSelection,
   selectionFromParams,
 } from "../utils/chatRoutes.js";
-import { streamQuantumAI } from "../api/aiClient.js";
-import { connectSocket, getSocket } from "../api/socket.js";
+import { updateFaviconBadge } from "../utils/faviconBadge.js";
 import {
-  sealMessage,
-  unsealMessage,
-  sealBytes,
-  secretboxSeal,
-  pickRandom,
-} from "../crypto/keys.js";
+  encodeAnnouncement,
+  encodeEvent,
+  encodeGroupFile,
+  encodePoll,
+  extractMentions,
+  isGroupAdmin,
+} from "../utils/groupPayload.js";
 import {
-  formatKeyFile,
-  downloadKeyFile,
-  parseKeyFile,
-} from "../crypto/keyFile.js";
+  getHiddenChatIds,
+  hideChat,
+  unhideChat,
+} from "../utils/hiddenChats.js";
 import {
-  getCurrentKeySet,
-  findSecretKeyForPublicKey,
-} from "../crypto/keyStorage.js";
+  deleteMessageForMe,
+  getDeletedForMeIds,
+  getPinnedIds,
+  getStarredIds,
+  togglePinnedMessage,
+  toggleStarredMessage,
+    getStarredEntries,
+} from "../utils/messageExtras.js";
 import {
-  normalizeAttachment,
-  pickRecorderMimeType,
-  attachmentIdOf,
-} from "../crypto/voiceCache.js";
-import { playReceiveSound, playSendSound } from "../utils/sounds.js";
+  buildNotificationText,
+  buildGroupedNotificationText,
+  playNotificationSound,
+  shouldNotify,
+  showNotificationPopup,
+} from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -67,66 +133,12 @@ import {
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
-import {
-  encodePoll,
-  encodeEvent,
-  encodeAnnouncement,
-  encodeGroupFile,
-  extractMentions,
-  isGroupAdmin,
-} from "../utils/groupPayload.js";
-import CreateGroupModal from "../components/CreateGroupModal.jsx";
-import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
-import UserProfileModal from "../components/UserProfileModal.jsx";
-import UserAvatar from "../components/UserAvatar.jsx";
-import EmojiPicker from "../components/EmojiPicker.jsx";
-import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import SettingsModal from "../components/SettingsModal.jsx";
-import DateSeparator from "../components/DateSeparator.jsx";
-import MessageSearch from "../components/MessageSearch.jsx";
-import DragDropOverlay from "../components/DragDropOverlay.jsx";
-import TypingIndicator from "../components/TypingIndicator.jsx";
-import ForwardModal from "../components/ForwardModal.jsx";
-import CameraCapture from "../components/CameraCapture.jsx";
-import ImageLightbox from "../components/ImageLightbox.jsx";
-import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
-import CallOverlay from "../components/CallOverlay.jsx";
-import MeetingOverlay from "../components/MeetingOverlay.jsx";
-import useWebRTCCall from "../hooks/useWebRTCCall.js";
-import useMeetingCall from "../hooks/useMeetingCall.js";
-import { useToast } from "../components/ToastProvider.jsx";
-import {
-  getHiddenChatIds,
-  hideChat,
-  unhideChat,
-} from "../utils/hiddenChats.js";
-import {
-  getMutedChatKeys,
-  getArchivedChatKeys,
-  toggleMuteChat,
-  toggleArchiveChat,
-  isChatMuted,
-  getInfoPanelOpen,
-  setInfoPanelOpen,
-  getLastQuickReaction,
-  setLastQuickReaction,
-} from "../utils/chatPrefs.js";
-import {
-  deleteMessageForMe,
-  getDeletedForMeIds,
-  getPinnedIds,
-  getStarredIds,
-  togglePinnedMessage,
-  toggleStarredMessage,
-} from "../utils/messageExtras.js";
-import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
-import {
-  shouldNotify,
-  playNotificationSound,
-  buildNotificationText,
-  showNotificationPopup,
-} from "../utils/notificationDispatch.js";
-import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
+import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
+
+import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
+import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
+const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -157,7 +169,16 @@ function formatFileSize(bytes) {
 function memberId(m) {
   return String(m?.id || m?._id || m);
 }
-
+function parseStoryPayload(text) {
+  if (!text) return null;
+  try {
+    const obj = JSON.parse(text);
+    if (obj?.type === "story_reaction" || obj?.type === "story_reply") return obj;
+  } catch {
+    // not a story payload
+  }
+  return null;
+}
 // Check if two ISO dates fall on the same calendar day
 function isSameDay(d1, d2) {
   const a = new Date(d1);
@@ -222,6 +243,7 @@ export default function Chat() {
   const [friendCandidates, setFriendCandidates] = useState([]);
   const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
   const [incomingRequests, setIncomingRequests] = useState([]);
+  const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [myFriends, setMyFriends] = useState([]);
   const [myFriendsLoading, setMyFriendsLoading] = useState(false);
   const [contactQuery, setContactQuery] = useState("");
@@ -239,6 +261,10 @@ export default function Chat() {
     getDeletedForMeIds(user?.id),
   );
   const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [showStarredMessages, setShowStarredMessages] = useState(false);
+  const [showChatMedia, setShowChatMedia] = useState(false);
+const [starredScope, setStarredScope] = useState('all'); // 'all' | 'chat'
+const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [pinnedIds, setPinnedIds] = useState([]);
   const [forwardMessage, setForwardMessage] = useState(null);
   const [forwardBusy, setForwardBusy] = useState(false);
@@ -274,7 +300,17 @@ export default function Chat() {
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
-
+  const [themeCatalog, setThemeCatalog] = useState(null);
+  const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
+  const [customWallpaperUrl, setCustomWallpaperUrl] = useState(null);
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
+  const [usersCursor, setUsersCursor] = useState(null);
+  const [usersHasMore, setUsersHasMore] = useState(false);
+  const [groupsCursor, setGroupsCursor] = useState(null);
+  const [groupsHasMore, setGroupsHasMore] = useState(false);
+  const [searchResults, setSearchResults] = useState(null); // null = not searching
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef(null);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
     const sync = () => setIsMobileShell(mq.matches);
@@ -292,9 +328,72 @@ export default function Chat() {
     return () => document.body.classList.remove("low-fx");
   }, []);
 
+  useEffect(() => {
+    if (!hasLocalKeyring) return;
+    fetchThemeCatalog()
+      .then(setThemeCatalog)
+      .catch(() => { }); // Non-critical — the picker just won't open without it; chat still works.
+  }, [hasLocalKeyring]);
+
+  useEffect(() => {
+    setThemeModalOpen(false);
+
+    if (!selected || selected.type !== "dm") {
+      setChatTheme(DEFAULT_CHAT_THEME);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchChatTheme(selected.id).then((theme) => {
+      if (!cancelled) {
+        setChatTheme(theme);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
+
+  // The custom wallpaper endpoint returns raw bytes (auth-gated, owner-only)
+  // rather than a public URL, so it has to be fetched as a blob and turned
+  // into an object URL, same as attachment previews elsewhere in this app.
+  useEffect(() => {
+    if (
+      !selected ||
+      selected.type !== "dm" ||
+      chatTheme.wallpaperId !== "custom"
+    ) {
+      setCustomWallpaperUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let urlToRevoke = null;
+
+    fetchWallpaperImageUrl(selected.id).then((url) => {
+      if (cancelled) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      urlToRevoke = url;
+      setCustomWallpaperUrl(url);
+    });
+
+    return () => {
+      cancelled = true;
+      if (urlToRevoke) {
+        URL.revokeObjectURL(urlToRevoke);
+      }
+    };
+  }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
+
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
+  const pendingNotificationsRef = useRef(new Map()); // convKey -> [{ senderName, text }]
   const loadingOlderRef = useRef(false);
   const oldestCreatedAtRef = useRef(null);
   const loadOlderMessagesRef = useRef(null);
@@ -324,6 +423,7 @@ export default function Chat() {
   const webrtc = useWebRTCCall({
     userId: user?.id,
     resolvePeerPublicKeys: async (peerId) => {
+      if (String(peerId) === String(user?.id)) return user?.publicKeys || [];
       const peer =
         (selectedRef.current?.type === "dm" &&
           String(selectedRef.current.id) === String(peerId) &&
@@ -331,7 +431,7 @@ export default function Chat() {
         usersRef.current.find((u) => String(u.id) === String(peerId));
       return peer?.publicKeys || [];
     },
-onMissed: (call) => {
+    onMissed: (call) => {
       showToast("Call ended or declined", "info");
       if (notifSettings?.callNotifications?.missedCallReminders === false) return;
       if (!shouldNotify(notifSettings, { kind: "call" })) return;
@@ -342,7 +442,7 @@ onMissed: (call) => {
       showNotificationPopup(
         { title: caller, body: "Missed call" },
         notifSettings,
-        () => {},
+        () => { },
       );
     },
     onEnd: async (info) => {
@@ -386,8 +486,6 @@ onMissed: (call) => {
   useEffect(() => {
     const call = webrtc.call;
     if (!call || call.role !== "callee" || call.status !== "incoming") return;
-    if (notifiedCallIdRef.current === call.callId) return;
-    notifiedCallIdRef.current = call.callId;
 
     const enabled = call.video
       ? notifSettings?.callNotifications?.videoCallEnabled !== false
@@ -399,20 +497,53 @@ onMissed: (call) => {
       users.find((u) => String(u.id) === String(call.peerId))?.username ||
       "Someone";
 
-    playNotificationSound(notifSettings);
-    showNotificationPopup(
-      { title: caller, body: call.video ? "Incoming video call" : "Incoming voice call" },
-      notifSettings,
-      () => {
-        // Clicking the popup just focuses the tab — CallOverlay is already
-        // rendered globally whenever webrtc.call is set, so no navigation needed.
-      },
-    );
-
-    if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
-      navigator.vibrate([200, 100, 200]);
+    if (notifiedCallIdRef.current !== call.callId) {
+      notifiedCallIdRef.current = call.callId;
+      showNotificationPopup(
+        {
+          title: caller,
+          body: call.video ? "Incoming video call" : "Incoming voice call",
+          requireInteraction: true,
+        },
+        notifSettings,
+        () => {
+          window.focus();
+        },
+      );
+      if (notifSettings?.callNotifications?.vibrateOnCall && navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 200]);
+      }
     }
+
+    const volumeScale =
+      typeof notifSettings?.soundVolume === "number"
+        ? notifSettings.soundVolume / 100
+        : 0.8;
+    const stopRing =
+      notifSettings?.soundEnabled === false
+        ? () => { }
+        : startIncomingRingSound(volumeScale);
+
+    return () => {
+      stopRing();
+    };
   }, [webrtc.call, users, notifSettings]);
+
+  useEffect(() => {
+    if (!webrtc.call) setCallMinimized(false);
+  }, [webrtc.call]);
+
+  // Unlock Web Audio after the first user gesture so later alerts can play
+  // even when QuantumChat is in a background tab.
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock, { once: true, passive: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   const meetingCall = useMeetingCall({
     userId: user?.id,
@@ -553,36 +684,36 @@ onMissed: (call) => {
         reactions,
         replyTo: raw.replyTo
           ? (() => {
-              const parent = raw.replyTo;
-              const parentMine = String(parent.from) === String(user.id);
-              let parentText = null;
-              if (
-                parent.group &&
-                typeof parent.content === "string" &&
-                parent.content.length > 0
-              ) {
-                parentText = parent.content;
-              } else if (parent.group && Array.isArray(parent.envelopes)) {
-                const mine = parent.envelopes.find(
-                  (e) => String(e.user) === String(user.id),
-                );
-                if (mine?.targetPublicKey) {
-                  const sk = resolveMySecretKey(mine.targetPublicKey);
-                  parentText = sk ? unsealMessage(mine, sk) : null;
-                }
-              } else {
-                const env = parentMine ? parent.forSender : parent.forRecipient;
-                if (env?.targetPublicKey) {
-                  const sk = resolveMySecretKey(env.targetPublicKey);
-                  parentText = sk ? unsealMessage(env, sk) : null;
-                }
+            const parent = raw.replyTo;
+            const parentMine = String(parent.from) === String(user.id);
+            let parentText = null;
+            if (
+              parent.group &&
+              typeof parent.content === "string" &&
+              parent.content.length > 0
+            ) {
+              parentText = parent.content;
+            } else if (parent.group && Array.isArray(parent.envelopes)) {
+              const mine = parent.envelopes.find(
+                (e) => String(e.user) === String(user.id),
+              );
+              if (mine?.targetPublicKey) {
+                const sk = resolveMySecretKey(mine.targetPublicKey);
+                parentText = sk ? unsealMessage(mine, sk) : null;
               }
-              return {
-                id: parent.id || parent._id,
-                from: parent.from,
-                text: parentText,
-              };
-            })()
+            } else {
+              const env = parentMine ? parent.forSender : parent.forRecipient;
+              if (env?.targetPublicKey) {
+                const sk = resolveMySecretKey(env.targetPublicKey);
+                parentText = sk ? unsealMessage(env, sk) : null;
+              }
+            }
+            return {
+              id: parent.id || parent._id,
+              from: parent.from,
+              text: parentText,
+            };
+          })()
           : null,
       };
     },
@@ -622,21 +753,52 @@ onMissed: (call) => {
     setLoadingUsers(true);
 
     const usersReq = client
-      .get("/users")
-      .then((res) => setUsers(res.data.data || []))
+      .get("/users", { params: { limit: 20 } })
+      .then((res) => {
+        setUsers(res.data.data || []);
+        setUsersHasMore(Boolean(res.data.meta?.hasMore));
+        setUsersCursor(res.data.meta?.nextCursor || null);
+      })
       .catch((err) =>
         showToast(err.response?.data?.error || "Failed to load users", "error"),
       );
 
     const groupsReq = client
-      .get("/groups")
-      .then((res) => setGroups(res.data.data || []))
+      .get("/groups", { params: { limit: 20 } })
+      .then((res) => {
+        setGroups(res.data.data || []);
+        setGroupsHasMore(Boolean(res.data.meta?.hasMore));
+        setGroupsCursor(res.data.meta?.nextCursor || null);
+      })
       .catch(() => setGroups([]));
 
     Promise.allSettled([usersReq, groupsReq]).finally(() =>
       setLoadingUsers(false),
     );
   }, [hasLocalKeyring]);
+  const loadMoreContacts = useCallback(() => {
+    if (!hasLocalKeyring) return;
+    if (usersHasMore) {
+      client
+        .get("/users", { params: { limit: 20, cursor: usersCursor } })
+        .then((res) => {
+          setUsers((prev) => [...prev, ...(res.data.data || [])]);
+          setUsersHasMore(Boolean(res.data.meta?.hasMore));
+          setUsersCursor(res.data.meta?.nextCursor || null);
+        })
+        .catch(() => { });
+    }
+    if (groupsHasMore) {
+      client
+        .get("/groups", { params: { limit: 20, cursor: groupsCursor } })
+        .then((res) => {
+          setGroups((prev) => [...prev, ...(res.data.data || [])]);
+          setGroupsHasMore(Boolean(res.data.meta?.hasMore));
+          setGroupsCursor(res.data.meta?.nextCursor || null);
+        })
+        .catch(() => { });
+    }
+  }, [hasLocalKeyring, usersHasMore, usersCursor, groupsHasMore, groupsCursor]);
   const loadFriendDiscover = useCallback(
     async (q) => {
       setFriendCandidatesLoading(true);
@@ -661,6 +823,7 @@ onMissed: (call) => {
     try {
       const { data } = await client.get("/users/friend-requests");
       setIncomingRequests(data.data?.incoming || []);
+      setOutgoingRequests(data.data?.outgoing || []);
     } catch {
       // non-fatal
     }
@@ -721,30 +884,64 @@ onMissed: (call) => {
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
-useEffect(() => {
-  if (!user?.id || !Array.isArray(user.mutedChats)) return;
-  const now = Date.now();
-  const serverMutedKeys = user.mutedChats
-    .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
-    .map((m) => String(m.conversationKey));
-  const serverSet = new Set(serverMutedKeys);
-
-  // Server is the source of truth once user.mutedChats has loaded — fully replace,
-  // not merge, so unmutes actually take effect (not just adds).
-  setMutedKeys(serverMutedKeys);
-
-  // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
-  // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
-  const localSet = new Set(getMutedChatKeys(user.id).map(String));
-  serverSet.forEach((key) => {
-    if (!localSet.has(key)) toggleMuteChat(user.id, key);
-  });
-  localSet.forEach((key) => {
-    if (!serverSet.has(key)) toggleMuteChat(user.id, key);
-  });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [user?.id, user?.mutedChats]);
   useEffect(() => {
+    const q = search.trim();
+    if (!q || filter === "discover" || filter === "public" || filter === "friends") {
+      setSearchResults(null);
+      return undefined;
+    }
+    clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const [usersRes, groupsRes] = await Promise.all([
+          client.get("/users", { params: { q, limit: 20 } }),
+          client.get("/groups", { params: { q, limit: 20 } }),
+        ]);
+        setSearchResults({
+          users: usersRes.data.data || [],
+          groups: groupsRes.data.data || [],
+        });
+      } catch {
+        setSearchResults({ users: [], groups: [] });
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [search, filter]);
+  useEffect(() => {
+    if (!user?.id || !Array.isArray(user.mutedChats)) return;
+    const now = Date.now();
+    const serverMutedKeys = user.mutedChats
+      .filter((m) => m.expiresAt == null || new Date(m.expiresAt).getTime() > now)
+      .map((m) => String(m.conversationKey));
+    const serverSet = new Set(serverMutedKeys);
+
+    // Server is the source of truth once user.mutedChats has loaded — fully replace,
+    // not merge, so unmutes actually take effect (not just adds).
+    setMutedKeys(serverMutedKeys);
+
+    // Reconcile chatPrefs.js localStorage both ways too, since isChatMuted() elsewhere
+    // (socket handlers, sound-on-message checks) reads directly from localStorage, not from state.
+    const localSet = new Set(getMutedChatKeys(user.id).map(String));
+    serverSet.forEach((key) => {
+      if (!localSet.has(key)) toggleMuteChat(user.id, key);
+    });
+    localSet.forEach((key) => {
+      if (!serverSet.has(key)) toggleMuteChat(user.id, key);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.mutedChats]);
+  useEffect(() => {
+    if (!user?.id) return;
+    loadMyFriends();
+  }, [user?.id, loadMyFriends]);
+
+  useEffect(() => {
+    if (filter === "all") {
+      loadMyFriends();
+    }
     if (filter !== "friends") return;
     loadFriendDiscover(search);
     loadFriendRequests();
@@ -780,32 +977,41 @@ useEffect(() => {
       }
 
       recordActivityFromMessage(raw);
-      if (!isCurrentConversation(raw)) return;
 
-     if (String(raw.from) !== String(user.id)) {
+      const isCurrent = isCurrentConversation(raw);
+      const fromSelf = String(raw.from) === String(user.id);
+
+      if (!fromSelf) {
         const convKey = raw.group
           ? conversationKeyForGroup(raw.group)
           : conversationKeyForUser(
-              String(raw.from) === String(user.id) ? raw.to : raw.from,
-            );
+            String(raw.from) === String(user.id) ? raw.to : raw.from,
+          );
         const muted = isChatMuted(user.id, convKey);
-        const isCurrentlyOpen = isCurrentConversation(raw);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
           : false;
+        const decoratedForNotif = decorate(raw);
+        const storyPayload = parseStoryPayload(decoratedForNotif.text);
+        const reactionsExcluded =
+          notifSettings?.messageNotifications === "all_except_reactions" &&
+          storyPayload?.type === "story_reaction";
         const notifyOk =
           !muted &&
-          shouldNotify(notifSettings, {
-            kind: raw.group ? "group" : "dm",
-            isMention,
-          });
+          !reactionsExcluded &&
+          (storyPayload
+            ? notifSettings?.statusNotifications !== "off"
+            : shouldNotify(notifSettings, {
+              kind: raw.group ? "group" : "dm",
+              isMention,
+            }));
 
         if (notifyOk) {
-          playNotificationSound(notifSettings);
-
-          // Only pop a browser notification if this conversation isn't the one
-          // currently open and focused — matches standard chat-app behavior.
-          if (!isCurrentlyOpen || document.visibilityState === "hidden") {
+          const tabHidden = document.visibilityState === "hidden";
+          // Alert when another chat arrives, or when this tab is in the background.
+          const shouldAlert = !isCurrent || tabHidden;
+          if (shouldAlert) {
+            playNotificationSound(notifSettings);
             const senderName =
               users.find((u) => String(u.id) === String(raw.from))?.displayName ||
               users.find((u) => String(u.id) === String(raw.from))?.username ||
@@ -813,38 +1019,84 @@ useEffect(() => {
             const groupName = raw.group
               ? groups.find((g) => String(g.id) === String(raw.group))?.name
               : null;
-            const { title, body } = buildNotificationText(
-              {
-                senderName,
-                messageText: raw.group ? raw.content : null, // DM text stays encrypted here; see note below
-                isGroup: Boolean(raw.group),
-                groupName,
-              },
+
+            const buffer = pendingNotificationsRef.current.get(convKey) || [];
+            buffer.push({ senderName, text: decoratedForNotif.text });
+            pendingNotificationsRef.current.set(convKey, buffer);
+
+            const { title, body } = buildGroupedNotificationText(buffer, {
+              isGroup: Boolean(raw.group),
+              groupName,
               notifSettings,
-            );
-            showNotificationPopup({ title, body }, notifSettings, () => {
+            });
+
+            showNotificationPopup({ title, body, tag: convKey }, notifSettings, () => {
               const target = raw.group
                 ? { key: convKey, type: "group", id: raw.group }
-                : { key: convKey, type: "dm", id: String(raw.from) === String(user.id) ? raw.to : raw.from };
+                : {
+                  key: convKey,
+                  type: "dm",
+                  id: String(raw.from) === String(user.id) ? raw.to : raw.from,
+                };
               handleSelectConversation(target);
             });
+          } else if (!muted) {
+            playReceiveSound(
+              typeof notifSettings?.soundVolume === "number"
+                ? notifSettings.soundVolume / 100
+                : 1,
+            );
           }
         }
+      }
 
-        if (selectedRef.current?.key) {
-          markConversationRead(
-            user.id,
-            selectedRef.current.key,
-            raw.createdAt || new Date().toISOString(),
-          );
-          bumpActivity();
-        }
+      // Only mutate the open thread for the active conversation.
+      if (!isCurrent) return;
+
+      if (!fromSelf && selectedRef.current?.key) {
+        markConversationRead(
+          user.id,
+          selectedRef.current.key,
+          raw.createdAt || new Date().toISOString(),
+        );
+        bumpActivity();
       }
 
       setMessages((prev) => {
         const id = String(raw.id || raw._id);
         if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-        const next = [...prev, decorate(raw)];
+
+        let next;
+        // Replace the oldest optimistic bubble in this conversation (FIFO)
+        // so own sends don't double when the socket arrives before HTTP.
+        if (String(raw.from) === String(user.id)) {
+          let replaced = false;
+          const confirmed = decorate(raw);
+          next = [];
+          for (const m of prev) {
+            if (
+              !replaced &&
+              m._pending &&
+              String(m.from) === String(user.id) &&
+              (raw.group
+                ? String(m.group || "") === String(raw.group)
+                : String(m.to || "") === String(raw.to))
+            ) {
+              next.push({
+                ...confirmed,
+                text: m.text ?? confirmed.text,
+                _pending: undefined,
+                _status: undefined,
+              });
+              replaced = true;
+              continue;
+            }
+            next.push(m);
+          }
+          if (!replaced) next.push(confirmed);
+        } else {
+          next = [...prev, decorate(raw)];
+        }
 
         if (messageListRef.current) {
           const el = messageListRef.current;
@@ -952,13 +1204,13 @@ useEffect(() => {
         setSelected((prev) =>
           prev
             ? {
-                ...prev,
-                group: payload,
-                title: payload.name || prev.title,
-                subtitle: desc
-                  ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
-                  : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
-              }
+              ...prev,
+              group: payload,
+              title: payload.name || prev.title,
+              subtitle: desc
+                ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
+                : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
+            }
             : prev,
         );
         setPinnedIds((payload.pinnedMessageIds || []).map(String));
@@ -1078,13 +1330,13 @@ useEffect(() => {
           prev.map((m) =>
             String(m.to) === peer || String(m.from) === peer
               ? {
-                  ...m,
-                  deliveredAt: m.deliveredAt || payload.readAt,
-                  readAt:
-                    String(m.from) === String(user.id)
-                      ? payload.readAt || m.readAt
-                      : m.readAt,
-                }
+                ...m,
+                deliveredAt: m.deliveredAt || payload.readAt,
+                readAt:
+                  String(m.from) === String(user.id)
+                    ? payload.readAt || m.readAt
+                    : m.readAt,
+              }
               : m,
           ),
         );
@@ -1096,11 +1348,11 @@ useEffect(() => {
         prev.map((m) =>
           String(m.id || m._id) === id
             ? {
-                ...m,
-                deliveredAt: payload.deliveredAt || m.deliveredAt,
-                readAt: payload.readAt || m.readAt,
-                _status: undefined,
-              }
+              ...m,
+              deliveredAt: payload.deliveredAt || m.deliveredAt,
+              readAt: payload.readAt || m.readAt,
+              _status: undefined,
+            }
             : m,
         ),
       );
@@ -1221,7 +1473,7 @@ useEffect(() => {
         markConversationRead(user.id, threadKey);
         bumpActivityRef.current();
         if (threadType === "dm") {
-          client.post(`/messages/${threadId}/read`).catch(() => {});
+          client.post(`/messages/${threadId}/read`).catch(() => { });
         }
         setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
@@ -1421,7 +1673,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => {});
+    enablePushNotifications().catch(() => { });
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -1437,15 +1689,72 @@ useEffect(() => {
     return map;
   }, [users, groups, user]);
 
+  const selfPeer = useMemo(() => {
+    if (!user?.id) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username,
+      avatarUrl: user.avatarUrl || null,
+      hasAvatar: Boolean(user.hasAvatar || user.avatarUrl),
+      publicKeys: user.publicKeys || [],
+      lastLoginAt: user.lastLoginAt || null,
+      isSelfChat: true,
+    };
+  }, [user]);
+
+  const resolveDmPeer = useCallback(
+    (conversation) => {
+      if (!conversation || conversation.type === "group") return null;
+      if (String(conversation.id) === String(user?.id)) return selfPeer;
+      return (
+        conversation.peer ||
+        users.find((u) => String(u.id) === String(conversation.id)) ||
+        null
+      );
+    },
+    [user?.id, selfPeer, users],
+  );
+
   const conversations = useMemo(() => {
     const q = search.trim().toLowerCase();
     const hidden = new Set(hiddenChatIds);
     const items = [];
-
+    const activeUsers = searchResults ? searchResults.users : users;
+    const activeGroups = searchResults ? searchResults.groups : groups;
     const muted = new Set(mutedKeys.map(String));
     const archived = new Set(archivedKeys.map(String));
 
-    for (const u of users) {
+    if (user?.id && selfPeer) {
+      const key = conversationKeyForUser(user.id);
+      const activity = getConversationActivity(user.id, key);
+      const unread = isUnreadConversation(
+        user.id,
+        key,
+        activity?.at,
+        activity?.from,
+      );
+      items.push({
+        key,
+        type: "dm",
+        id: user.id,
+        title: "Message yourself",
+        subtitle: "Notes to self",
+        searchText:
+          `message yourself notes to self ${user.username || ""}`.toLowerCase(),
+        lastLoginAt: activity?.at || null,
+        unread,
+        sortAt: activity?.at || "",
+        peer: selfPeer,
+        muted: muted.has(String(key)),
+        archived: archived.has(String(key)),
+        online: false,
+        isSelfChat: true,
+      });
+    }
+
+    for (const u of activeUsers) {
+      if (String(u.id) === String(user.id)) continue;
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
       const unread = isUnreadConversation(
@@ -1475,7 +1784,7 @@ useEffect(() => {
       });
     }
 
-    for (const g of groups) {
+    for (const g of activeGroups) {
       const key = conversationKeyForGroup(g.id);
       const activity = getConversationActivity(user.id, key);
       const unread = isUnreadConversation(
@@ -1506,12 +1815,14 @@ useEffect(() => {
     }
 
     items.sort((a, b) => {
+      if (a.isSelfChat !== b.isSelfChat) return a.isSelfChat ? -1 : 1;
       if (a.unread !== b.unread) return a.unread ? -1 : 1;
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
 
     return items.filter((c) => {
-      if (c.type === "dm" && !q && hidden.has(String(c.id))) return false;
+      if (c.type === "dm" && !q && !c.isSelfChat && hidden.has(String(c.id)))
+        return false;
       if (filter === "archived") {
         if (!archived.has(String(c.key))) return false;
       } else if (archived.has(String(c.key))) {
@@ -1520,13 +1831,15 @@ useEffect(() => {
       if (filter === "discover") return false;
       if (filter === "groups" && c.type !== "group") return false;
       if (filter === "unread" && !c.unread) return false;
-      if (q && !(c.searchText || "").includes(q)) return false;
+      if (!searchResults && q && !(c.searchText || "").includes(q)) return false;
       return true;
     });
   }, [
     users,
     groups,
     user.id,
+    user.username,
+    selfPeer,
     search,
     filter,
     activityTick,
@@ -1534,10 +1847,11 @@ useEffect(() => {
     mutedKeys,
     archivedKeys,
     onlineUserIds,
+    searchResults,
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
-// Update browser tab unread count prefix (must run after conversations is defined)
+  // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
       (acc, c) => acc + (c.unread ? 1 : 0),
@@ -1558,8 +1872,21 @@ useEffect(() => {
       return;
     }
     if (!params.peerId && !params.groupId) return;
-    const fromUrl = selectionFromParams(params, conversations);
+    let fromUrl = selectionFromParams(params, conversations);
     if (!fromUrl) return;
+    if (
+      fromUrl.type === "dm" &&
+      String(fromUrl.id) === String(user.id) &&
+      selfPeer
+    ) {
+      fromUrl = {
+        ...fromUrl,
+        title: "Message yourself",
+        subtitle: "Notes to self",
+        peer: selfPeer,
+        isSelfChat: true,
+      };
+    }
     if (
       selected &&
       selected.type === fromUrl.type &&
@@ -1575,11 +1902,11 @@ useEffect(() => {
             prev.peer?.hasAvatar === fromUrl.peer?.hasAvatar;
           const sameGroup =
             String(prev.group?.id || prev.group?._id || "") ===
-              String(fromUrl.group?.id || fromUrl.group?._id || "") &&
+            String(fromUrl.group?.id || fromUrl.group?._id || "") &&
             prev.group?.name === fromUrl.group?.name &&
             prev.group?.updatedAt === fromUrl.group?.updatedAt &&
             String(prev.group?.pinnedMessageIds || "") ===
-              String(fromUrl.group?.pinnedMessageIds || "");
+            String(fromUrl.group?.pinnedMessageIds || "");
           if (
             prev.title === fromUrl.title &&
             prev.subtitle === fromUrl.subtitle &&
@@ -1595,7 +1922,7 @@ useEffect(() => {
     }
     applyConversationSelection(fromUrl, { syncUrl: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.peerId, params.groupId, conversations, isSettingsRoute]);
+  }, [params.peerId, params.groupId, conversations, isSettingsRoute, selfPeer, user.id]);
 
   function applyConversationSelection(c, { syncUrl = true } = {}) {
     if (!c) {
@@ -1625,6 +1952,7 @@ useEffect(() => {
     setGroupTypingNames([]);
     imageSrcMapRef.current = new Map();
     markConversationRead(user.id, c.key);
+    pendingNotificationsRef.current.delete(c.key);
     bumpActivity();
     const socket = getSocket();
     if (socket && c.type === "group") {
@@ -1639,9 +1967,47 @@ useEffect(() => {
   function handleSelectConversation(c) {
     applyConversationSelection(c, { syncUrl: true });
   }
+  function handleOpenStarredEntry(entry) {
+  setShowStarredMessages(false);
+  const target =
+    entry.type === "group"
+      ? conversations.find((c) => c.type === "group" && String(c.id) === String(entry.conversationId))
+      : conversations.find((c) => c.type === "dm" && String(c.id) === String(entry.conversationId));
+
+  const selection = target || {
+    key: entry.conversationKey,
+    type: entry.type,
+    id: entry.conversationId,
+    title: entry.title,
+  };
+
+  setPendingJumpMessageId(entry.id);
+  handleSelectConversation(selection);
+}
 
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
+  }
+  async function handleMarkAllRead() {
+    const unreadConvos = conversations.filter((c) => c.unread);
+    if (!unreadConvos.length) {
+      showToast("No unread conversations", "info");
+      return;
+    }
+
+    const dmReadRequests = [];
+    for (const c of unreadConvos) {
+      markConversationRead(user.id, c.key);
+      if (c.type === "dm" && !c.isSelfChat) {
+        dmReadRequests.push(client.post(`/messages/${c.id}/read`).catch(() => { }));
+      }
+    }
+
+    bumpActivity();
+    if (dmReadRequests.length) {
+      await Promise.allSettled(dmReadRequests);
+    }
+    showToast("All conversations marked as read", "success");
   }
 
   function toggleInfoPanel() {
@@ -1731,11 +2097,11 @@ useEffect(() => {
       setContactLookupResult((prev) =>
         prev && String(prev.id) === String(userId)
           ? {
-              ...prev,
-              requestStatus:
-                data?.data?.status === "accepted" ? "friends" : "pending_sent",
-              requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
-            }
+            ...prev,
+            requestStatus:
+              data?.data?.status === "accepted" ? "friends" : "pending_sent",
+            requestId: data?.data?.id || data?.data?.requestId || prev.requestId,
+          }
           : prev,
       );
     } catch (err) {
@@ -1743,15 +2109,59 @@ useEffect(() => {
     }
   }
 
+  function handleNotFriendsError(err, fallbackRecipientId) {
+    const errData = err?.response?.data || err?.data || err;
+    if (errData?.code === 'NOT_FRIENDS') {
+      const targetId = errData.recipientId || fallbackRecipientId;
+      showToast(
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span>Unable to send message — you're not friends with this user. Add them as a friend first.</span>
+          {targetId && (
+            <button
+              type="button"
+              style={{
+                alignSelf: 'flex-start',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                borderRadius: '4px',
+                border: 'none',
+                background: '#ffffff',
+                color: '#111827',
+                cursor: 'pointer',
+                marginTop: '2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSendFriendRequest(targetId);
+              }}
+            >
+              Add Friend
+            </button>
+          )}
+        </div>,
+        "error",
+        6000
+      );
+      return true;
+    }
+    return false;
+  }
+
   async function handleCancelFriendRequest(requestId) {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
+      setOutgoingRequests((prev) =>
+        prev.filter((r) => String(r.id) !== String(requestId)),
+      );
       loadFriendDiscover(search);
+      loadFriendRequests();
       setContactLookupResult((prev) =>
         prev && String(prev.requestId) === String(requestId)
           ? { ...prev, requestStatus: "none", requestId: null }
           : prev,
       );
+      showToast("Friend request cancelled", "success");
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to cancel request",
@@ -1845,7 +2255,42 @@ useEffect(() => {
     return policy;
   }
 
-  async function sendGroupPayload(plaintext, { kind, mentionedUserIds } = {}) {
+  function mergeConfirmedMessage(prev, { tempId, serverRaw, displayText }) {
+    const serverId = String(serverRaw.id || serverRaw._id);
+    const confirmed = {
+      ...decorate(serverRaw),
+      ...(displayText != null ? { text: displayText } : {}),
+      _pending: undefined,
+      _status: undefined,
+    };
+    let sawServer = false;
+    const next = [];
+    for (const m of prev) {
+      const mid = String(m.id || m._id);
+      if (tempId && mid === String(tempId)) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      if (mid === serverId) {
+        if (!sawServer) {
+          next.push(confirmed);
+          sawServer = true;
+        }
+        continue;
+      }
+      next.push(m);
+    }
+    if (!sawServer) next.push(confirmed);
+    return next;
+  }
+
+  async function sendGroupPayload(
+    plaintext,
+    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+  ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
     }
@@ -1863,7 +2308,8 @@ useEffect(() => {
       payload.envelopes = sealGroupEnvelopes(plaintext, group);
     }
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
-    if (replyTo) payload.replyTo = replyTo.id || replyTo._id;
+    const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
+    if (reply) payload.replyTo = reply;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -1872,11 +2318,13 @@ useEffect(() => {
       payload,
     );
     recordActivityFromMessage(data.data);
-    setMessages((prev) => {
-      const id = String(data.data.id || data.data._id);
-      if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-      return [...prev, decorate(data.data)];
-    });
+    setMessages((prev) =>
+      mergeConfirmedMessage(prev, {
+        tempId,
+        serverRaw: data.data,
+        displayText: displayText ?? plaintext,
+      }),
+    );
     return data.data;
   }
 
@@ -1886,11 +2334,7 @@ useEffect(() => {
       if (selected.type === "group") {
         await sendGroupPayload(text, { kind: "ai_note" });
       } else {
-        const peer =
-          selected.peer ||
-          users.find(
-            (candidate) => String(candidate.id) === String(selected.id),
-          );
+        const peer = resolveDmPeer(selected);
         const myKey = pickRandom(getCurrentKeySet(user.id));
         const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
         if (!myKey?.publicKey || !recipientKeys.length)
@@ -1905,10 +2349,12 @@ useEffect(() => {
       }
       showToast("Encrypted AI note saved", "success");
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Could not save AI note",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Could not save AI note",
+          "error",
+        );
+      }
     }
   }
 
@@ -1953,7 +2399,15 @@ useEffect(() => {
       setConfirmBusy(false);
     }
   }
-
+async function handleUnblockUser(peerId) {
+  try {
+    const { data } = await client.delete(`/users/${peerId}/block`);
+    updateSessionUser(data.data);
+    showToast('User unblocked', 'success');
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to unblock', 'error');
+  }
+}
   // Keydown to trigger search (Ctrl+K)
   useEffect(() => {
     function handleGlobalKeyDown(e) {
@@ -1997,6 +2451,11 @@ useEffect(() => {
     }
 
     if (!selected || selected.peer?.isSystemUser) return;
+    if (
+      selected.type === "dm" &&
+      (selected.isSelfChat || String(selected.id) === String(user.id))
+    )
+      return;
     const socket = getSocket();
     if (!socket) return;
 
@@ -2038,9 +2497,7 @@ useEffect(() => {
   }
 
   async function sendPrivateQuantumAIMessage(text) {
-    const peer =
-      selected.peer ||
-      users.find((candidate) => String(candidate.id) === String(selected.id));
+    const peer = resolveDmPeer(selected);
     const myKeys = getCurrentKeySet(user.id);
     const myKey = pickRandom(myKeys);
     const quantumAIKey = pickRandom((peer?.publicKeys || []).filter(Boolean));
@@ -2128,10 +2585,10 @@ useEffect(() => {
           current.map((message) =>
             message.id === assistantMessageId
               ? {
-                  ...message,
-                  text: finalPayload.content,
-                  kind: "ai",
-                }
+                ...message,
+                text: finalPayload.content,
+                kind: "ai",
+              }
               : message,
           ),
         );
@@ -2155,10 +2612,10 @@ useEffect(() => {
         current.map((message) =>
           message.id === assistantMessageId
             ? {
-                ...message,
-                text: message.text?.trim() || fallback,
-                failed: true,
-              }
+              ...message,
+              text: message.text?.trim() || fallback,
+              failed: true,
+            }
             : message,
         ),
       );
@@ -2297,15 +2754,13 @@ useEffect(() => {
           setMessages((prev) =>
             prev.map((m) =>
               String(m.id || m._id) ===
-              String(editingMessage.id || editingMessage._id)
+                String(editingMessage.id || editingMessage._id)
                 ? decorate(data.data)
                 : m,
             ),
           );
         } else {
-          const peer =
-            selected.peer ||
-            users.find((u) => String(u.id) === String(selected.id));
+          const peer = resolveDmPeer(selected);
           const myKey = pickRandom(getCurrentKeySet(user.id));
           const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
           if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -2324,7 +2779,7 @@ useEffect(() => {
           setMessages((prev) =>
             prev.map((m) =>
               String(m.id || m._id) ===
-              String(editingMessage.id || editingMessage._id)
+                String(editingMessage.id || editingMessage._id)
                 ? decorate(data.data)
                 : m,
             ),
@@ -2354,53 +2809,172 @@ useEffect(() => {
           ? encodeAnnouncement(bodyText)
           : bodyText;
         const mentionedUserIds = extractMentions(bodyText, group.members || []);
-        await sendGroupPayload(plaintext, {
-          kind: asAnnouncement ? "announcement" : "text",
-          mentionedUserIds,
-        });
-        if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
-          await invokeGroupQuantumAI(bodyText, group);
-        }
+        const kind = asAnnouncement ? "announcement" : "text";
+        const tempId = `tmp-${crypto.randomUUID()}`;
+        const replySnapshot = replyTo;
+        const draftSnapshot = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
         setPendingAnnouncement(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            group: selected.id,
+            text: plaintext,
+            kind,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                id: replySnapshot.id || replySnapshot._id,
+                from: replySnapshot.from,
+                text: replySnapshot.text,
+              }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          await sendGroupPayload(plaintext, {
+            kind,
+            mentionedUserIds,
+            tempId,
+            displayText: plaintext,
+            replyToId: replySnapshot
+              ? replySnapshot.id || replySnapshot._id
+              : null,
+          });
+          if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
+            await invokeGroupQuantumAI(bodyText, group);
+          }
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       } else {
-        const peer =
-          selected.peer ||
-          users.find((u) => String(u.id) === String(selected.id));
+        const peer = resolveDmPeer(selected);
         const myKey = pickRandom(getCurrentKeySet(user.id));
         const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
         if (!myKey?.publicKey || recipientKeys.length === 0) {
           showToast("Missing encryption keys for this conversation", "error");
           return;
         }
-        const forRecipient = sealMessage(draft, pickRandom(recipientKeys));
-        const forSender = sealMessage(draft, myKey.publicKey);
-        const body = { to: selected.id, forRecipient, forSender };
-        if (replyTo) body.replyTo = replyTo.id || replyTo._id;
-        if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
-        const forwardPolicy = buildForwardPolicy();
-        if (forwardPolicy) body.forwardPolicy = forwardPolicy;
-        const { data } = await client.post("/messages", body);
-        recordActivityFromMessage(data.data);
-        setMessages((prev) => {
-          const id = String(data.data.id || data.data._id);
-          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-          return [...prev, decorate(data.data)];
-        });
+        const draftSnapshot = draft;
+        const replySnapshot = replyTo;
+        const tempId = `tmp-${crypto.randomUUID()}`;
+        const plaintext = draft;
+
+        setDraft("");
+        setReplyTo(null);
+        setMentionOpen(false);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            _id: tempId,
+            from: user.id,
+            to: selected.id,
+            text: plaintext,
+            createdAt: new Date().toISOString(),
+            _status: "sending",
+            _pending: true,
+            replyTo: replySnapshot
+              ? {
+                id: replySnapshot.id || replySnapshot._id,
+                from: replySnapshot.from,
+                text: replySnapshot.text,
+              }
+              : null,
+          },
+        ]);
+        playSendSound();
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        try {
+          const forRecipient = sealMessage(plaintext, pickRandom(recipientKeys));
+          const forSender = sealMessage(plaintext, myKey.publicKey);
+          const body = { to: selected.id, forRecipient, forSender };
+          if (replySnapshot) body.replyTo = replySnapshot.id || replySnapshot._id;
+          if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
+          const forwardPolicy = buildForwardPolicy();
+          if (forwardPolicy) body.forwardPolicy = forwardPolicy;
+          const { data } = await client.post("/messages", body);
+          recordActivityFromMessage(data.data);
+          setMessages((prev) =>
+            mergeConfirmedMessage(prev, {
+              tempId,
+              serverRaw: data.data,
+              displayText: plaintext,
+            }),
+          );
+        } catch (err) {
+          setMessages((prev) =>
+            prev.filter((m) => String(m.id || m._id) !== tempId),
+          );
+          setDraft(draftSnapshot);
+          setReplyTo(replySnapshot);
+          throw err;
+        }
       }
-      setDraft("");
-      setReplyTo(null);
-      setMentionOpen(false);
-      playSendSound();
-      markConversationRead(user.id, selected.key);
-      bumpActivity();
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      setTimeout(() => scrollToBottom("smooth"), 50);
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Failed to send message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Failed to send message",
+          "error",
+        );
+      }
     }
+  }
+
+  // Uploads one already-encrypted blob to the target handed back by
+  // POST /attachments/init: either straight to Google Drive's resumable
+  // session URL (bypasses our server and its request-size limits), or
+  // through our own proxy endpoint for local/dev storage. Returns the
+  // Drive file id when applicable (undefined for the proxy path, since the
+  // server already knows its own storage key).
+  async function putCiphertext(
+    target,
+    blob,
+    filename,
+    mimeType,
+    { pendingUploadId, slot, signal, onProgress },
+  ) {
+    if (target.mode === "direct") {
+      // Plain axios, not the `client` instance — this must NOT carry our
+      // app's Authorization header to a third-party host.
+      const res = await axios.put(target.uploadUrl, blob, {
+        headers: { "Content-Type": mimeType },
+        signal,
+        onUploadProgress: onProgress,
+      });
+      return res.data?.id;
+    }
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+    await client.put(
+      `/attachments/pending/${pendingUploadId}/bytes?slot=${slot}`,
+      formData,
+      { signal, onUploadProgress: onProgress },
+    );
+    return undefined;
   }
 
   async function sendAttachmentFile(file, { plainBytes, quiet } = {}) {
@@ -2419,7 +2993,7 @@ useEffect(() => {
       return;
     }
 
-    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const uploadId = crypto.randomUUID();
     const controller = new AbortController();
     setUploads((prev) => [
       ...prev,
@@ -2431,31 +3005,50 @@ useEffect(() => {
         const fileBytes =
           plainBytes || new Uint8Array(await file.arrayBuffer());
         const sealed = secretboxSeal(fileBytes);
-        const formData = new FormData();
-        formData.append(
-          "file",
-          new Blob([sealed.cipherBytes], {
-            type: file.type || "application/octet-stream",
-          }),
-          file.name,
-        );
-        formData.append("groupId", selected.id);
-        formData.append("secretboxNonce", sealed.nonce);
+        const mimeType = file.type || "application/octet-stream";
+        const cipherBlob = new Blob([sealed.cipherBytes], { type: mimeType });
 
-        const uploadRes = await client.post("/attachments", formData, {
-          signal: controller.signal,
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const progress = Math.min(
-              100,
-              Math.round((event.loaded / event.total) * 100),
-            );
-            setUploads((prev) =>
-              prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
-            );
+        const initRes = await client.post(
+          "/attachments/init",
+          {
+            groupId: selected.id,
+            secretboxNonce: sealed.nonce,
+            filename: file.name,
+            mimetype: mimeType,
+            size: cipherBlob.size,
           },
-        });
-        const attachment = uploadRes.data.data;
+          { signal: controller.signal },
+        );
+        const { pendingUploadId, recipient } = initRes.data.data;
+
+        const recipientDriveFileId = await putCiphertext(
+          recipient,
+          cipherBlob,
+          file.name,
+          mimeType,
+          {
+            pendingUploadId,
+            slot: "recipient",
+            signal: controller.signal,
+            onProgress: (event) => {
+              if (!event.total) return;
+              const progress = Math.min(
+                100,
+                Math.round((event.loaded / event.total) * 100),
+              );
+              setUploads((prev) =>
+                prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
+              );
+            },
+          },
+        );
+
+        const finalizeRes = await client.post(
+          "/attachments/finalize",
+          { pendingUploadId, recipientDriveFileId },
+          { signal: controller.signal },
+        );
+        const attachment = finalizeRes.data.data;
         const plaintext = encodeGroupFile({
           attachmentId: attachment.id,
           key: sealed.key,
@@ -2472,9 +3065,7 @@ useEffect(() => {
         return;
       }
 
-      const peer =
-        selected.peer ||
-        users.find((u) => String(u.id) === String(selected.id));
+      const peer = resolveDmPeer(selected);
       const myKey = pickRandom(getCurrentKeySet(user.id));
       const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -2485,53 +3076,79 @@ useEffect(() => {
       const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
       const forRecipientFile = sealBytes(fileBytes, recipientPublicKey);
       const forSenderFile = sealBytes(fileBytes, myKey.publicKey);
-
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new Blob([forRecipientFile.cipherBytes], {
-          type: file.type || "application/octet-stream",
-        }),
-        file.name,
-      );
-      formData.append(
-        "senderFile",
-        new Blob([forSenderFile.cipherBytes], {
-          type: file.type || "application/octet-stream",
-        }),
-        file.name,
-      );
-      formData.append("recipientId", selected.id);
-      formData.append("nonce", forRecipientFile.nonce);
-      formData.append(
-        "ephemeralPublicKey",
-        forRecipientFile.ephemeralPublicKey,
-      );
-      formData.append("targetPublicKey", forRecipientFile.targetPublicKey);
-      formData.append("forSenderNonce", forSenderFile.nonce);
-      formData.append(
-        "forSenderEphemeralPublicKey",
-        forSenderFile.ephemeralPublicKey,
-      );
-      formData.append(
-        "forSenderTargetPublicKey",
-        forSenderFile.targetPublicKey,
-      );
-
-      const uploadRes = await client.post("/attachments", formData, {
-        signal: controller.signal,
-        onUploadProgress: (event) => {
-          if (!event.total) return;
-          const progress = Math.min(
-            100,
-            Math.round((event.loaded / event.total) * 100),
-          );
-          setUploads((prev) =>
-            prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
-          );
-        },
+      const mimeType = file.type || "application/octet-stream";
+      const recipientBlob = new Blob([forRecipientFile.cipherBytes], {
+        type: mimeType,
       });
-      const attachmentId = uploadRes.data.data.id;
+      const senderBlob = new Blob([forSenderFile.cipherBytes], {
+        type: mimeType,
+      });
+
+      const initRes = await client.post(
+        "/attachments/init",
+        {
+          recipientId: selected.id,
+          filename: file.name,
+          mimetype: mimeType,
+          size: recipientBlob.size,
+          nonce: forRecipientFile.nonce,
+          ephemeralPublicKey: forRecipientFile.ephemeralPublicKey,
+          targetPublicKey: forRecipientFile.targetPublicKey,
+          forSenderNonce: forSenderFile.nonce,
+          forSenderEphemeralPublicKey: forSenderFile.ephemeralPublicKey,
+          forSenderTargetPublicKey: forSenderFile.targetPublicKey,
+        },
+        { signal: controller.signal },
+      );
+      const { pendingUploadId, recipient, sender } = initRes.data.data;
+
+      let recipientLoaded = 0;
+      let senderLoaded = 0;
+      const totalBytes = recipientBlob.size + senderBlob.size;
+      const reportProgress = () => {
+        if (!totalBytes) return;
+        const progress = Math.min(
+          100,
+          Math.round(((recipientLoaded + senderLoaded) / totalBytes) * 100),
+        );
+        setUploads((prev) =>
+          prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
+        );
+      };
+
+      const recipientDriveFileId = await putCiphertext(
+        recipient,
+        recipientBlob,
+        file.name,
+        mimeType,
+        {
+          pendingUploadId,
+          slot: "recipient",
+          signal: controller.signal,
+          onProgress: (event) => {
+            recipientLoaded = event.loaded || 0;
+            reportProgress();
+          },
+        },
+      );
+      const senderDriveFileId = sender
+        ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
+            pendingUploadId,
+            slot: "sender",
+            signal: controller.signal,
+            onProgress: (event) => {
+              senderLoaded = event.loaded || 0;
+              reportProgress();
+            },
+          })
+        : undefined;
+
+      const finalizeRes = await client.post(
+        "/attachments/finalize",
+        { pendingUploadId, recipientDriveFileId, senderDriveFileId },
+        { signal: controller.signal },
+      );
+      const attachmentId = finalizeRes.data.data.id;
 
       const forRecipient = sealMessage("", recipientPublicKey);
       const forSender = sealMessage("", myKey.publicKey);
@@ -2559,7 +3176,12 @@ useEffect(() => {
         showToast("Upload cancelled", "info", 2500);
         return;
       }
-      throw err;
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Upload failed",
+          "error",
+        );
+      }
     } finally {
       setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
@@ -2597,8 +3219,8 @@ useEffect(() => {
         failed += 1;
         showToast(
           err.response?.data?.error ||
-            err.message ||
-            `Failed to send ${file.name}`,
+          err.message ||
+          `Failed to send ${file.name}`,
           "error",
         );
       }
@@ -2643,8 +3265,8 @@ useEffect(() => {
             file.name && file.name !== "image.png"
               ? file
               : new File([file], `paste-${Date.now()}.png`, {
-                  type: file.type || "image/png",
-                });
+                type: file.type || "image/png",
+              });
           imageFiles.push(named);
         }
       }
@@ -2861,7 +3483,33 @@ useEffect(() => {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     };
   }, []);
+useEffect(() => {
+  if (!pendingJumpMessageId) return;
+  const el = document.getElementById(`msg-${pendingJumpMessageId}`);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.animation = "none";
+    el.offsetHeight;
+    el.style.animation = "msgIn 400ms ease both";
+    setPendingJumpMessageId(null);
+  }
+}, [messages, pendingJumpMessageId]);
 
+useEffect(() => {
+  if (!pendingJumpMessageId || !selected || loadingMessages) return;
+  const idStr = String(pendingJumpMessageId);
+  const found = messages.some((m) => String(m.id || m._id) === idStr);
+  if (found) return; // the other effect (scroll-into-view) will handle it
+  if (!hasMoreMessages || loadingOlderRef.current) {
+    // Nothing more to load and still not found — give up gracefully.
+    if (!hasMoreMessages) {
+      setPendingJumpMessageId(null);
+      showToast("Couldn't locate that message — it may have been deleted", "info");
+    }
+    return;
+  }
+  loadOlderMessages();
+}, [pendingJumpMessageId, selected, messages, hasMoreMessages, loadingMessages, loadOlderMessages, showToast]);
   function handleDeleteMessage(messageId) {
     if (!messageId) return;
     setConfirmDialog({
@@ -2889,10 +3537,17 @@ useEffect(() => {
     );
   }
 
-  function handleStarMessage(messageId) {
-    setStarredIds(toggleStarredMessage(user.id, messageId));
-    setExtrasTick((n) => n + 1);
-  }
+ function handleStarMessage(messageId) {
+  if (!messageId || !selected) return;
+  const msg = messages.find((m) => String(m.id || m._id) === String(messageId));
+  const nextIds = toggleStarredMessage(
+    user.id,
+    msg || { id: messageId },
+    { key: selected.key, type: selected.type, id: selected.id, title: selected.title },
+  );
+  setStarredIds(nextIds);
+  setExtrasTick((n) => n + 1);
+}
 
   async function handlePinMessage(messageId) {
     if (!selected?.key) return;
@@ -2958,7 +3613,7 @@ useEffect(() => {
           if (check.data?.data?.allowed === false) {
             showToast(
               check.data.data.reason ||
-                "Forwarding not allowed for this message",
+              "Forwarding not allowed for this message",
               "error",
             );
             return;
@@ -2979,8 +3634,7 @@ useEffect(() => {
         }
       }
 
-      const peer =
-        target.peer || users.find((u) => String(u.id) === String(target.id));
+      const peer = resolveDmPeer(target);
       const myKey = pickRandom(getCurrentKeySet(user.id));
       const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -3011,10 +3665,12 @@ useEffect(() => {
       showToast(`Forwarded to ${target.title}`, "success");
       setForwardMessage(null);
     } catch (err) {
-      showToast(
-        err.response?.data?.error || "Failed to forward message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, target?.id)) {
+        showToast(
+          err.response?.data?.error || "Failed to forward message",
+          "error",
+        );
+      }
     } finally {
       setForwardBusy(false);
     }
@@ -3091,17 +3747,15 @@ useEffect(() => {
         const targetId =
           String(existing?.from) === String(user.id)
             ? (group?.members || [])
-                .map((m) => String(m.id || m._id))
-                .find((id) => id !== String(user.id))
+              .map((m) => String(m.id || m._id))
+              .find((id) => id !== String(user.id))
             : existing?.from;
         const member = (group?.members || []).find(
           (m) => String(m.id || m._id) === String(targetId),
         );
         recipientKeys = (member?.publicKeys || []).filter(Boolean);
       } else {
-        const peer =
-          selected.peer ||
-          users.find((u) => String(u.id) === String(selected.id));
+        const peer = resolveDmPeer(selected);
         recipientKeys = (peer?.publicKeys || []).filter(Boolean);
       }
       if (!myKey?.publicKey || recipientKeys.length === 0) {
@@ -3191,6 +3845,7 @@ useEffect(() => {
 
   async function handleStartCall(video) {
     if (!selected || selected.type !== "dm") return;
+    if (selected.isSelfChat || String(selected.id) === String(user.id)) return;
     try {
       await webrtc.startCall({
         peerId: selected.id,
@@ -3200,8 +3855,8 @@ useEffect(() => {
     } catch (err) {
       showToast(
         err.response?.data?.error ||
-          err.message ||
-          "Could not start the call. Check your connection and try again.",
+        err.message ||
+        "Could not start the call. Check your connection and try again.",
         "error",
       );
     }
@@ -3217,12 +3872,40 @@ useEffect(() => {
     } catch (err) {
       showToast(
         err.response?.data?.error ||
-          err.message ||
-          "Could not start the meeting. Check your connection and try again.",
+        err.message ||
+        "Could not start the meeting. Check your connection and try again.",
         "error",
       );
     }
   }
+
+  // Only sent-bubble color and wallpaper vary by theme — received bubbles
+  // stay the default white so text stays readable regardless of which
+  // theme color is picked. When the theme is 'default', the var is left
+  // unset so the original hardcoded CSS (gradient bubble, transparent
+  // background) shows through untouched.
+  const themeStyle = useMemo(() => {
+    const vars = {};
+    if (themeCatalog && chatTheme.bubbleColorId && chatTheme.bubbleColorId !== 'default') {
+      const bubble = themeCatalog.bubbleColors.find((b) => b.id === chatTheme.bubbleColorId);
+      if (bubble) {
+        vars['--bubble-mine'] = bubble.mine;
+        // `fg` is optional on older catalog responses — falls back to the
+        // app theme's default (white in dark/eyecare, dark text in light)
+        // via the CSS `var(--bubble-mine-fg, ...)` fallback if omitted.
+        if (bubble.fg) {
+          vars['--bubble-mine-fg'] = bubble.fg;
+          vars['--bubble-mine-time'] = `color-mix(in srgb, ${bubble.fg} 78%, transparent)`;
+        }
+      }
+    }
+    if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
+      vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
+    } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
+      vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
+    }
+    return vars;
+  }, [themeCatalog, chatTheme, customWallpaperUrl]);
 
   const title = useMemo(() => {
     if (!selected) return "Select a conversation";
@@ -3251,8 +3934,8 @@ useEffect(() => {
       const base = count ? `${count} members` : "Group chat";
       return publicHint ? `${publicHint} · ${base}` : base;
     }
-    const peer =
-      selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    const peer = resolveDmPeer(selected);
+    if (selected.isSelfChat || peer?.isSelfChat) return "Notes to self";
     if (peer?.systemRole === "quantum_ai")
       return aiBusy ? "generating…" : "AI Assistant";
     const onlineAllowed = (peer?.privacy?.online || "everyone") !== "nobody";
@@ -3263,7 +3946,7 @@ useEffect(() => {
   }, [
     selected,
     groups,
-    users,
+    resolveDmPeer,
     onlineUserIds,
     peerTyping,
     groupTypingNames,
@@ -3381,12 +4064,13 @@ useEffect(() => {
 
   const headerOnline = useMemo(() => {
     if (!selected || selected.type !== "dm") return false;
-    const peer =
-      selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    if (selected.isSelfChat || String(selected.id) === String(user.id))
+      return false;
+    const peer = resolveDmPeer(selected);
     if ((peer?.privacy?.online || "everyone") === "nobody") return false;
     if (onlineUserIds.has(String(selected.id))) return true;
     return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, users, onlineUserIds]);
+  }, [selected, resolveDmPeer, onlineUserIds, user.id]);
 
   const visibleMessages = useMemo(() => {
     const deleted = new Set(deletedForMeIds.map(String));
@@ -3456,10 +4140,11 @@ useEffect(() => {
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
+        onMarkAllRead={handleMarkAllRead}
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
-         notifSettings={notifSettings}
+        notifSettings={notifSettings}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
@@ -3472,24 +4157,27 @@ useEffect(() => {
         onHide={handleHideChat}
         onBlock={handleBlockUser}
         onMute={(c) => {
-  const wasMuted = mutedKeys.map(String).includes(String(c.key));
-  setMutedKeys(toggleMuteChat(user.id, c.key));
-  const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
-  const request = wasMuted
-    ? unmuteChat(payload)
-    : muteChat({ ...payload, duration: "always" });
-  request.catch(() => {
-    // Local toggle already reflects the change; server sync failed silently.
-    // It will resync from server data on next login/session refresh.
-  });
-}}
+          const wasMuted = mutedKeys.map(String).includes(String(c.key));
+          setMutedKeys(toggleMuteChat(user.id, c.key));
+          const payload = c.type === "group" ? { groupId: c.id } : { peerId: c.id };
+          const request = wasMuted
+            ? unmuteChat(payload)
+            : muteChat({ ...payload, duration: "always" });
+          request.catch(() => {
+            // Local toggle already reflects the change; server sync failed silently.
+            // It will resync from server data on next login/session refresh.
+          });
+        }}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
         loadingUsers={loadingUsers}
+        hasMoreContacts={!searchResults && (usersHasMore || groupsHasMore)}
+        onLoadMoreContacts={loadMoreContacts}
         friendCandidates={friendCandidates}
         friendCandidatesLoading={friendCandidatesLoading}
         incomingRequests={incomingRequests}
+        outgoingRequests={outgoingRequests}
         myFriends={myFriends}
         myFriendsLoading={myFriendsLoading}
         contactQuery={contactQuery}
@@ -3520,35 +4208,40 @@ useEffect(() => {
             online: onlineUserIds.has(String(friend.id)),
           });
         }}
+        onlineUserIds={onlineUserIds}
+       onOpenStarred={() => {
+  setStarredScope('all');
+  setShowStarredMessages(true);
+}}
       />
 
       <main
         className="chat-main"
         onDragEnter={
           canChat &&
-          selected &&
-          (selected.type === "dm" || selected.type === "group")
+            selected &&
+            (selected.type === "dm" || selected.type === "group")
             ? handleDragEnter
             : undefined
         }
         onDragLeave={
           canChat &&
-          selected &&
-          (selected.type === "dm" || selected.type === "group")
+            selected &&
+            (selected.type === "dm" || selected.type === "group")
             ? handleDragLeave
             : undefined
         }
         onDragOver={
           canChat &&
-          selected &&
-          (selected.type === "dm" || selected.type === "group")
+            selected &&
+            (selected.type === "dm" || selected.type === "group")
             ? handleDragOver
             : undefined
         }
         onDrop={
           canChat &&
-          selected &&
-          (selected.type === "dm" || selected.type === "group")
+            selected &&
+            (selected.type === "dm" || selected.type === "group")
             ? handleDrop
             : undefined
         }
@@ -3664,7 +4357,7 @@ useEffect(() => {
                       } catch (err) {
                         showToast(
                           err.response?.data?.error ||
-                            "Could not resend verification",
+                          "Could not resend verification",
                           "error",
                         );
                       }
@@ -3701,38 +4394,57 @@ useEffect(() => {
                 </button>
                 {selected ? (
                   <div
-                    className={`chat-header-peer${selected.type === "group" || selected.type === "dm" ? " clickable" : ""}`}
+                    className={`chat-header-peer${selected.type === "group" ||
+                      (selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id))
+                      ? " clickable"
+                      : ""
+                      }`}
                     role={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                        (selected.type === "dm" &&
+                          !selected.isSelfChat &&
+                          String(selected.id) !== String(user.id))
                         ? "button"
                         : undefined
                     }
                     tabIndex={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                        (selected.type === "dm" &&
+                          !selected.isSelfChat &&
+                          String(selected.id) !== String(user.id))
                         ? 0
                         : undefined
                     }
                     onClick={
                       selected.type === "group"
                         ? () => setShowGroupSettings(true)
-                        : selected.type === "dm"
+                        : selected.type === "dm" &&
+                          !selected.isSelfChat &&
+                          String(selected.id) !== String(user.id)
                           ? () => setProfileUserId(selected.id)
                           : undefined
                     }
                     onKeyDown={
-                      selected.type === "group" || selected.type === "dm"
+                      selected.type === "group" ||
+                        (selected.type === "dm" &&
+                          !selected.isSelfChat &&
+                          String(selected.id) !== String(user.id))
                         ? (e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              if (selected.type === "group")
-                                setShowGroupSettings(true);
-                              else setProfileUserId(selected.id);
-                            }
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            if (selected.type === "group")
+                              setShowGroupSettings(true);
+                            else setProfileUserId(selected.id);
                           }
+                        }
                         : undefined
                     }
                     title={
-                      selected.type === "dm"
+                      selected.type === "dm" &&
+                        !selected.isSelfChat &&
+                        String(selected.id) !== String(user.id)
                         ? "View profile"
                         : selected.type === "group"
                           ? "Group settings"
@@ -3743,19 +4455,21 @@ useEffect(() => {
                       <span className="avatar group-avatar chat-header-avatar">
                         <Users size={18} strokeWidth={2} aria-hidden="true" />
                       </span>
+                    ) : selected.isSelfChat ||
+                      String(selected.id) === String(user.id) ? (
+                      <span className="avatar group-avatar chat-header-avatar self-chat-avatar">
+                        <Bookmark
+                          size={18}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />
+                      </span>
                     ) : (
                       <span className="chat-header-avatar-wrap">
                         <UserAvatar
                           userId={selected.id}
                           name={title}
-                          hasAvatar={Boolean(
-                            (
-                              selected.peer ||
-                              users.find(
-                                (u) => String(u.id) === String(selected.id),
-                              )
-                            )?.hasAvatar,
-                          )}
+                          hasAvatar={Boolean(resolveDmPeer(selected)?.hasAvatar)}
                           className="chat-header-avatar"
                         />
                         {headerOnline && (
@@ -3780,9 +4494,13 @@ useEffect(() => {
               </div>
               <div className="chat-header-actions">
                 {selected?.type === "dm" &&
+                  !selected?.isSelfChat &&
+                  String(selected?.id) !== String(user.id) &&
                   !selected?.peer?.isSystemUser &&
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
+
+                     
                       <button
                         className="icon-btn"
                         type="button"
@@ -3855,17 +4573,7 @@ useEffect(() => {
                     <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-                {selected && (
-                  <button
-                    className={`icon-btn${searchOpen ? " active" : ""}`}
-                    onClick={() => setSearchOpen(!searchOpen)}
-                    title="Search messages (Ctrl+K)"
-                    aria-label="Search messages"
-                    aria-pressed={searchOpen}
-                  >
-                    <Search size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                )}
+                
                 {selected && (
                   <button
                     className={`icon-btn${infoPanelOpen ? " active" : ""}`}
@@ -3877,6 +4585,32 @@ useEffect(() => {
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
+                {selected && (
+  <ChatOptionsMenu
+    isGroup={selected.type === "group"}
+    isBlocked={(user.blockedUsers || []).map(String).includes(String(selected.id))}
+    isMuted={mutedKeys.map(String).includes(String(selected.key))}
+    onToggleBlock={() => {
+      const isBlocked = (user.blockedUsers || []).map(String).includes(String(selected.id));
+      if (isBlocked) handleUnblockUser(selected.id);
+      else handleBlockUser(resolveDmPeer(selected));
+    }}
+    onToggleMute={() => {
+      const wasMuted = mutedKeys.map(String).includes(String(selected.key));
+      setMutedKeys(toggleMuteChat(user.id, selected.key));
+      const payload = selected.type === "group" ? { groupId: selected.id } : { peerId: selected.id };
+      const request = wasMuted ? unmuteChat(payload) : muteChat({ ...payload, duration: "always" });
+      request.catch(() => {});
+    }}
+    onSearch={() => setSearchOpen(true)}
+    onWallpaper={selected.type === "dm" && !selected.isSelfChat ? () => setThemeModalOpen(true) : undefined}
+    onStarred={() => {
+      setStarredScope('chat');
+      setShowStarredMessages(true);
+    }}
+    onMedia={() => setShowChatMedia(true)}
+  />
+)}
               </div>
             </header>
 
@@ -3967,10 +4701,12 @@ useEffect(() => {
                     className="message-list"
                     ref={messageListRef}
                     onScroll={handleScroll}
+                    data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
                     initial={{ opacity: 0, x: 12 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                    style={themeStyle}
                   >
                     {loadingOlder && (
                       <div className="load-older-hint">
@@ -4023,18 +4759,22 @@ useEffect(() => {
                         const m = item.data;
                         const prevMsg =
                           index > 0 &&
-                          messagesWithSeparators[index - 1].type === "message"
+                            messagesWithSeparators[index - 1].type === "message"
                             ? messagesWithSeparators[index - 1].data
                             : null;
                         const isGrouped =
                           prevMsg &&
                           String(prevMsg.from) === String(m.from) &&
                           new Date(m.createdAt) - new Date(prevMsg.createdAt) <
-                            120000;
+                          120000;
                         const mid = String(m.id || m._id);
 
                         return (
-                          <div key={item.key} id={`msg-${mid}`}>
+                          <div
+                            key={item.key}
+                            id={`msg-${mid}`}
+                            className="message-item"
+                          >
                             <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}
@@ -4057,7 +4797,8 @@ useEffect(() => {
                               starred={starredIds.map(String).includes(mid)}
                               pinned={pinnedIds.map(String).includes(mid)}
                               showReadReceipts={
-                                user.privacy?.readReceipts !== false
+                                user.privacy?.readReceipts !== false &&
+                                user.privacy?.readReceipts !== 'nobody'
                               }
                               senderLabel={
                                 isGroupChat
@@ -4067,12 +4808,12 @@ useEffect(() => {
                               replyPreview={
                                 m.replyTo
                                   ? {
-                                      label:
-                                        usernameById.get(
-                                          String(m.replyTo.from),
-                                        ) || "Message",
-                                      text: m.replyTo.text || "[encrypted]",
-                                    }
+                                    label:
+                                      usernameById.get(
+                                        String(m.replyTo.from),
+                                      ) || "Message",
+                                    text: m.replyTo.text || "[encrypted]",
+                                  }
                                   : null
                               }
                               onDelete={handleDeleteMessage}
@@ -4096,12 +4837,12 @@ useEffect(() => {
                               }
                               onEdit={
                                 m.text &&
-                                !String(m.text).trim().startsWith('{"__qc')
+                                  !String(m.text).trim().startsWith('{"__qc')
                                   ? (msg) => {
-                                      setReplyTo(null);
-                                      setEditingMessage(msg);
-                                      setDraft(msg.text || "");
-                                    }
+                                    setReplyTo(null);
+                                    setEditingMessage(msg);
+                                    setDraft(msg.text || "");
+                                  }
                                   : undefined
                               }
                             />
@@ -4312,7 +5053,10 @@ useEffect(() => {
                                 ? "Write an announcement…"
                                 : isGroupChat
                                   ? "Type an encrypted group message… @mention"
-                                  : "Type an encrypted message…"
+                                  : selected?.isSelfChat ||
+                                    String(selected?.id) === String(user.id)
+                                    ? "Write a note to yourself…"
+                                    : "Type an encrypted message…"
                         }
                         value={draft}
                         onChange={handleDraftChange}
@@ -4351,6 +5095,14 @@ useEffect(() => {
           </>
         )}
       </main>
+      {themeModalOpen && selected && (
+        <ChatThemeModal
+          peerId={selected.id}
+          theme={chatTheme}
+          onApplied={(updated) => setChatTheme(updated)}
+          onClose={() => setThemeModalOpen(false)}
+        />
+      )}
 
       {aiPanelOpen && (
         <AIAssistantPanel
@@ -4389,10 +5141,10 @@ useEffect(() => {
         peerLabel={
           webrtc.call
             ? users.find((u) => String(u.id) === String(webrtc.call.peerId))
-                ?.displayName ||
-              users.find((u) => String(u.id) === String(webrtc.call.peerId))
-                ?.username ||
-              webrtc.call.peerName
+              ?.displayName ||
+            users.find((u) => String(u.id) === String(webrtc.call.peerId))
+              ?.username ||
+            webrtc.call.peerName
             : ""
         }
         onAccept={() =>
@@ -4415,7 +5167,9 @@ useEffect(() => {
           })
         }
         minimized={callMinimized}
-        onToggleMinimize={() => setCallMinimized((v) => !v)}
+        onToggleMinimize={(next) =>
+          setCallMinimized((v) => (typeof next === "boolean" ? next : !v))
+        }
       />
 
       <MeetingOverlay
@@ -4505,19 +5259,19 @@ useEffect(() => {
             }
           }}
           onMute={() => {
-  const key = conversationKeyForUser(profileUserId);
-  const wasMuted = mutedKeys.map(String).includes(String(key));
-  setMutedKeys(toggleMuteChat(user.id, key));
-  const request = wasMuted
-    ? unmuteChat({ peerId: profileUserId })
-    : muteChat({ peerId: profileUserId, duration: "always" });
-  request
-    .then((res) => {
-      if (res?.data) updateSessionUser(res.data);
-    })
-    .catch(() => {});
-}}
-       onArchive={() => {
+            const key = conversationKeyForUser(profileUserId);
+            const wasMuted = mutedKeys.map(String).includes(String(key));
+            setMutedKeys(toggleMuteChat(user.id, key));
+            const request = wasMuted
+              ? unmuteChat({ peerId: profileUserId })
+              : muteChat({ peerId: profileUserId, duration: "always" });
+            request
+              .then((res) => {
+                if (res?.data) updateSessionUser(res.data);
+              })
+              .catch(() => { });
+          }}
+          onArchive={() => {
             const key = conversationKeyForUser(profileUserId);
             setArchivedKeys(toggleArchiveChat(user.id, key));
           }}
@@ -4530,6 +5284,7 @@ useEffect(() => {
             setProfileUserId(null);
             handleBlockUser(peer);
           }}
+          onOpenAiPanel={() => setAiPanelOpen(true)}
           onClose={() => setProfileUserId(null)}
           onLoaded={(data) => {
             if (!data?.id) return;
@@ -4557,7 +5312,17 @@ useEffect(() => {
           }}
         />
       )}
-
+      {showChatMedia && (
+  <ChatMediaModal
+    messages={visibleMessages}
+    imageSrcMap={imageSrcMapRef.current}
+    onImageClick={(id) => {
+      setShowChatMedia(false);
+      handleImagePreview(id);
+    }}
+    onClose={() => setShowChatMedia(false)}
+  />
+)}
       {pollDraft && (
         <div
           className="create-group-overlay"
@@ -4734,9 +5499,8 @@ useEffect(() => {
                   String(m.from) === String(user.id)
                     ? "You"
                     : usernameById.get(String(m.from)) || "User";
-                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${
-                  m.text || (m.attachment ? "[attachment]" : "[encrypted]")
-                }`;
+                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? "[attachment]" : "[encrypted]")
+                  }`;
               })
               .join("\n");
             const blob = new Blob([lines], { type: "text/plain" });
@@ -4757,7 +5521,27 @@ useEffect(() => {
           onForward={handleForwardToConversation}
         />
       )}
-
+      {showStarredMessages && (
+  <StarredMessagesModal
+    entries={
+      starredScope === 'chat' && selected
+        ? getStarredEntries(user.id).filter((e) => e.conversationKey === selected.key)
+        : getStarredEntries(user.id)
+    }
+    usernameById={usernameById}
+    currentUserId={user.id}
+    onSelect={handleOpenStarredEntry}
+    onUnstar={(id) => {
+      const nextIds = toggleStarredMessage(user.id, { id }, null);
+      setStarredIds(nextIds);
+      setExtrasTick((n) => n + 1);
+    }}
+    onClose={() => {
+      setShowStarredMessages(false);
+      setStarredScope('all');
+    }}
+  />
+)}
       {logoutConfirmOpen && (
         <ConfirmDialog
           open={logoutConfirmOpen}
@@ -4836,25 +5620,25 @@ useEffect(() => {
         starred={
           actionSheetMessage
             ? starredIds
-                .map(String)
-                .includes(
-                  String(actionSheetMessage.id || actionSheetMessage._id),
-                )
+              .map(String)
+              .includes(
+                String(actionSheetMessage.id || actionSheetMessage._id),
+              )
             : false
         }
         pinned={
           actionSheetMessage
             ? pinnedIds
-                .map(String)
-                .includes(
-                  String(actionSheetMessage.id || actionSheetMessage._id),
-                )
+              .map(String)
+              .includes(
+                String(actionSheetMessage.id || actionSheetMessage._id),
+              )
             : false
         }
         canEdit={Boolean(
           actionSheetMessage?.text &&
-            !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
-            String(actionSheetMessage.from) === String(user.id),
+          !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
+          String(actionSheetMessage.from) === String(user.id),
         )}
         canForward={actionSheetMessage?.allowForward !== false}
         onReply={(msg) => {

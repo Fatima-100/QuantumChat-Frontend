@@ -42,7 +42,8 @@ export function AuthProvider({ children }) {
     const { data } = await client.get('/auth/me');
     const freshUser = data.data?.user;
     if (!freshUser) return null;
-    saveSession(getToken(), freshUser);
+    const nextToken = data.data?.token || getToken();
+    saveSession(nextToken, freshUser);
     setUser(freshUser);
     recomputeKeyringSync(freshUser);
     return freshUser;
@@ -63,16 +64,30 @@ export function AuthProvider({ children }) {
     return null;
   }, [recomputeKeyringSync]);
 
+  // Restore socket + refresh session token when the app loads with a saved login.
   useEffect(() => {
-    if (!user?.id) {
+    if (!user?.id || !getToken()) {
       setKeyringSync(null);
-      return;
+      return undefined;
     }
     recomputeKeyringSync(user);
-    if (getToken()) {
-      refreshUserFromServer().catch(() => {});
-    }
-  }, [user?.id, recomputeKeyringSync, refreshUserFromServer]);
+    connectSocket();
+    let cancelled = false;
+    refreshUserFromServer().catch((err) => {
+      if (cancelled) return;
+      if (err?.response?.status === 401) {
+        clearSession();
+        disconnectSocket();
+        setUser(null);
+        setKeyringSync(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Only re-run when the signed-in user identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const register = useCallback(
     async ({ username, email, password }) => {
@@ -111,11 +126,20 @@ export function AuthProvider({ children }) {
   // Private keys stay on this device across logins. We only clear another
   // account's keyring when switching users, so the same account does not
   // re-prompt for keys.txt every session.
-  const login = useCallback(async ({ email, password }) => {
+  const login = useCallback(async ({ email, password, rememberMe = true }) => {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
-    const { data } = await client.post('/auth/login', { email, password, deviceLabel });
+    const { data } = await client.post('/auth/login', {
+      email,
+      password,
+      deviceLabel,
+      rememberMe,
+    });
     if (data.data?.requires2fa) {
-      return { requires2fa: true, tempToken: data.data.tempToken };
+      return {
+        requires2fa: true,
+        tempToken: data.data.tempToken,
+        rememberMe: data.data.rememberMe !== false,
+      };
     }
     const { token, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
@@ -125,9 +149,14 @@ export function AuthProvider({ children }) {
     return loggedInUser;
   }, []);
 
-  const verify2fa = useCallback(async ({ tempToken, token }) => {
+  const verify2fa = useCallback(async ({ tempToken, token, rememberMe = true }) => {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
-    const { data } = await client.post('/auth/2fa/verify', { tempToken, token, deviceLabel });
+    const { data } = await client.post('/auth/2fa/verify', {
+      tempToken,
+      token,
+      deviceLabel,
+      rememberMe,
+    });
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
     saveSession(jwt, loggedInUser, sessionId);

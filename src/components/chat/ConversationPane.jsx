@@ -13,10 +13,11 @@ export default function ConversationPane({
   onCloseSidebar,
   onSettings,
   onLogout,
+   onMarkAllRead,
   storiesRailRef,
   users,
   onStoriesError,
-   notifSettings,
+  notifSettings,
   search,
   onSearchChange,
   conversations,
@@ -31,9 +32,12 @@ export default function ConversationPane({
   onMute,
   onArchive,
   loadingUsers,
+    hasMoreContacts,
+  onLoadMoreContacts,
   friendCandidates,
   friendCandidatesLoading,
   incomingRequests,
+  outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
   contactQuery = '',
@@ -47,7 +51,8 @@ export default function ConversationPane({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onOpenFriend,
-  
+  onlineUserIds,  
+  onOpenStarred,
 }) {
   return (
     <>
@@ -68,7 +73,7 @@ export default function ConversationPane({
             </div>
           </div>
           <div className="sidebar-header-actions">
-            <SidebarMenu onSettings={onSettings} onLogout={onLogout} />
+          <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} onOpenStarred={onOpenStarred} />
           </div>
         </div>
         {canChat && (
@@ -78,7 +83,7 @@ export default function ConversationPane({
               currentUser={user}
               users={users}
               onError={onStoriesError}
-               notifSettings={notifSettings}
+              notifSettings={notifSettings}
             />
             <div className="sidebar-search">
               <input
@@ -92,6 +97,7 @@ export default function ConversationPane({
         )}
         {canChat ? (
           <ConversationList
+            currentUser={user}
             conversations={conversations}
             filter={filter}
             onFilterChange={onFilterChange}
@@ -108,6 +114,7 @@ export default function ConversationPane({
             friendCandidates={friendCandidates}
             friendCandidatesLoading={friendCandidatesLoading}
             incomingRequests={incomingRequests}
+            outgoingRequests={outgoingRequests}
             myFriends={myFriends}
             myFriendsLoading={myFriendsLoading}
             contactQuery={contactQuery}
@@ -121,6 +128,9 @@ export default function ConversationPane({
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
             onOpenFriend={onOpenFriend}
+            onlineUserIds={onlineUserIds} 
+            hasMoreContacts={hasMoreContacts}
+            onLoadMoreContacts={onLoadMoreContacts}
           />
         ) : (
           <p className="empty-hint">Set up your device key to see people.</p>

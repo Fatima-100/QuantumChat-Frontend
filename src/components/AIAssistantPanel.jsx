@@ -1,8 +1,14 @@
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { streamQuantumAI } from '../api/aiClient.js';
 import client from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { buildCapsule, getLocalConsentLog, saveLocalConsentLog } from '../utils/aiCapsule.js';
+import {
+  AI_BG_STORAGE_KEY,
+  AI_BG_THEMES,
+  readStoredAiBg,
+  writeStoredAiBg,
+} from '../utils/aiPanelBg.js';
 
 function messageKey(message, index) {
   return String(message.id || message._id || `idx-${index}`);
@@ -16,6 +22,7 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
   const [selectedContext, setSelectedContext] = useState('');
   const [pickedIds, setPickedIds] = useState(() => new Set());
   const [purpose, setPurpose] = useState('assist');
+  const [aiBg, setAiBg] = useState(readStoredAiBg);
   const [lastCapsule, setLastCapsule] = useState(() => {
     const log = getLocalConsentLog(user?.id);
     return log[0] || null;
@@ -25,6 +32,29 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
   const chunkBufferRef = useRef('');
   const rafRef = useRef(null);
 
+  useEffect(() => {
+    writeStoredAiBg(aiBg);
+  }, [aiBg]);
+
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key !== AI_BG_STORAGE_KEY) return;
+      const next = readStoredAiBg();
+      setAiBg((prev) => (prev === next ? prev : next));
+    }
+    function onCustom(e) {
+      const next = e?.detail;
+      if (typeof next === 'string' && AI_BG_THEMES.some((t) => t.id === next)) {
+        setAiBg(next);
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('qc-ai-panel-bg', onCustom);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('qc-ai-panel-bg', onCustom);
+    };
+  }, []);
 
   const pickableMessages = messages.filter((message) => message.text).slice(-20);
 
@@ -129,7 +159,11 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
     : null;
 
   return (
-    <aside className="quantum-ai-panel" aria-label="QuantumAI assistant">
+    <aside
+      className="quantum-ai-panel"
+      data-ai-bg={aiBg}
+      aria-label="QuantumAI assistant"
+    >
       <header>
         <div>
           <strong>QuantumAI</strong>
@@ -137,6 +171,31 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
         </div>
         <button type="button" onClick={onClose} aria-label="Close QuantumAI">×</button>
       </header>
+
+      <div className="ai-bg-control">
+        <span className="ai-bg-control-label">Background</span>
+        <div className="ai-bg-picker" role="radiogroup" aria-label="Assistant background">
+          {AI_BG_THEMES.map((theme) => (
+            <button
+              key={theme.id}
+              type="button"
+              role="radio"
+              aria-checked={aiBg === theme.id}
+              aria-label={theme.label}
+              title={theme.label}
+              className={`ai-bg-swatch ai-bg-swatch--${theme.id}${aiBg === theme.id ? ' is-active' : ''}`}
+              onClick={() => {
+                setAiBg(theme.id);
+                window.dispatchEvent(
+                  new CustomEvent('qc-ai-panel-bg', { detail: theme.id }),
+                );
+              }}
+            >
+              <span className="ai-bg-swatch-name">{theme.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <label className="ai-context-control">
         Share context

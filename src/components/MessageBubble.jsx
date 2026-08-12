@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, useMemo, memo } from 'react';
-import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
+  Clock,
   Copy,
   Forward,
   Image as ImageIcon,
@@ -14,14 +13,15 @@ import {
   Smile,
   Star,
   Trash2,
-  Clock,
   Users,
   Video,
 } from 'lucide-react';
-import AttachmentBubble from './AttachmentBubble.jsx';
-import GroupMessageContent from './GroupMessageContent.jsx';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { COMPOSER_EMOJIS, QUICK_REACTIONS, searchEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
+import AttachmentBubble from './AttachmentBubble.jsx';
+import GroupMessageContent from './GroupMessageContent.jsx';
 
 const MENU_GAP = 8;
 const VIEW_PAD = 12;
@@ -322,12 +322,19 @@ const storyReplyPayload = useMemo(() => {
                 <span>Forward</span>
               </button>
             )}
-            {onStar && (
-              <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
-                <span className="message-menu-icon" aria-hidden="true"><Star size={16} strokeWidth={2} /></span>
-                <span>{starred ? 'Unstar' : 'Star'}</span>
-              </button>
-            )}
+           {onStar && (
+  <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
+    <span className="message-menu-icon" aria-hidden="true">
+      <Star
+        size={16}
+        strokeWidth={2}
+        fill={starred ? '#FFC107' : 'none'}
+        stroke={starred ? '#FFC107' : 'currentColor'}
+      />
+    </span>
+    <span>{starred ? 'Unstar' : 'Star'}</span>
+  </button>
+)}
             {onPin && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onPin(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pin size={16} strokeWidth={2} /></span>
@@ -422,8 +429,8 @@ const storyReplyPayload = useMemo(() => {
         ref={rootRef}
         className={`message-row ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${anyPopover ? 'popover-open' : ''} ${pinned ? 'pinned' : ''} ${starred ? 'starred' : ''}`}
         initial={false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
           <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}`}>
@@ -441,7 +448,11 @@ const storyReplyPayload = useMemo(() => {
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
-                {starred && <span title="Starred"><Star size={12} /></span>}
+              {starred && (
+  <span title="Starred">
+    <Star size={12} fill="#FFC107" stroke="#FFC107" strokeWidth={0} />
+  </span>
+)}
               </div>
             )}
             {message.kind === 'ai_note' && (

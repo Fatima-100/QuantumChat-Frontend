@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
+
+const REMEMBER_EMAIL_KEY = 'qc_remember_email';
 
 function getFriendlyLoginError(serverError, statusCode) {
   const msg = (serverError || '').toLowerCase();
@@ -56,10 +58,19 @@ function getFriendlyLoginError(serverError, statusCode) {
   };
 }
 
+function readRememberedEmail() {
+  try {
+    return localStorage.getItem(REMEMBER_EMAIL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function Login() {
-  const { login, verify2fa } = useAuth();
+  const { user, login, verify2fa } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ email: readRememberedEmail(), password: '' });
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -73,6 +84,10 @@ export default function Login() {
     };
   }, []);
 
+  if (user) {
+    return <Navigate to="/chat" replace />;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
@@ -84,7 +99,11 @@ export default function Login() {
       }
       setLoading(true);
       try {
-        await verify2fa({ tempToken: pending2fa.tempToken, token: totpCode.trim() });
+        await verify2fa({
+          tempToken: pending2fa.tempToken,
+          token: totpCode.trim(),
+          rememberMe: pending2fa.rememberMe !== false,
+        });
         navigate('/chat');
       } catch (err) {
         const serverMsg = err.response?.data?.error;
@@ -108,9 +127,21 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const result = await login(form);
+      const result = await login({ ...form, rememberMe });
+      try {
+        if (rememberMe) {
+          localStorage.setItem(REMEMBER_EMAIL_KEY, form.email.trim());
+        } else {
+          localStorage.removeItem(REMEMBER_EMAIL_KEY);
+        }
+      } catch {
+        // ignore storage failures
+      }
       if (result?.requires2fa) {
-        setPending2fa({ tempToken: result.tempToken });
+        setPending2fa({
+          tempToken: result.tempToken,
+          rememberMe: result.rememberMe !== false,
+        });
         setTotpCode('');
         return;
       }
@@ -198,6 +229,15 @@ export default function Login() {
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+
+            <label className="auth-remember">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              <span>Keep me signed in on this device</span>
+            </label>
           </>
         ) : (
           <>
@@ -225,10 +265,9 @@ export default function Login() {
               onClick={() => {
                 setPending2fa(null);
                 setTotpCode('');
-                setError(null);
               }}
             >
-              Back to password
+              ← Back to password
             </button>
           </>
         )}
@@ -244,13 +283,13 @@ export default function Login() {
           </div>
         )}
 
-        <button type="submit" className="auth-submit" disabled={loading}>
-          {loading ? (pending2fa ? 'Verifying…' : 'Signing in…') : pending2fa ? 'Verify' : 'Sign in'}
+        <button type="submit" className="confirm-btn" disabled={loading}>
+          {loading ? 'Please wait…' : pending2fa ? 'Verify & continue' : 'Log in'}
         </button>
 
         {!pending2fa && (
-          <p>
-            Don&apos;t have an account? <Link to="/register">Create one</Link>
+          <p className="auth-footer">
+            New here? <Link to="/register">Create an account</Link>
           </p>
         )}
       </form>

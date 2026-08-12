@@ -1,5 +1,5 @@
 // Local-only message extras (do not affect E2E ciphertext on the server).
-
+const STARRED_DATA_SUFFIX = 'starred-data';
 function key(userId, suffix) {
   return `qc:${suffix}:${userId}`;
 }
@@ -12,6 +12,29 @@ function readSet(userId, suffix) {
   } catch {
     return new Set();
   }
+}
+function readStarredEntries(userId) {
+  try {
+    const raw = localStorage.getItem(key(userId, STARRED_DATA_SUFFIX));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+function writeStarredEntries(userId, entries) {
+  localStorage.setItem(key(userId, STARRED_DATA_SUFFIX), JSON.stringify(entries));
+}
+
+export function getStarredEntries(userId) {
+  return readStarredEntries(userId);
+}
+export function getStarredIds(userId) {
+  return readStarredEntries(userId).map((e) => e.id);
+}
+
+export function isStarredMessage(userId, messageId) {
+  return readStarredEntries(userId).some((e) => String(e.id) === String(messageId));
 }
 
 function writeSet(userId, suffix, set) {
@@ -33,22 +56,38 @@ export function isDeletedForMe(userId, messageId) {
   return readSet(userId, 'deleted-for-me').has(String(messageId));
 }
 
-export function getStarredIds(userId) {
-  return [...readSet(userId, 'starred')];
+
+
+export function toggleStarredMessage(userId, message, conversation) {
+  const id = String(message?.id || message?._id || message);
+  const entries = readStarredEntries(userId);
+  const exists = entries.some((e) => String(e.id) === id);
+  let next;
+  if (exists) {
+    next = entries.filter((e) => String(e.id) !== id);
+  } else {
+    next = [
+      {
+        id,
+        conversationKey: conversation?.key || null,
+        type: conversation?.type || 'dm',
+        conversationId: conversation?.id || null,
+        title: conversation?.title || 'Chat',
+        from: message?.from ?? null,
+        text: message?.text ?? null,
+        hasAttachment: Boolean(message?.attachment),
+        attachmentFilename: message?.attachment?.filename || null,
+        createdAt: message?.createdAt || null,
+        starredAt: new Date().toISOString(),
+      },
+      ...entries,
+    ];
+  }
+  writeStarredEntries(userId, next);
+  return next.map((e) => e.id);
 }
 
-export function toggleStarredMessage(userId, messageId) {
-  const set = readSet(userId, 'starred');
-  const id = String(messageId);
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
-  writeSet(userId, 'starred', set);
-  return [...set];
-}
 
-export function isStarredMessage(userId, messageId) {
-  return readSet(userId, 'starred').has(String(messageId));
-}
 
 /** Pins are scoped per conversation key (dm:userId or group:groupId). */
 export function getPinnedIds(userId, conversationKey) {

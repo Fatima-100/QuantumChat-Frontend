@@ -12,6 +12,7 @@ import VerifyEmail from './pages/VerifyEmail.jsx';
 import Chat from './pages/Chat.jsx';
 import JoinInvite from './components/JoinInvite.jsx';
 import Landing from './pages/Landing.jsx';
+import LinkDevice from './pages/LinkDevice.jsx';
 
 function ProtectedChat() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/link-device" element={<LinkDevice />} />
               <Route
                 path="/join/:code"
                 element={
