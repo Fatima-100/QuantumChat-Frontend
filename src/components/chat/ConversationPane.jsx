@@ -51,8 +51,8 @@ export default function ConversationPane({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onOpenFriend,
-
-  
+  onlineUserIds,  
+  onOpenStarred,
 }) {
   return (
     <>
@@ -73,7 +73,7 @@ export default function ConversationPane({
             </div>
           </div>
           <div className="sidebar-header-actions">
-            <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} />
+          <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} onOpenStarred={onOpenStarred} />
           </div>
         </div>
         {canChat && (
@@ -128,6 +128,7 @@ export default function ConversationPane({
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
             onOpenFriend={onOpenFriend}
+            onlineUserIds={onlineUserIds} 
             hasMoreContacts={hasMoreContacts}
             onLoadMoreContacts={onLoadMoreContacts}
           />

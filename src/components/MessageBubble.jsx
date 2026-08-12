@@ -322,12 +322,19 @@ const storyReplyPayload = useMemo(() => {
                 <span>Forward</span>
               </button>
             )}
-            {onStar && (
-              <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
-                <span className="message-menu-icon" aria-hidden="true"><Star size={16} strokeWidth={2} /></span>
-                <span>{starred ? 'Unstar' : 'Star'}</span>
-              </button>
-            )}
+           {onStar && (
+  <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
+    <span className="message-menu-icon" aria-hidden="true">
+      <Star
+        size={16}
+        strokeWidth={2}
+        fill={starred ? '#FFC107' : 'none'}
+        stroke={starred ? '#FFC107' : 'currentColor'}
+      />
+    </span>
+    <span>{starred ? 'Unstar' : 'Star'}</span>
+  </button>
+)}
             {onPin && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onPin(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pin size={16} strokeWidth={2} /></span>
@@ -441,7 +448,11 @@ const storyReplyPayload = useMemo(() => {
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
-                {starred && <span title="Starred"><Star size={12} /></span>}
+              {starred && (
+  <span title="Starred">
+    <Star size={12} fill="#FFC107" stroke="#FFC107" strokeWidth={0} />
+  </span>
+)}
               </div>
             )}
             {message.kind === 'ai_note' && (

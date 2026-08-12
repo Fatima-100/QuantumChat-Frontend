@@ -13652,4 +13652,46 @@ body.theme-dreamcloud {
   height: 16px;
   cursor: pointer;
 }
+.chat-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; padding: 12px; }
+.chat-media-thumb { aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: none; padding: 0; cursor: pointer; }
+.chat-media-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.chat-media-file-chip { display: flex; align-items: center; gap: 6px; padding: 8px; grid-column: span 2; font-size: 13px; }
+.chat-options-dropdown {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  background: var(--surface, #1e1b2e);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  padding: 6px;
+  z-index: 1000;
+  gap: 2px;
+}
 
+.chat-options-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text, #fff);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-options-dropdown button:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.chat-options-dropdown button.danger {
+  color: #ff6b6b;
+}
+
+.chat-options-dropdown button.danger:hover {
+  background: rgba(255,107,107,0.12);
+}

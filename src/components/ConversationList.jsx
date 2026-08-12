@@ -21,7 +21,11 @@ function formatShortLastSeen(iso) {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
+function isOnlineUser(u, onlineUserIds) {
+  if (!u || !onlineUserIds) return false;
+  const allowed = (u.privacy?.online || 'everyone') !== 'nobody';
+  return allowed && onlineUserIds.has(String(u.id));
+}
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
@@ -79,6 +83,7 @@ export default function ConversationList({
   outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
+  onlineUserIds = new Set(),
   contactQuery = '',
   onContactQueryChange,
   contactLookupResult = null,
@@ -532,11 +537,14 @@ export default function ConversationList({
               <>
                 {incomingRequests.map((r) => (
                   <div key={`in-${r.id}`} className="user-list-item friend-request-item">
-                    <UserAvatar
-                      userId={r.user.id}
-                      name={r.user.displayName || r.user.username}
-                      hasAvatar={Boolean(r.user.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{r.user.displayName || r.user.username}</span>
                       <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
@@ -563,11 +571,14 @@ export default function ConversationList({
                 ))}
                 {outgoingRequests.map((r) => (
                   <div key={`out-${r.id}`} className="user-list-item friend-request-item">
-                    <UserAvatar
-                      userId={r.user.id}
-                      name={r.user.displayName || r.user.username}
-                      hasAvatar={Boolean(r.user.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{r.user.displayName || r.user.username}</span>
                       <span className="user-list-lastseen">Pending · @{r.user.username}</span>
@@ -635,11 +646,14 @@ export default function ConversationList({
                       }
                     }}
                   >
-                    <UserAvatar
-                      userId={u.id}
-                      name={u.displayName || u.username}
-                      hasAvatar={Boolean(u.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={u.id}
+                        name={u.displayName || u.username}
+                        hasAvatar={Boolean(u.hasAvatar)}
+                      />
+                      {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{u.displayName || u.username}</span>
                       <span className="user-list-lastseen">@{u.username}</span>
@@ -694,11 +708,14 @@ export default function ConversationList({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <UserAvatar
-                  userId={contactLookupResult.id}
-                  name={contactLookupResult.displayName || contactLookupResult.username}
-                  hasAvatar={Boolean(contactLookupResult.hasAvatar)}
-                />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar
+                    userId={contactLookupResult.id}
+                    name={contactLookupResult.displayName || contactLookupResult.username}
+                    hasAvatar={Boolean(contactLookupResult.hasAvatar)}
+                  />
+                  {isOnlineUser(contactLookupResult, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">
                     {contactLookupResult.displayName || contactLookupResult.username}
@@ -788,7 +805,10 @@ export default function ConversationList({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               >
-                <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                  {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">{u.displayName || u.username}</span>
                   <span className="user-list-lastseen">@{u.username}</span>
@@ -847,30 +867,29 @@ export default function ConversationList({
         </div>
       ) : (
         <div className="user-list">
-          {filter === 'all' ? (
-            <>
-              {friendItems.length > 0 && (
-                <>
-                  <p className="friend-requests-heading" style={{ padding: '0 12px 4px' }}>Friends</p>
-                  {friendItems.map((c, index) => renderConvItem(c, index, false))}
-                </>
-              )}
-              {otherItems.length > 0 && (
-                <>
-                  <p
-                    className="friend-requests-heading"
-                    style={{ marginTop: friendItems.length > 0 ? '12px' : '0px', padding: '0 12px 4px' }}
-                  >
-                    Other users
-                  </p>
-                  {otherItems.map((c, index) => renderConvItem(c, index, true))}
-                </>
-              )}
-            </>
-          ) : (
-            conversations.map((c, index) => renderConvItem(c, index, false))
-          )}
-          
+{filter === 'all' ? (
+  <>
+    {friendItems.length > 0 && (
+      <>
+        <p className="friend-requests-heading" style={{ padding: '0 12px 4px' }}>Friends</p>
+        {friendItems.map((c, index) => renderConvItem(c, index, false))}
+      </>
+    )}
+    {otherItems.length > 0 && (
+      <>
+        <p
+          className="friend-requests-heading"
+          style={{ marginTop: friendItems.length > 0 ? '12px' : '0px', padding: '0 12px 4px' }}
+        >
+          Other users
+        </p>
+        {otherItems.map((c, index) => renderConvItem(c, index, true))}
+      </>
+    )}
+  </>
+) : (
+  conversations.map((c, index) => renderConvItem(c, index, false))
+)}
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -895,7 +914,7 @@ export default function ConversationList({
           )}
         </div>
       )}
-       
+
     </div>
   );
 }

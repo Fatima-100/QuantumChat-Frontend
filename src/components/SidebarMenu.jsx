@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCheck, LogOut, MoreVertical, Settings } from 'lucide-react';
-
-export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
+import { CheckCheck, LogOut, MoreVertical, Settings, Star } from 'lucide-react';
+export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead, onOpenStarred }) {
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -24,6 +23,7 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+  
 
   return (
     <div className="sidebar-menu" ref={rootRef}>
@@ -67,7 +67,22 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
 
             <div className="sidebar-menu-divider" />
 
-            
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpenStarred?.();
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                <Star size={16} aria-hidden="true" />
+                <span>Starred messages</span>
+              </span>
+            </button>
+
+            <div className="sidebar-menu-divider" />
             <button
               type="button"
               className="sidebar-menu-item"

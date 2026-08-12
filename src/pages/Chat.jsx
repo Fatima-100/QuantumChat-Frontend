@@ -115,6 +115,7 @@ import {
   getStarredIds,
   togglePinnedMessage,
   toggleStarredMessage,
+    getStarredEntries,
 } from "../utils/messageExtras.js";
 import {
   buildNotificationText,
@@ -133,7 +134,10 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
+import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
 
+import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
+import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
@@ -257,6 +261,10 @@ export default function Chat() {
     getDeletedForMeIds(user?.id),
   );
   const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [showStarredMessages, setShowStarredMessages] = useState(false);
+  const [showChatMedia, setShowChatMedia] = useState(false);
+const [starredScope, setStarredScope] = useState('all'); // 'all' | 'chat'
+const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [pinnedIds, setPinnedIds] = useState([]);
   const [forwardMessage, setForwardMessage] = useState(null);
   const [forwardBusy, setForwardBusy] = useState(false);
@@ -1959,6 +1967,23 @@ export default function Chat() {
   function handleSelectConversation(c) {
     applyConversationSelection(c, { syncUrl: true });
   }
+  function handleOpenStarredEntry(entry) {
+  setShowStarredMessages(false);
+  const target =
+    entry.type === "group"
+      ? conversations.find((c) => c.type === "group" && String(c.id) === String(entry.conversationId))
+      : conversations.find((c) => c.type === "dm" && String(c.id) === String(entry.conversationId));
+
+  const selection = target || {
+    key: entry.conversationKey,
+    type: entry.type,
+    id: entry.conversationId,
+    title: entry.title,
+  };
+
+  setPendingJumpMessageId(entry.id);
+  handleSelectConversation(selection);
+}
 
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
@@ -2374,7 +2399,15 @@ export default function Chat() {
       setConfirmBusy(false);
     }
   }
-
+async function handleUnblockUser(peerId) {
+  try {
+    const { data } = await client.delete(`/users/${peerId}/block`);
+    updateSessionUser(data.data);
+    showToast('User unblocked', 'success');
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to unblock', 'error');
+  }
+}
   // Keydown to trigger search (Ctrl+K)
   useEffect(() => {
     function handleGlobalKeyDown(e) {
@@ -3450,7 +3483,33 @@ export default function Chat() {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     };
   }, []);
+useEffect(() => {
+  if (!pendingJumpMessageId) return;
+  const el = document.getElementById(`msg-${pendingJumpMessageId}`);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.animation = "none";
+    el.offsetHeight;
+    el.style.animation = "msgIn 400ms ease both";
+    setPendingJumpMessageId(null);
+  }
+}, [messages, pendingJumpMessageId]);
 
+useEffect(() => {
+  if (!pendingJumpMessageId || !selected || loadingMessages) return;
+  const idStr = String(pendingJumpMessageId);
+  const found = messages.some((m) => String(m.id || m._id) === idStr);
+  if (found) return; // the other effect (scroll-into-view) will handle it
+  if (!hasMoreMessages || loadingOlderRef.current) {
+    // Nothing more to load and still not found — give up gracefully.
+    if (!hasMoreMessages) {
+      setPendingJumpMessageId(null);
+      showToast("Couldn't locate that message — it may have been deleted", "info");
+    }
+    return;
+  }
+  loadOlderMessages();
+}, [pendingJumpMessageId, selected, messages, hasMoreMessages, loadingMessages, loadOlderMessages, showToast]);
   function handleDeleteMessage(messageId) {
     if (!messageId) return;
     setConfirmDialog({
@@ -3478,10 +3537,17 @@ export default function Chat() {
     );
   }
 
-  function handleStarMessage(messageId) {
-    setStarredIds(toggleStarredMessage(user.id, messageId));
-    setExtrasTick((n) => n + 1);
-  }
+ function handleStarMessage(messageId) {
+  if (!messageId || !selected) return;
+  const msg = messages.find((m) => String(m.id || m._id) === String(messageId));
+  const nextIds = toggleStarredMessage(
+    user.id,
+    msg || { id: messageId },
+    { key: selected.key, type: selected.type, id: selected.id, title: selected.title },
+  );
+  setStarredIds(nextIds);
+  setExtrasTick((n) => n + 1);
+}
 
   async function handlePinMessage(messageId) {
     if (!selected?.key) return;
@@ -4142,6 +4208,11 @@ export default function Chat() {
             online: onlineUserIds.has(String(friend.id)),
           });
         }}
+        onlineUserIds={onlineUserIds}
+       onOpenStarred={() => {
+  setStarredScope('all');
+  setShowStarredMessages(true);
+}}
       />
 
       <main
@@ -4429,16 +4500,7 @@ export default function Chat() {
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
 
-                      {selected && themeCatalog && (
-                        <button
-                          type="button"
-                          className="theme-open-button"
-                          onClick={() => setThemeModalOpen(true)}
-                          title="Chat theme"
-                        >
-                          🎨
-                        </button>
-                      )}
+                     
                       <button
                         className="icon-btn"
                         type="button"
@@ -4511,17 +4573,7 @@ export default function Chat() {
                     <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-                {selected && (
-                  <button
-                    className={`icon-btn${searchOpen ? " active" : ""}`}
-                    onClick={() => setSearchOpen(!searchOpen)}
-                    title="Search messages (Ctrl+K)"
-                    aria-label="Search messages"
-                    aria-pressed={searchOpen}
-                  >
-                    <Search size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                )}
+                
                 {selected && (
                   <button
                     className={`icon-btn${infoPanelOpen ? " active" : ""}`}
@@ -4533,6 +4585,32 @@ export default function Chat() {
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
+                {selected && (
+  <ChatOptionsMenu
+    isGroup={selected.type === "group"}
+    isBlocked={(user.blockedUsers || []).map(String).includes(String(selected.id))}
+    isMuted={mutedKeys.map(String).includes(String(selected.key))}
+    onToggleBlock={() => {
+      const isBlocked = (user.blockedUsers || []).map(String).includes(String(selected.id));
+      if (isBlocked) handleUnblockUser(selected.id);
+      else handleBlockUser(resolveDmPeer(selected));
+    }}
+    onToggleMute={() => {
+      const wasMuted = mutedKeys.map(String).includes(String(selected.key));
+      setMutedKeys(toggleMuteChat(user.id, selected.key));
+      const payload = selected.type === "group" ? { groupId: selected.id } : { peerId: selected.id };
+      const request = wasMuted ? unmuteChat(payload) : muteChat({ ...payload, duration: "always" });
+      request.catch(() => {});
+    }}
+    onSearch={() => setSearchOpen(true)}
+    onWallpaper={selected.type === "dm" && !selected.isSelfChat ? () => setThemeModalOpen(true) : undefined}
+    onStarred={() => {
+      setStarredScope('chat');
+      setShowStarredMessages(true);
+    }}
+    onMedia={() => setShowChatMedia(true)}
+  />
+)}
               </div>
             </header>
 
@@ -5234,7 +5312,17 @@ export default function Chat() {
           }}
         />
       )}
-
+      {showChatMedia && (
+  <ChatMediaModal
+    messages={visibleMessages}
+    imageSrcMap={imageSrcMapRef.current}
+    onImageClick={(id) => {
+      setShowChatMedia(false);
+      handleImagePreview(id);
+    }}
+    onClose={() => setShowChatMedia(false)}
+  />
+)}
       {pollDraft && (
         <div
           className="create-group-overlay"
@@ -5433,7 +5521,27 @@ export default function Chat() {
           onForward={handleForwardToConversation}
         />
       )}
-
+      {showStarredMessages && (
+  <StarredMessagesModal
+    entries={
+      starredScope === 'chat' && selected
+        ? getStarredEntries(user.id).filter((e) => e.conversationKey === selected.key)
+        : getStarredEntries(user.id)
+    }
+    usernameById={usernameById}
+    currentUserId={user.id}
+    onSelect={handleOpenStarredEntry}
+    onUnstar={(id) => {
+      const nextIds = toggleStarredMessage(user.id, { id }, null);
+      setStarredIds(nextIds);
+      setExtrasTick((n) => n + 1);
+    }}
+    onClose={() => {
+      setShowStarredMessages(false);
+      setStarredScope('all');
+    }}
+  />
+)}
       {logoutConfirmOpen && (
         <ConfirmDialog
           open={logoutConfirmOpen}
