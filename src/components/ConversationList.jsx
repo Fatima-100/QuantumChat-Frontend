@@ -57,6 +57,7 @@ function computeConvMenuPosition(triggerEl) {
 }
 
 export default function ConversationList({
+  currentUser,
   conversations,
   filter,
   onFilterChange,
@@ -98,6 +99,36 @@ export default function ConversationList({
   const [filterStart, setFilterStart] = useState(0);
   const panelRef = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
+
+  const friendSet = useMemo(() => {
+    const ids = new Set();
+    if (Array.isArray(myFriends)) {
+      myFriends.forEach((f) => {
+        if (f?.id) ids.add(String(f.id));
+        if (f?._id) ids.add(String(f._id));
+      });
+    }
+    if (Array.isArray(currentUser?.friends)) {
+      currentUser.friends.forEach((id) => ids.add(String(id)));
+    }
+    return ids;
+  }, [myFriends, currentUser?.friends]);
+
+  const { friendItems, otherItems } = useMemo(() => {
+    if (filter !== 'all') {
+      return { friendItems: conversations, otherItems: [] };
+    }
+    const friends = [];
+    const others = [];
+    for (const c of conversations) {
+      if (c.type === 'group' || c.isSelfChat || friendSet.has(String(c.id))) {
+        friends.push(c);
+      } else {
+        others.push(c);
+      }
+    }
+    return { friendItems: friends, otherItems: others };
+  }, [filter, conversations, friendSet]);
 
   const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
 
@@ -216,6 +247,160 @@ export default function ConversationList({
       setJoiningId(null);
     }
   }
+
+  const renderConvItem = (c, index, isOtherUser = false) => (
+    <motion.div
+      key={c.key}
+      className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+        onSelect(c);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(c);
+        }
+      }}
+      aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
+      whileHover={{ y: -1 }}
+    >
+      <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
+        {c.type === 'group' ? (
+          <span className="avatar group-avatar">
+            <Users size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : c.isSelfChat ? (
+          <span className="avatar group-avatar self-chat-avatar">
+            <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : (
+          <span className="avatar-wrap" style={{ position: 'relative' }}>
+            <UserAvatar
+              userId={c.id}
+              name={c.title}
+              hasAvatar={Boolean(c.peer?.hasAvatar)}
+              className="conv-row-avatar"
+            />
+            {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
+          </span>
+        )}
+      </span>
+      <span className="user-list-meta">
+        <span className="user-list-name-row">
+          <span className="user-list-name">{c.title}</span>
+          {c.muted && (
+            <span className="conv-muted-icon" title="Muted" aria-label="Muted">
+              <BellOff size={12} strokeWidth={2} aria-hidden="true" />
+            </span>
+          )}
+          {c.unread && <span className="unread-dot" aria-hidden="true" />}
+          <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
+        </span>
+        <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
+      </span>
+
+      {isOtherUser && (
+        <button
+          type="button"
+          className="friend-action-btn add"
+          style={{ marginRight: '6px' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSendFriendRequest?.(c.id);
+          }}
+        >
+          Add
+        </button>
+      )}
+
+      {(onHide || onBlock || onMute || onArchive) && (
+        <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
+            aria-label={`Options for ${c.title}`}
+            aria-haspopup="menu"
+            aria-expanded={openMenuKey === c.key}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (openMenuKey === c.key) {
+                setOpenMenuKey(null);
+                setMenuPos(null);
+                return;
+              }
+              setMenuPos(computeConvMenuPosition(e.currentTarget));
+              setOpenMenuKey(c.key);
+            }}
+          >
+            <MoreVertical size={16} />
+          </button>
+          {openMenuKey === c.key && menuPos
+            ? createPortal(
+                <div
+                  className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
+                  role="menu"
+                  aria-label={`Conversation options for ${c.title}`}
+                  style={{
+                    position: 'fixed',
+                    top: menuPos.top,
+                    right: menuPos.right,
+                    left: 'auto',
+                    bottom: 'auto',
+                  }}
+                >
+                  <div className="conv-row-dropdown-title">Conversation options</div>
+                  {onMute && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onMute(c))}
+                    >
+                      <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+                    </button>
+                  )}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onArchive(c))}
+                    >
+                      <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                  )}
+                  {c.type === 'dm' && onHide && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onHide(c.peer || c))}
+                    >
+                      <X size={14} /> Hide chat
+                    </button>
+                  )}
+                  {c.type === 'dm' && onBlock && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                    >
+                      <Ban size={14} /> Block user
+                    </button>
+                  )}
+                </div>,
+                document.body,
+              )
+            : null}
+        </div>
+      )}
+    </motion.div>
+  );
 
   return (
     <div className="conversation-panel" ref={panelRef}>
@@ -662,144 +847,29 @@ export default function ConversationList({
         </div>
       ) : (
         <div className="user-list">
-          {conversations.map((c, index) => (
-            <motion.div
-              key={c.key}
-              className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setOpenMenuKey(null);
-                setMenuPos(null);
-                onSelect(c);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(c);
-                }
-              }}
-              aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
-              whileHover={{ y: -1 }}
-            >
-              <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
-                {c.type === 'group' ? (
-                  <span className="avatar group-avatar">
-                    <Users size={18} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                ) : c.isSelfChat ? (
-                  <span className="avatar group-avatar self-chat-avatar">
-                    <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                ) : (
-                  <span className="avatar-wrap" style={{ position: 'relative' }}>
-                    <UserAvatar
-                      userId={c.id}
-                      name={c.title}
-                      hasAvatar={Boolean(c.peer?.hasAvatar)}
-                      className="conv-row-avatar"
-                    />
-                    {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
-                  </span>
-                )}
-              </span>
-              <span className="user-list-meta">
-                <span className="user-list-name-row">
-                  <span className="user-list-name">{c.title}</span>
-                  {c.muted && (
-                    <span className="conv-muted-icon" title="Muted" aria-label="Muted">
-                      <BellOff size={12} strokeWidth={2} aria-hidden="true" />
-                    </span>
-                  )}
-                  {c.unread && <span className="unread-dot" aria-hidden="true" />}
-                  <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
-                </span>
-                <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
-              </span>
-              {(onHide || onBlock || onMute || onArchive) && (
-                <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
-                    aria-label={`Options for ${c.title}`}
-                    aria-haspopup="menu"
-                    aria-expanded={openMenuKey === c.key}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (openMenuKey === c.key) {
-                        setOpenMenuKey(null);
-                        setMenuPos(null);
-                        return;
-                      }
-                      setMenuPos(computeConvMenuPosition(e.currentTarget));
-                      setOpenMenuKey(c.key);
-                    }}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                  {openMenuKey === c.key && menuPos
-                    ? createPortal(
-                        <div
-                          className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
-                          role="menu"
-                          aria-label={`Conversation options for ${c.title}`}
-                          style={{
-                            position: 'fixed',
-                            top: menuPos.top,
-                            right: menuPos.right,
-                            left: 'auto',
-                            bottom: 'auto',
-                          }}
-                        >
-                          <div className="conv-row-dropdown-title">Conversation options</div>
-                          {onMute && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onMute(c))}
-                            >
-                              <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
-                            </button>
-                          )}
-                          {onArchive && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onArchive(c))}
-                            >
-                              <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
-                            </button>
-                          )}
-                          {c.type === 'dm' && onHide && !c.isSelfChat && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onHide(c.peer || c))}
-                            >
-                              <X size={14} /> Hide chat
-                            </button>
-                          )}
-                          {c.type === 'dm' && onBlock && !c.isSelfChat && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="danger"
-                              onClick={() => runMenuAction(() => onBlock(c.peer || c))}
-                            >
-                              <Ban size={14} /> Block user
-                            </button>
-                          )}
-                        </div>,
-                        document.body,
-                      )
-                    : null}
-                </div>
+          {filter === 'all' ? (
+            <>
+              {friendItems.length > 0 && (
+                <>
+                  <p className="friend-requests-heading" style={{ padding: '0 12px 4px' }}>Friends</p>
+                  {friendItems.map((c, index) => renderConvItem(c, index, false))}
+                </>
               )}
-            </motion.div>
-          ))}
+              {otherItems.length > 0 && (
+                <>
+                  <p
+                    className="friend-requests-heading"
+                    style={{ marginTop: friendItems.length > 0 ? '12px' : '0px', padding: '0 12px 4px' }}
+                  >
+                    Other users
+                  </p>
+                  {otherItems.map((c, index) => renderConvItem(c, index, true))}
+                </>
+              )}
+            </>
+          ) : (
+            conversations.map((c, index) => renderConvItem(c, index, false))
+          )}
           
           {conversations.length === 0 && (
             <p className="empty-hint">

@@ -97,6 +97,7 @@ export default function ConversationPane({
         )}
         {canChat ? (
           <ConversationList
+            currentUser={user}
             conversations={conversations}
             filter={filter}
             onFilterChange={onFilterChange}
