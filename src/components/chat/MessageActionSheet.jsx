@@ -79,7 +79,12 @@ export default function MessageActionSheet({
           </button>
         ) : null}
         <button type="button" role="menuitem" onClick={() => run(onStar)}>
-          <Star size={18} /> {starred ? 'Unstar' : 'Star'}
+          <Star
+            size={18}
+            fill={starred ? '#FFC107' : 'none'}
+            stroke={starred ? '#FFC107' : 'currentColor'}
+          />{' '}
+          {starred ? 'Unstar' : 'Star'}
         </button>
         <button type="button" role="menuitem" onClick={() => run(onPin)}>
           <Pin size={18} /> {pinned ? 'Unpin' : 'Pin'}
