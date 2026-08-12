@@ -1,4 +1,4 @@
-import { Send, Smile, X } from 'lucide-react';
+import { Eye, Send, Smile, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { getSocket } from '../api/socket.js';
@@ -509,7 +509,44 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
 export default StoriesRail;
 
+/** Full-screen "Viewed by N" sheet, opened from the eye icon in StoryViewer. */
+function StoryViewersSheet({ viewerCount, viewers, onClose }) {
+  return (
+    <div className="story-viewers-sheet-overlay" onClick={onClose}>
+      <div className="story-viewers-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="story-viewers-sheet-header">
+          <span>Viewed by {viewerCount}</span>
+          <button type="button" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        <div className="story-viewers-sheet-list">
+          {viewers.length === 0 ? (
+            <p className="empty-hint">No views yet</p>
+          ) : (
+            viewers.map((v) => (
+              <div key={v.id} className="story-viewers-sheet-row">
+                <UserAvatar userId={v.id} name={v.username} hasAvatar={v.hasAvatar} size="sm" />
+                <span className="story-viewers-sheet-name">{v.username}</span>
+                <span className="story-viewers-sheet-time">
+                  {new Date(v.viewedAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
+  const [viewerCount, setViewerCount] = useState(0);
+  const [viewers, setViewers] = useState([]);
+  const [viewersOpen, setViewersOpen] = useState(false);
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [blockedReason, setBlockedReason] = useState('');
@@ -535,6 +572,12 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     // Reset state for the new story immediately
     setMediaUrl(null);
     setBlockedReason('');
+
+    if (!isOwn) {
+      client.post(`/stories/${story.id}/view`).catch(() => {
+        // Non-critical — a failed view-ping shouldn't block story viewing.
+      });
+    }
 
     (async () => {
       if (story.sealed) {
@@ -605,6 +648,37 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
     // Only depend on primitives to prevent infinite re-render loops
   }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
+
+  useEffect(() => {
+    if (!isOwn) return;
+    const socket = getSocket();
+    function onViewed(payload) {
+      if (String(payload.storyId) !== String(story.id)) return;
+      setViewerCount(payload.viewerCount);
+      setViewers((prev) => [
+        { ...payload.viewer, viewedAt: payload.viewedAt },
+        ...prev.filter((v) => v.id !== payload.viewer.id),
+      ]);
+    }
+    socket.on('story:viewed', onViewed);
+    return () => socket.off('story:viewed', onViewed);
+  }, [story.id, isOwn]);
+
+  useEffect(() => {
+    if (!isOwn) return;
+    let cancelled = false;
+    client
+      .get(`/stories/${story.id}/viewers`)
+      .then((res) => {
+        if (cancelled) return;
+        setViewerCount(res.data?.data?.viewerCount || 0);
+        setViewers(res.data?.data?.viewers || []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [story.id, isOwn]);
 
   useEffect(() => {
     function onKey(e) {
@@ -805,12 +879,30 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         </div>
         {story.caption && <p className="story-caption">{story.caption}</p>}
         <div className="story-viewer-actions">
-          {isOwn && (
-            <button type="button" onClick={handleDelete}>
-              Delete
-            </button>
-          )}
-        </div>
+            {isOwn && (
+              <div className="story-viewer-actions-left">
+                <button
+                  type="button"
+                  className="story-viewers-btn"
+                  onClick={() => setViewersOpen(true)}
+                >
+                  <Eye size={16} strokeWidth={2} />
+                  <span>{viewerCount}</span>
+                </button>
+                <button type="button" className="story-delete-btn" onClick={handleDelete}>
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+
+       {isOwn && viewersOpen && (
+          <StoryViewersSheet
+            viewerCount={viewerCount}
+            viewers={viewers}
+            onClose={() => setViewersOpen(false)}
+          />
+        )}
 
         {!isOwn && (
           <form
