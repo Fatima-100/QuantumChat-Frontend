@@ -215,7 +215,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   }
 
   useEffect(() => {
-    loadStories().catch(() => {});
+    loadStories().catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -529,33 +529,36 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const isOwn = String(group.user?.id) === String(currentUserId);
 
   useEffect(() => {
-    let cancelled = false;
+    const abortController = new AbortController();
     let objectUrl;
+
+    // Reset state for the new story immediately
     setMediaUrl(null);
     setBlockedReason('');
 
     (async () => {
       if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
-        const ivB64 = unlocked.ok ? unlocked.payload?.ivB64 : story.contentIv;
-        if (!unlocked.ok || !unlocked.payload?.keyB64 || !ivB64) {
-          if (unlocked.reason === 'no-envelope') {
-            setBlockedReason('Sealed story — no envelope for your account');
-          } else if (unlocked.reason === 'no-secret') {
-            setBlockedReason(
-              'Sealed story — your local keyring is missing the secret for this story (keys may be out of sync; try Regenerate & resync keys)'
-            );
-          } else {
-            setBlockedReason('Sealed story — could not decrypt with your keys');
-          }
+        const ivB64 = unlocked?.ivB64 || story.contentIv;
+
+        if (!unlocked?.keyB64 || !ivB64) {
+          setBlockedReason('Sealed story — no envelope for your keys');
           return;
         }
+
         const res = await client.get(`/stories/${story.id}/media`, {
           responseType: 'arraybuffer',
+          signal: abortController.signal, // Kills the request on unmount
         });
+
+        // Bail out before heavy decryption if the user already skipped
+        if (abortController.signal.aborted) return;
+
         const cipherBytes = new Uint8Array(res.data);
-        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
-        if (cancelled) return;
+        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.keyB64, ivB64);
+
+        if (abortController.signal.aborted) return;
+
         objectUrl = URL.createObjectURL(
           new Blob([plain], { type: story.mimetype || 'application/octet-stream' })
         );
@@ -563,30 +566,45 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         return;
       }
 
-      const res = await client.get(`/stories/${story.id}/media`, { responseType: 'blob' });
-      if (cancelled) return;
+      // Non-sealed path
+      const res = await client.get(`/stories/${story.id}/media`, {
+        responseType: 'blob',
+        signal: abortController.signal,
+      });
+
+      if (abortController.signal.aborted) return;
+
       objectUrl = URL.createObjectURL(res.data);
       setMediaUrl(objectUrl);
+
     })().catch((err) => {
-      if (!cancelled) {
-        setMediaUrl(null);
-        if (story.sealed) {
-          const status = err?.response?.status;
-          if (status === 403) {
-            setBlockedReason('Sealed story — no envelope for your keys');
-          } else if (status === 404) {
-            setBlockedReason('Story media is missing on the server');
-          } else {
-            setBlockedReason('Sealed story — decryption failed');
-          }
+      // Axios >=0.22 throws 'CanceledError'. Native fetch throws 'AbortError'.
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+
+      setMediaUrl(null);
+
+      if (story.sealed) {
+        const status = err?.response?.status;
+        if (status === 403) {
+          setBlockedReason('Sealed story — no envelope for your keys');
+        } else if (status === 404) {
+          setBlockedReason('Story media is missing on the server');
+        } else {
+          setBlockedReason('Could not decrypt this sealed story');
         }
+      } else {
+        // Fixes the silent failure for public stories
+        setBlockedReason('Failed to load story media');
       }
     });
+
     return () => {
-      cancelled = true;
+      abortController.abort(); // Triggers the cancellation across the board
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [story, currentUserId]);
+
+    // Only depend on primitives to prevent infinite re-render loops
+  }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
 
   useEffect(() => {
     function onKey(e) {

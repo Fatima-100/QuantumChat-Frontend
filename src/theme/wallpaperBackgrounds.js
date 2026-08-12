@@ -17,19 +17,19 @@ export const WALLPAPER_BACKGROUNDS = {
   // import needed). center/cover/no-repeat is specified explicitly here
   // because .message-list no longer forces a global background-size — see
   // the comment on WALLPAPER_BACKGROUNDS above.
-  aurora: "url('/wallpapers/aurora.webp') center/cover no-repeat",
-  circuit:  "url('/wallpapers/circuit.webp') center/cover no-repeat",
-  floral: "url('/wallpapers/floral.webp') center/cover no-repeat",
-  geometric: "url('/wallpapers/geometric.webp') center/cover no-repeat",
+  aurora: "url('/wallpapers/aurora.jpg') center/cover no-repeat",
+  circuit:  "url('/wallpapers/circuit.jpg') center/cover no-repeat",
+  floral: "url('/wallpapers/floral.jpg') center/cover no-repeat",
+  geometric: "url('/wallpapers/geometric.jpg') center/cover no-repeat",
 
   // --- Animated wallpapers: the photo is the base layer here; the
   // moving/glowing part is a separate CSS-animated pseudo-element on top,
   // wired up via WALLPAPER_FX below and the matching keyframes in
   // index.css — so the sparkle/glow/prism-shift effect still layers
   // correctly over these photos, same as it did over the old gradients. ---
-  stardust: "url('/wallpapers/stardust.webp') center/cover no-repeat",
-  nebula: "url('/wallpapers/nebula.webp') center/cover no-repeat",
-  prism: "url('/wallpapers/prism.webp') center/cover no-repeat",
+  stardust: "url('/wallpapers/stardust.jpg') center/cover no-repeat",
+  nebula: "url('/wallpapers/nebula.jpg') center/cover no-repeat",
+  prism: "url('/wallpapers/prism.jpg') center/cover no-repeat",
 };
 
 // Maps a wallpaper id to the animation variant applied via the
