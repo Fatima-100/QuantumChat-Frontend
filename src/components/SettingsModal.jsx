@@ -8,6 +8,20 @@ import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js'
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
+import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
+import {
+  approveDeviceLink,
+  buildQrPayload,
+  createDeviceLinkRequest,
+  listDeviceSessions as listLinkedDeviceSessions,
+  rejectDeviceLink,
+  revokeDeviceSession as revokeDeviceSessionApi,
+  sendDeviceLinkEmail as sendDeviceLinkEmailApi,
+  verifyDeviceLink,
+} from '../api/deviceLink.js';
+import { getSocket, connectSocket } from '../api/socket.js';
+import QRCode from 'qrcode';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -115,6 +129,25 @@ export default function SettingsModal({
   const [blocked, setBlocked] = useState([]);
   const [deletePassword, setDeletePassword] = useState('');
   const [sessions, setSessions] = useState([]);
+  const [deviceLinkModalOpen, setDeviceLinkModalOpen] = useState(false);
+  const [deviceLinkSetupModalOpen, setDeviceLinkSetupModalOpen] = useState(false);
+  const [deviceLinkRequest, setDeviceLinkRequest] = useState(null);
+  const [deviceLinkBusy, setDeviceLinkBusy] = useState(false);
+  const [deviceLinkState, setDeviceLinkState] = useState('idle');
+  const [deviceLinkQr, setDeviceLinkQr] = useState('');
+  const [deviceLinkExpiresAt, setDeviceLinkExpiresAt] = useState(null);
+  const [deviceLinkTimeLeft, setDeviceLinkTimeLeft] = useState(0);
+  const [deviceLinkError, setDeviceLinkError] = useState('');
+  const [deviceLinkLinkId, setDeviceLinkLinkId] = useState('');
+  const [deviceLinkToken, setDeviceLinkToken] = useState('');
+  const [deviceLinkLoading, setDeviceLinkLoading] = useState(false);
+  const [deviceLinkStatusText, setDeviceLinkStatusText] = useState('');
+  const [deviceLinkEmail, setDeviceLinkEmail] = useState('');
+  const [deviceLinkEmailBusy, setDeviceLinkEmailBusy] = useState(false);
+  const [deviceLinkEmailMessage, setDeviceLinkEmailMessage] = useState('');
+  const [deviceLinkConfirmOpen, setDeviceLinkConfirmOpen] = useState(false);
+  const [deviceLinkConfirmSession, setDeviceLinkConfirmSession] = useState(null);
+  const [deviceLinkRefreshing, setDeviceLinkRefreshing] = useState(false);
   const [vaultPassphrase, setVaultPassphrase] = useState('');
   const [vaultPassphraseConfirm, setVaultPassphraseConfirm] = useState('');
   const [vaultHasBackup, setVaultHasBackup] = useState(false);
@@ -158,6 +191,8 @@ export default function SettingsModal({
   useEffect(() => {
     if (tab !== 'security') return;
     let cancelled = false;
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
     client
       .get('/users/me/sessions')
       .then((res) => {
@@ -244,6 +279,37 @@ export default function SettingsModal({
       .get('/users/friends')
       .then((res) => setFriendsList(res.data.data || []))
       .catch(() => setFriendsList([]));
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'security') return undefined;
+    const socket = getSocket() || connectSocket();
+    if (!socket) return undefined;
+
+    const handleLinkRequest = (payload) => {
+      setDeviceLinkRequest(payload);
+      setDeviceLinkModalOpen(true);
+      setDeviceLinkState('request');
+      setDeviceLinkStatusText('A new device is waiting for your approval.');
+      setDeviceLinkError('');
+    };
+
+    const handleLinked = async () => {
+      await refreshDeviceSessions();
+    };
+
+    const handleRevoked = async () => {
+      await refreshDeviceSessions();
+    };
+
+    socket.on('device:link-request', handleLinkRequest);
+    socket.on('device:linked', handleLinked);
+    socket.on('device:revoked', handleRevoked);
+    return () => {
+      socket.off('device:link-request', handleLinkRequest);
+      socket.off('device:linked', handleLinked);
+      socket.off('device:revoked', handleRevoked);
+    };
   }, [tab]);
 
   async function updatePrivacyField(key, val) {
@@ -398,6 +464,109 @@ export default function SettingsModal({
     }
   }
 
+  async function refreshDeviceSessions() {
+    setDeviceLinkRefreshing(true);
+    try {
+      const data = await listLinkedDeviceSessions();
+      setSessions(data || []);
+    } catch {
+      setSessions([]);
+    } finally {
+      setDeviceLinkRefreshing(false);
+    }
+  }
+
+  function closeDeviceLinkModal() {
+    setDeviceLinkModalOpen(false);
+    setDeviceLinkRequest(null);
+    setDeviceLinkState('idle');
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
+  }
+
+  function closeDeviceLinkSetupModal() {
+    setDeviceLinkSetupModalOpen(false);
+    setDeviceLinkLoading(false);
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('');
+  }
+
+  async function openDeviceLinkModal() {
+    setDeviceLinkError('');
+    setDeviceLinkStatusText('Preparing a new device link…');
+    setDeviceLinkLoading(true);
+    setDeviceLinkSetupModalOpen(true);
+    try {
+      const payload = await createDeviceLinkRequest();
+      const qrPayload = buildQrPayload(payload.linkId, payload.token);
+      const qrUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 220 });
+      setDeviceLinkLinkId(payload.linkId);
+      setDeviceLinkToken(payload.token);
+      setDeviceLinkExpiresAt(payload.expiresAt);
+      setDeviceLinkQr(qrUrl);
+      setDeviceLinkState('waiting');
+      setDeviceLinkStatusText('Scan the QR code or paste the payload from the new device.');
+    } catch (err) {
+      setDeviceLinkState('idle');
+      setDeviceLinkSetupModalOpen(true);
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to prepare the pairing request.');
+    } finally {
+      setDeviceLinkLoading(false);
+    }
+  }
+
+  async function confirmDeviceLinkApprove() {
+    if (!deviceLinkRequest?.linkId) return;
+    setDeviceLinkBusy(true);
+    try {
+      await approveDeviceLink(deviceLinkRequest.linkId);
+      setDeviceLinkState('approved');
+      setDeviceLinkStatusText('Device linked successfully.');
+      await refreshDeviceSessions();
+      setDeviceLinkModalOpen(false);
+      setDeviceLinkRequest(null);
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to approve the link request.');
+    } finally {
+      setDeviceLinkBusy(false);
+    }
+  }
+
+  async function confirmDeviceLinkReject() {
+    if (!deviceLinkRequest?.linkId) return;
+    setDeviceLinkBusy(true);
+    try {
+      await rejectDeviceLink(deviceLinkRequest.linkId);
+      setDeviceLinkState('rejected');
+      setDeviceLinkStatusText('The link request was rejected.');
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || err?.message || 'Unable to reject the link request.');
+    } finally {
+      setDeviceLinkBusy(false);
+    }
+  }
+
+  async function sendDeviceLinkEmail() {
+    if (!deviceLinkLinkId || !deviceLinkToken) {
+      setDeviceLinkError('Create a new pairing request first.');
+      return;
+    }
+    if (!deviceLinkEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deviceLinkEmail)) {
+      setDeviceLinkError('Enter a valid email address.');
+      return;
+    }
+    setDeviceLinkEmailBusy(true);
+    setDeviceLinkEmailMessage('');
+    try {
+      const result = await sendDeviceLinkEmailApi({ linkId: deviceLinkLinkId, token: deviceLinkToken });
+      setDeviceLinkEmailMessage(result?.message || 'Pairing link sent.');
+    } catch (err) {
+      setDeviceLinkError(err?.response?.data?.error || 'Unable to send the pairing link.');
+    } finally {
+      setDeviceLinkEmailBusy(false);
+    }
+  }
+
   async function revokeDeviceSession(sessionId) {
     const isSelf = sessionId && currentSessionId && sessionId === currentSessionId;
     if (
@@ -410,7 +579,11 @@ export default function SettingsModal({
     setError('');
     setOk('');
     try {
-      await client.delete(`/users/me/sessions/${sessionId}`);
+      if (!isSelf) {
+        await revokeDeviceSessionApi(sessionId);
+      } else {
+        await client.delete(`/users/me/sessions/${sessionId}`);
+      }
       if (isSelf) {
         onLogout?.();
         return;
@@ -1358,35 +1531,51 @@ export default function SettingsModal({
               </div>
 
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">Devices</h3>
+                <h3 className="settings-section-title">Linked devices</h3>
                 <p className="settings-section-copy">
-                  Active logins across your devices. Revoking signs that device out conceptually.
+                  Manage the devices connected to your account. Revoking signs that device out conceptually.
                 </p>
+                <div className="settings-key-actions" style={{ marginBottom: 12 }}>
+                  <button type="button" className="settings-btn primary" onClick={openDeviceLinkModal} disabled={deviceLinkLoading}>
+                    {deviceLinkLoading ? 'Preparing…' : '+ Link a new device'}
+                  </button>
+                  <button type="button" className="settings-btn ghost" onClick={refreshDeviceSessions} disabled={deviceLinkRefreshing}>
+                    {deviceLinkRefreshing ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                {deviceLinkStatusText ? <p className="settings-section-copy">{deviceLinkStatusText}</p> : null}
+                {deviceLinkError ? <p className="settings-section-copy" style={{ color: 'var(--danger-color, #d45d5d)' }}>{deviceLinkError}</p> : null}
                 {sessions.length === 0 ? (
-                  <p className="settings-section-copy">No active device sessions.</p>
+                  <p className="settings-section-copy">No linked devices yet.</p>
                 ) : (
                   sessions.map((s) => {
                     const isCurrent = currentSessionId && s.sessionId === currentSessionId;
+                    const label = s.label || 'Unknown device';
+                    const browser = s.userAgent ? (s.userAgent.includes('Chrome') ? 'Chrome' : 'Browser') : 'Browser';
+                    const os = s.userAgent ? (s.userAgent.includes('Windows') ? 'Windows' : s.userAgent.includes('Android') ? 'Android' : 'Unknown') : 'Unknown';
                     return (
-                      <div key={s.sessionId} className="settings-row" style={{ cursor: 'default' }}>
+                      <div key={s.sessionId} className="settings-row" style={{ cursor: 'default', alignItems: 'center' }}>
                         <span className="settings-row-left">
                           <span className="settings-row-label">
-                            {s.label || 'Unknown device'}
+                            {label}
                             {isCurrent ? ' (this device)' : ''}
                           </span>
                           <span className="settings-row-hint">
-                            Last seen {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : '—'}
-                            {s.ip ? ` · ${s.ip}` : ''}
+                            {browser} · {os}
+                            {s.lastSeenAt ? ` · Last active ${new Date(s.lastSeenAt).toLocaleString()}` : ''}
+                            {isCurrent ? ' · Current device' : ''}
                           </span>
                         </span>
-                        <button
-                          type="button"
-                          className="settings-btn ghost"
-                          disabled={busy}
-                          onClick={() => revokeDeviceSession(s.sessionId)}
-                        >
-                          Revoke
-                        </button>
+                        {!isCurrent ? (
+                          <button
+                            type="button"
+                            className="settings-btn ghost"
+                            disabled={busy}
+                            onClick={() => revokeDeviceSession(s.sessionId)}
+                          >
+                            Log out
+                          </button>
+                        ) : null}
                       </div>
                     );
                   })
@@ -1555,6 +1744,23 @@ export default function SettingsModal({
           )}
         </div>
       </div>
+      <DeviceLinkSetupModal
+        open={deviceLinkSetupModalOpen}
+        qrDataUrl={deviceLinkQr}
+        loading={deviceLinkLoading}
+        statusText={deviceLinkStatusText}
+        error={deviceLinkError}
+        timeLeft={deviceLinkExpiresAt ? Math.max(0, new Date(deviceLinkExpiresAt).getTime() - Date.now()) : 0}
+        onClose={closeDeviceLinkSetupModal}
+      />
+      <DeviceLinkRequestModal
+        open={deviceLinkModalOpen}
+        request={deviceLinkRequest}
+        busy={deviceLinkLoading || deviceLinkBusy}
+        onApprove={confirmDeviceLinkApprove}
+        onReject={confirmDeviceLinkReject}
+        onClose={closeDeviceLinkModal}
+      />
     </div>
   );
 }
