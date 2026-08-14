@@ -4,4 +4,5 @@ export { default as Drawer } from './Drawer.jsx';
 export { default as Pressable } from './Pressable.jsx';
 export { default as VirtualList } from './VirtualList.jsx';
 export { default as PrivacySelect } from './PrivacySelect.jsx';
-
+export { default as ThemeToggle } from './ThemeToggle.jsx';
+export { default as useTheme } from './useTheme.js';
