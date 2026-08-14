@@ -652,6 +652,26 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   useEffect(() => {
     if (!isOwn) return;
     const socket = getSocket();
+
+    if (!socket) {
+      // No persistent Socket.IO connection available — e.g. production on
+      // Vercel, whose serverless API can't hold a live socket unless
+      // VITE_SIGNAL_URL points at a dedicated always-on signaling server.
+      // Fall back to periodic REST polling so the viewer list still stays
+      // reasonably fresh while this story is open, instead of just going
+      // silent for the rest of the session.
+      const interval = setInterval(() => {
+        client
+          .get(`/stories/${story.id}/viewers`)
+          .then((res) => {
+            setViewerCount(res.data?.data?.viewerCount || 0);
+            setViewers(res.data?.data?.viewers || []);
+          })
+          .catch(() => {});
+      }, 8000);
+      return () => clearInterval(interval);
+    }
+
     function onViewed(payload) {
       if (String(payload.storyId) !== String(story.id)) return;
       setViewerCount(payload.viewerCount);
