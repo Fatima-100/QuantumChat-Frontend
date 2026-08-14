@@ -6,3 +6,8 @@ dist/
 gitleaks.exe
 gitleaks_*.zip
 
+
+# make-folder-txt
+.txtconfig
+.txtignore
+frontend.txt
