@@ -19,6 +19,14 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+export async function viewStory(id) {
+  return client.post(`/stories/${id}/view`);
+}
+export async function getStoryViewers(id) {
+  const { data } = await client.get(`/stories/${id}/viewers`);
+  return data;
+}
+
 export async function updatePrivacySettings(payload) {
   const { data } = await client.patch('/users/me/privacy', payload);
   return data;
