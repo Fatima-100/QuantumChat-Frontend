@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getToken } from '../crypto/keyStorage.js';
 import { getApiUrl } from './baseUrl.js';
+import { getVaultToken } from './vaultToken.js';
 
 const client = axios.create({
   baseURL: getApiUrl(),
@@ -10,6 +11,10 @@ client.interceptors.request.use((config) => {
   const token = getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const vaultToken = getVaultToken();
+  if (vaultToken) {
+    config.headers['x-vault-token'] = vaultToken;
   }
   return config;
 });

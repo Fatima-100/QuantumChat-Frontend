@@ -13,6 +13,7 @@ import {
   getToken,
 } from '../crypto/keyStorage.js';
 import { connectSocket, disconnectSocket } from '../api/socket.js';
+import { clearVaultToken } from '../api/vaultToken.js';
 
 const AuthContext = createContext(null);
 
@@ -20,6 +21,17 @@ function clearOtherAccountKeyring(loggedInUserId) {
   const previous = getStoredUser();
   if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
     clearKeyring(previous.id);
+  }
+}
+
+// Vault unlock is per-session, in-memory only, and never tied to a
+// particular account by the server (the token just says "this JWT-holder's
+// vault is unlocked"). If we log in as a different user in the same tab
+// without a page reload, the old token must not silently carry over.
+function lockVaultOnAccountSwitch(loggedInUserId) {
+  const previous = getStoredUser();
+  if (!previous?.id || String(previous.id) !== String(loggedInUserId)) {
+    clearVaultToken();
   }
 }
 
@@ -141,8 +153,9 @@ export function AuthProvider({ children }) {
         rememberMe: data.data.rememberMe !== false,
       };
     }
-    const { token, user: loggedInUser, sessionId } = data.data;
+   const { token, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
+    lockVaultOnAccountSwitch(loggedInUser.id);
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -159,6 +172,7 @@ export function AuthProvider({ children }) {
     });
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
+    lockVaultOnAccountSwitch(loggedInUser.id);
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -206,13 +220,13 @@ export function AuthProvider({ children }) {
   // Clears the auth session only. Encryption keys stay in localStorage so the
   // next login on this browser can chat without re-importing keys.txt; we
   // still reset the in-memory sync banner state since there's no user to show it for.
-  const logout = useCallback(() => {
+const logout = useCallback(() => {
     clearSession();
+    clearVaultToken();
     disconnectSocket();
     setUser(null);
     setKeyringSync(null);
   }, []);
-
   const updateSessionUser = useCallback(
     (nextUser) => {
       if (!nextUser) return;

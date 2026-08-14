@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCheck, LogOut, MoreVertical, Settings, Star } from 'lucide-react';
-export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead, onOpenStarred }) {
+import { CheckCheck, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
+export default function SidebarMenu({
+  onSettings,
+  onLogout,
+  onMarkAllRead,
+  onOpenStarred,
+  vaultEnabled,
+  vaultUnlocked,
+  onOpenVault,
+}) {
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -79,6 +87,33 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead, onOpe
               <span className="sidebar-menu-item-left">
                 <Star size={16} aria-hidden="true" />
                 <span>Starred messages</span>
+              </span>
+            </button>
+
+           <div className="sidebar-menu-divider" />
+
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpenVault?.();
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                {vaultEnabled && vaultUnlocked ? (
+                  <Unlock size={16} aria-hidden="true" />
+                ) : (
+                  <Lock size={16} aria-hidden="true" />
+                )}
+                <span>
+                  {!vaultEnabled
+                    ? 'Set up vault'
+                    : vaultUnlocked
+                      ? 'Lock vault'
+                      : 'Unlock vault'}
+                </span>
               </span>
             </button>
 

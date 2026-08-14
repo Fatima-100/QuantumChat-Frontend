@@ -135,7 +135,10 @@ import {
 } from "../utils/readState.js";
 import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
 import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
-
+import { useVault } from "../context/VaultContext.jsx";
+import { getPeerVaultDecoyStatus } from "../api/vault.js";
+import VaultSetupModal from "../components/VaultSetupModal.jsx";
+import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
 import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
 import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
@@ -202,6 +205,10 @@ export default function Chat() {
     updateSessionUser,
   } = useAuth();
   const { showToast } = useToast();
+const { isUnlocked: vaultUnlocked, isPeerVaulted, vaultEnabled, addPeer: addVaultPeer, removePeer: removeVaultPeer, lock: lockVault } = useVault();
+  const [showVaultSetup, setShowVaultSetup] = useState(false);
+  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [pendingVaultPeerId, setPendingVaultPeerId] = useState(null);
   const { settings: notifSettings } = useNotificationSettings();
   const navigate = useNavigate();
   const params = useParams();
@@ -300,6 +307,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
+  const [decoyThreadExists, setDecoyThreadExists] = useState(false);
   const [themeCatalog, setThemeCatalog] = useState(null);
   const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
   const [customWallpaperUrl, setCustomWallpaperUrl] = useState(null);
@@ -1483,15 +1491,44 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           "error",
         ),
       )
-      .finally(() => {
+     .finally(() => {
         if (!cancelled) setLoadingMessages(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
-
+    // vaultUnlocked included so locking/unlocking mid-session re-fetches this
+    // thread. The request already carries the correct x-vault-token via
+    // client.js's interceptor, so the server swaps between the decoy and
+    // real message set automatically — this just re-triggers that fetch.
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id, vaultUnlocked]);
+// Vault: only fetch/show "has decoy messages" when actually unlocked and
+  // viewing a vaulted DM — this call itself 403s if locked (server-enforced),
+  // but skip it entirely rather than firing a doomed request every switch.
+  useEffect(() => {
+    if (
+      !selected ||
+      selected.type !== "dm" ||
+      selected.isSelfChat ||
+      !vaultUnlocked ||
+      !isPeerVaulted(selected.id)
+    ) {
+      setDecoyThreadExists(false);
+      return;
+    }
+    let cancelled = false;
+    getPeerVaultDecoyStatus(selected.id)
+      .then((res) => {
+        if (!cancelled) setDecoyThreadExists(Boolean(res?.data?.hasDecoyMessages));
+      })
+      .catch(() => {
+        if (!cancelled) setDecoyThreadExists(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, vaultUnlocked, isPeerVaulted]);
   // Vercel's serverless API cannot keep a Socket.IO connection alive.
   // When no socket is connected, sync the open conversation frequently so
   // both participants see new messages without manually reloading the page.
@@ -1820,9 +1857,22 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
 
-    return items.filter((c) => {
+return items.filter((c) => {
       if (c.type === "dm" && !q && !c.isSelfChat && hidden.has(String(c.id)))
         return false;
+      // Vault: while locked, a vaulted DM never appears in the ambient list
+      // (no tab, no leak). Searching for the contact by name still surfaces
+      // it — opening it from there is exactly what routes into the decoy
+      // thread instead of real history.
+      if (
+        c.type === "dm" &&
+        !c.isSelfChat &&
+        !vaultUnlocked &&
+        !q &&
+        isPeerVaulted(c.id)
+      ) {
+        return false;
+      }
       if (filter === "archived") {
         if (!archived.has(String(c.key))) return false;
       } else if (archived.has(String(c.key))) {
@@ -1834,7 +1884,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       if (!searchResults && q && !(c.searchText || "").includes(q)) return false;
       return true;
     });
-  }, [
+ }, [
     users,
     groups,
     user.id,
@@ -1848,6 +1898,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     archivedKeys,
     onlineUserIds,
     searchResults,
+    vaultUnlocked,
+    isPeerVaulted,
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
@@ -2357,7 +2409,31 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     }
   }
-
+async function handleToggleVault(peerId) {
+    if (isPeerVaulted(peerId)) {
+      try {
+        await removeVaultPeer(peerId);
+        showToast("Removed from vault", "success");
+      } catch (err) {
+        showToast(err.response?.data?.error || "Failed to remove from vault", "error");
+      }
+      return;
+    }
+    if (!vaultEnabled) {
+      setPendingVaultPeerId(peerId);
+      setShowVaultSetup(true);
+      return;
+    }
+    try {
+      await addVaultPeer(peerId);
+      showToast("Added to vault", "success");
+      if (selected?.type === "dm" && String(selected.id) === String(peerId)) {
+        applyConversationSelection(null);
+      }
+    } catch (err) {
+      showToast(err.response?.data?.error || "Failed to add to vault", "error");
+    }
+  }
   function handleHideChat(u) {
     const peerId = String(u.id);
     setHiddenChatIds(hideChat(user.id, peerId));
@@ -4135,12 +4211,26 @@ useEffect(() => {
         canChat={canChat}
         sidebarOpen={sidebarOpen}
         onCloseSidebar={() => setSidebarOpen(false)}
-        onSettings={() => {
+       onSettings={() => {
           setShowSettings(true);
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
         onMarkAllRead={handleMarkAllRead}
+        vaultEnabled={vaultEnabled}
+        vaultUnlocked={vaultUnlocked}
+        onOpenVault={() => {
+          if (!vaultEnabled) {
+            setShowVaultSetup(true);
+            return;
+          }
+          if (vaultUnlocked) {
+            lockVault();
+            showToast("Vault locked", "info");
+            return;
+          }
+          setShowVaultUnlock(true);
+        }}
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
@@ -4168,9 +4258,10 @@ useEffect(() => {
             // It will resync from server data on next login/session refresh.
           });
         }}
-        onArchive={(c) => {
+       onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
+        onToggleVault={(c) => handleToggleVault(c.id)}
         loadingUsers={loadingUsers}
         hasMoreContacts={!searchResults && (usersHasMore || groupsHasMore)}
         onLoadMoreContacts={loadMoreContacts}
@@ -4585,11 +4676,17 @@ useEffect(() => {
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-                {selected && (
+               {selected && (
   <ChatOptionsMenu
     isGroup={selected.type === "group"}
     isBlocked={(user.blockedUsers || []).map(String).includes(String(selected.id))}
     isMuted={mutedKeys.map(String).includes(String(selected.key))}
+    isVaulted={selected.type === "dm" && !selected.isSelfChat && isPeerVaulted(selected.id)}
+    onToggleVault={
+      selected.type === "dm" && !selected.isSelfChat
+        ? () => handleToggleVault(selected.id)
+        : undefined
+    }
     onToggleBlock={() => {
       const isBlocked = (user.blockedUsers || []).map(String).includes(String(selected.id));
       if (isBlocked) handleUnblockUser(selected.id);
@@ -4858,7 +4955,7 @@ useEffect(() => {
                   </motion.div>
                 </AnimatePresence>
 
-                {hasUnread && (
+               {hasUnread && (
                   <button
                     className="scroll-bottom-pill"
                     onClick={() => scrollToBottom("smooth")}
@@ -4868,6 +4965,71 @@ useEffect(() => {
                     <ArrowDown size={16} strokeWidth={2.5} aria-hidden="true" />
                   </button>
                 )}
+
+               {selected?.type === "dm" &&
+  !selected.isSelfChat &&
+  String(selected.id) !== String(user.id) &&
+  !selected.peer?.isSystemUser &&
+  (() => {
+    const vaultedLocked = !vaultUnlocked && isPeerVaulted(selected.id);
+    const isRealFriend = (user.friends || [])
+      .map(String)
+      .includes(String(selected.id));
+
+    if (!vaultedLocked && isRealFriend) return null;
+
+    if (vaultedLocked) {
+      // Decoy view: always "not friends", regardless of the
+      // real relationship. Does NOT call the real
+      // friend-request API — clicking it must not mutate
+      // actual friend state while impersonating the locked
+      // decoy thread.
+      return (
+        <div className="composer-context" style={{ margin: "0 16px 8px" }}>
+          <div className="composer-context-copy">
+            <strong>Not friends yet</strong>
+            <span>Add {title} as a friend</span>
+          </div>
+          <button
+            type="button"
+            className="friend-action-btn add"
+            onClick={() => showToast("Friend request sent", "success")}
+          >
+            Add Friend
+          </button>
+        </div>
+      );
+    }
+
+    const pending = outgoingRequests.find(
+      (r) => String(r.user.id) === String(selected.id)
+    );
+    return (
+      <div className="composer-context" style={{ margin: "0 16px 8px" }}>
+        <div className="composer-context-copy">
+          <strong>Not friends yet</strong>
+          <span>Add {title} as a friend</span>
+        </div>
+        {pending ? (
+          <button
+            type="button"
+            className="friend-action-btn cancel"
+            onClick={() => handleCancelFriendRequest(pending.id)}
+          >
+            Cancel request
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="friend-action-btn add"
+            onClick={() => handleSendFriendRequest(selected.id)}
+          >
+            Add Friend
+          </button>
+        )}
+      </div>
+    );
+  })()}
 
                 {recording ? (
                   <div className="composer composer-recording">
@@ -5513,12 +5675,50 @@ useEffect(() => {
         />
       )}
 
-      {forwardMessage && (
+     {forwardMessage && (
         <ForwardModal
           conversations={conversations}
           busy={forwardBusy}
           onClose={() => !forwardBusy && setForwardMessage(null)}
           onForward={handleForwardToConversation}
+        />
+      )}
+      {showVaultSetup && (
+        <VaultSetupModal
+          onClose={() => {
+            setShowVaultSetup(false);
+            setPendingVaultPeerId(null);
+          }}
+          onCreated={async () => {
+            setShowVaultSetup(false);
+            if (pendingVaultPeerId) {
+              try {
+                await addVaultPeer(pendingVaultPeerId);
+                showToast("Added to vault", "success");
+                if (
+                  selected?.type === "dm" &&
+                  String(selected.id) === String(pendingVaultPeerId)
+                ) {
+                  applyConversationSelection(null);
+                }
+              } catch (err) {
+                showToast(
+                  err.response?.data?.error || "Failed to add to vault",
+                  "error",
+                );
+              }
+            }
+            setPendingVaultPeerId(null);
+          }}
+        />
+      )}
+      {showVaultUnlock && (
+        <VaultUnlockModal
+          onClose={() => setShowVaultUnlock(false)}
+          onUnlocked={() => {
+            setShowVaultUnlock(false);
+            showToast("Vault unlocked", "success");
+          }}
         />
       )}
       {showStarredMessages && (
@@ -5664,7 +5864,7 @@ useEffect(() => {
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
       />
 
-      <InfoPanel
+     <InfoPanel
         open={infoPanelOpen && Boolean(selected) && !isMobileShell}
         onClose={() => {
           setInfoPanelOpenState(false);
@@ -5674,7 +5874,19 @@ useEffect(() => {
         users={users}
         onOpenProfile={setProfileUserId}
         onOpenGroupSettings={() => setShowGroupSettings(true)}
-      />
+      >
+        {selected?.type === "dm" &&
+          !selected.isSelfChat &&
+          vaultUnlocked &&
+          isPeerVaulted(selected.id) &&
+          decoyThreadExists && (
+            <p className="qc-info-note" style={{ color: "var(--warning-text)" }}>
+              This chat has messages that were sent without your vault
+              password entered (decoy thread). They&apos;re kept separate
+              from this real conversation and never mix with it.
+            </p>
+          )}
+      </InfoPanel>
     </ChatShell>
   );
 }

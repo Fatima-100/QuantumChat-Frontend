@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
+import { VaultProvider } from './context/VaultContext.jsx';
 import { NotificationSettingsProvider } from './context/NotificationSettingsContext.jsx';
 import { ToastProvider } from './components/ToastProvider.jsx';
 import { ThemeProvider } from './context/ThemeContext.jsx';
@@ -26,7 +27,8 @@ export default function App() {
   return (
     <ToastProvider>
       <ThemeProvider>
-        <AuthProvider>
+       <AuthProvider>
+          <VaultProvider>
           <NotificationSettingsProvider>
             <Routes>
               <Route path="/" element={<Landing />} />
@@ -52,6 +54,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </NotificationSettingsProvider>
+          </VaultProvider>
         </AuthProvider>
       </ThemeProvider>
     </ToastProvider>
