@@ -43,10 +43,7 @@ function Toast({ id, message, type, duration, onRemove }) {
       aria-live="assertive"
       style={{ '--toast-duration': `${duration}ms` }}
     >
-      {/* Toast message text */}
-      <span className="toast-message">{message}</span>
-
-      {/* Close button */}
+      <div className="toast-message">{message}</div>
       <button
         className="toast-close"
         onClick={() => onRemove(id)}
@@ -55,8 +52,6 @@ function Toast({ id, message, type, duration, onRemove }) {
       >
         ✕
       </button>
-
-      {/* Animated progress bar — shrinks from full width to 0 over `duration` */}
       <div className="toast-progress" />
     </div>
   );

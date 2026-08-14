@@ -14,6 +14,9 @@ export default function ConversationPane({
   onSettings,
   onLogout,
    onMarkAllRead,
+  vaultEnabled,
+  vaultUnlocked,
+  onOpenVault,
   storiesRailRef,
   users,
   onStoriesError,
@@ -31,6 +34,7 @@ export default function ConversationPane({
   onBlock,
   onMute,
   onArchive,
+   onToggleVault,
   loadingUsers,
     hasMoreContacts,
   onLoadMoreContacts,
@@ -73,7 +77,15 @@ export default function ConversationPane({
             </div>
           </div>
           <div className="sidebar-header-actions">
-          <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} onOpenStarred={onOpenStarred} />
+         <SidebarMenu
+            onSettings={onSettings}
+            onLogout={onLogout}
+            onMarkAllRead={onMarkAllRead}
+            onOpenStarred={onOpenStarred}
+            vaultEnabled={vaultEnabled}
+            vaultUnlocked={vaultUnlocked}
+            onOpenVault={onOpenVault}
+          />
           </div>
         </div>
         {canChat && (
@@ -105,10 +117,11 @@ export default function ConversationPane({
             onSelect={onSelect}
             onCreateGroup={onCreateGroup}
             onDiscoverJoin={onDiscoverJoin}
-            onHide={onHide}
+          onHide={onHide}
             onBlock={onBlock}
             onMute={onMute}
             onArchive={onArchive}
+            onToggleVault={onToggleVault}
             loading={loadingUsers}
             searchQuery={search}
             friendCandidates={friendCandidates}

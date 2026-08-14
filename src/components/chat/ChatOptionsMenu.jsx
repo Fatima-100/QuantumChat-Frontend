@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, Image as ImageIcon, MoreVertical, Search, Star, VolumeX } from 'lucide-react';
+import { Ban, Image as ImageIcon, Lock, MoreVertical, Search, Star, Unlock, VolumeX } from 'lucide-react';
 
 const MENU_WIDTH = 210;
 const MENU_EST_HEIGHT = 260;
@@ -22,8 +22,10 @@ export default function ChatOptionsMenu({
   isGroup,
   isBlocked,
   isMuted,
+  isVaulted,
   onToggleBlock,
   onToggleMute,
+  onToggleVault,
   onSearch,
   onWallpaper,
   onStarred,
@@ -98,6 +100,12 @@ export default function ChatOptionsMenu({
             {onToggleMute && (
               <button type="button" role="menuitem" onClick={() => run(onToggleMute)}>
                 <VolumeX size={15} /> {isMuted ? 'Unmute' : 'Mute'}
+              </button>
+            )}
+            {!isGroup && onToggleVault && (
+              <button type="button" role="menuitem" onClick={() => run(onToggleVault)}>
+                {isVaulted ? <Unlock size={15} /> : <Lock size={15} />}{' '}
+                {isVaulted ? 'Remove from vault' : 'Add to vault'}
               </button>
             )}
             {!isGroup && onToggleBlock && (
