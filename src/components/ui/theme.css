@@ -1,0 +1,607 @@
+/* ==========================================================================
+   QuantumChat UI Theme
+   Design system for BottomSheet, Drawer, IconButton, Pressable,
+   PrivacySelect, VirtualList.
+
+   Usage: import this once at the app root (e.g. in main.jsx / App.jsx):
+     import './components/ui/theme.css';
+
+   Theme switching: set `data-theme="dark" | "light"` on <html> or <body>.
+   Defaults to dark; falls back to the OS preference if no attribute is set.
+   Pair with useTheme.js / ThemeToggle.jsx in this folder to let users switch.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens — dark (default)
+   -------------------------------------------------------------------------- */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --qc-bg: #0b0e14;
+  --qc-surface: #12161f;
+  --qc-surface-elevated: #1a1f2b;
+  --qc-surface-overlay: #1a1f2bf2; /* sheets/drawers over content */
+  --qc-border: #262b38;
+  --qc-border-strong: #343b4c;
+
+  /* Text */
+  --qc-text-primary: #e8eaf0;
+  --qc-text-secondary: #8b92a5;
+  --qc-text-tertiary: #5b6376;
+  --qc-text-on-accent: #ffffff;
+
+  /* Quantum accent pair — violet (primary action) / cyan (active, live) */
+  --qc-violet: #7c6fff;
+  --qc-violet-strong: #9089ff;
+  --qc-violet-soft: #7c6fff26;
+  --qc-cyan: #3ddbd9;
+  --qc-cyan-soft: #3ddbd926;
+
+  /* Semantic */
+  --qc-accent: var(--qc-violet);
+  --qc-accent-hover: var(--qc-violet-strong);
+  --qc-accent-soft: var(--qc-violet-soft);
+  --qc-danger: #ff6b6b;
+  --qc-danger-soft: #ff6b6b22;
+  --qc-focus-ring: #9089ffb3;
+
+  /* Elevation */
+  --qc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --qc-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --qc-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --qc-backdrop: rgba(6, 8, 12, 0.6);
+
+  /* Radius */
+  --qc-radius-sm: 8px;
+  --qc-radius-md: 14px;
+  --qc-radius-lg: 20px;
+  --qc-radius-pill: 999px;
+
+  /* Spacing scale */
+  --qc-space-1: 4px;
+  --qc-space-2: 8px;
+  --qc-space-3: 12px;
+  --qc-space-4: 16px;
+  --qc-space-5: 24px;
+  --qc-space-6: 32px;
+
+  /* Type */
+  --qc-font-ui:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Inter, sans-serif;
+  --qc-font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  --qc-text-xs: 12px;
+  --qc-text-sm: 13px;
+  --qc-text-md: 15px;
+  --qc-text-lg: 18px;
+
+  /* Motion */
+  --qc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --qc-duration-fast: 120ms;
+  --qc-duration-md: 200ms;
+}
+
+/* --------------------------------------------------------------------------
+   2. Tokens — light
+   -------------------------------------------------------------------------- */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --qc-bg: #f7f8fb;
+  --qc-surface: #ffffff;
+  --qc-surface-elevated: #ffffff;
+  --qc-surface-overlay: #ffffffed;
+  --qc-border: #e2e5ec;
+  --qc-border-strong: #cdd2dd;
+
+  --qc-text-primary: #1a1f2b;
+  --qc-text-secondary: #5b6376;
+  --qc-text-tertiary: #8b92a5;
+  --qc-text-on-accent: #ffffff;
+
+  --qc-violet: #6a5cf5;
+  --qc-violet-strong: #5847e8;
+  --qc-violet-soft: #6a5cf51a;
+  --qc-cyan: #0fb3b1;
+  --qc-cyan-soft: #0fb3b11a;
+
+  --qc-accent: var(--qc-violet);
+  --qc-accent-hover: var(--qc-violet-strong);
+  --qc-accent-soft: var(--qc-violet-soft);
+  --qc-danger: #e0453f;
+  --qc-danger-soft: #e0453f1a;
+  --qc-focus-ring: #6a5cf580;
+
+  --qc-shadow-sm: 0 1px 2px rgba(20, 24, 34, 0.06);
+  --qc-shadow-md: 0 8px 24px rgba(20, 24, 34, 0.1);
+  --qc-shadow-lg: 0 16px 48px rgba(20, 24, 34, 0.16);
+  --qc-backdrop: rgba(20, 24, 34, 0.32);
+}
+
+/* OS-preference fallback when no explicit data-theme is set */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --qc-bg: #f7f8fb;
+    --qc-surface: #ffffff;
+    --qc-surface-elevated: #ffffff;
+    --qc-surface-overlay: #ffffffed;
+    --qc-border: #e2e5ec;
+    --qc-border-strong: #cdd2dd;
+    --qc-text-primary: #1a1f2b;
+    --qc-text-secondary: #5b6376;
+    --qc-text-tertiary: #8b92a5;
+    --qc-violet: #6a5cf5;
+    --qc-violet-strong: #5847e8;
+    --qc-violet-soft: #6a5cf51a;
+    --qc-cyan: #0fb3b1;
+    --qc-cyan-soft: #0fb3b11a;
+    --qc-accent: var(--qc-violet);
+    --qc-accent-hover: var(--qc-violet-strong);
+    --qc-accent-soft: var(--qc-violet-soft);
+    --qc-danger: #e0453f;
+    --qc-danger-soft: #e0453f1a;
+    --qc-focus-ring: #6a5cf580;
+    --qc-shadow-sm: 0 1px 2px rgba(20, 24, 34, 0.06);
+    --qc-shadow-md: 0 8px 24px rgba(20, 24, 34, 0.1);
+    --qc-shadow-lg: 0 16px 48px rgba(20, 24, 34, 0.16);
+    --qc-backdrop: rgba(20, 24, 34, 0.32);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   3. Shared signature — the quantum glow ring
+   A dual-tone violet→cyan conic sliver, reserved for the one element that
+   is genuinely "live" in each component: the selected privacy option and
+   the active icon button. Not used anywhere else.
+   -------------------------------------------------------------------------- */
+@keyframes qc-glow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.qc-glow-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    var(--qc-violet) 0deg,
+    var(--qc-cyan) 110deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: qc-glow-spin 3.2s linear infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qc-glow-ring {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   4. BottomSheet
+   -------------------------------------------------------------------------- */
+.qc-sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.qc-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: var(--qc-backdrop);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.qc-sheet-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 480px;
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--qc-surface-elevated);
+  border: 1px solid var(--qc-border);
+  border-bottom: none;
+  border-radius: var(--qc-radius-lg) var(--qc-radius-lg) 0 0;
+  box-shadow: var(--qc-shadow-lg);
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .qc-sheet-root {
+    align-items: center;
+  }
+  .qc-sheet-panel {
+    border-radius: var(--qc-radius-lg);
+    border-bottom: 1px solid var(--qc-border);
+    max-height: min(80vh, 640px);
+  }
+  .qc-sheet-handle {
+    display: none;
+  }
+}
+
+.qc-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: var(--qc-radius-pill);
+  background: var(--qc-border-strong);
+  margin: var(--qc-space-3) auto var(--qc-space-1);
+  flex-shrink: 0;
+}
+
+.qc-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qc-space-3);
+  padding: var(--qc-space-2) var(--qc-space-5) var(--qc-space-4);
+  border-bottom: 1px solid var(--qc-border);
+  flex-shrink: 0;
+}
+
+.qc-sheet-header h2 {
+  margin: 0;
+  font-family: var(--qc-font-ui);
+  font-size: var(--qc-text-lg);
+  font-weight: 600;
+  color: var(--qc-text-primary);
+}
+
+.qc-sheet-close {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--qc-radius-pill);
+  color: var(--qc-text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--qc-duration-fast) var(--qc-ease),
+    color var(--qc-duration-fast) var(--qc-ease);
+}
+
+.qc-sheet-close:hover {
+  background: var(--qc-surface);
+  color: var(--qc-text-primary);
+}
+
+.qc-sheet-body {
+  padding: var(--qc-space-4) var(--qc-space-5) var(--qc-space-5);
+  overflow-y: auto;
+  font-family: var(--qc-font-ui);
+  font-size: var(--qc-text-md);
+  color: var(--qc-text-primary);
+}
+
+/* --------------------------------------------------------------------------
+   5. Drawer
+   -------------------------------------------------------------------------- */
+.qc-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+}
+
+.qc-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: var(--qc-backdrop);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.qc-drawer-panel {
+  position: relative;
+  z-index: 1;
+  width: min(84vw, 340px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--qc-surface-elevated);
+  box-shadow: var(--qc-shadow-lg);
+  overflow-y: auto;
+}
+
+.qc-drawer-left {
+  margin-right: auto;
+  border-right: 1px solid var(--qc-border);
+}
+
+.qc-drawer-right {
+  margin-left: auto;
+  border-left: 1px solid var(--qc-border);
+}
+
+/* --------------------------------------------------------------------------
+   6. IconButton
+   -------------------------------------------------------------------------- */
+.qc-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--qc-radius-pill);
+  background: transparent;
+  color: var(--qc-text-secondary);
+  cursor: pointer;
+  transition: background var(--qc-duration-fast) var(--qc-ease),
+    color var(--qc-duration-fast) var(--qc-ease),
+    border-color var(--qc-duration-fast) var(--qc-ease),
+    transform var(--qc-duration-fast) var(--qc-ease);
+}
+
+.qc-icon-btn:hover {
+  background: var(--qc-surface);
+  color: var(--qc-text-primary);
+}
+
+.qc-icon-btn:active {
+  transform: scale(0.94);
+}
+
+.qc-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--qc-focus-ring);
+}
+
+.qc-icon-btn.active {
+  background: var(--qc-accent-soft);
+  color: var(--qc-accent);
+}
+
+/* Signature glow — only on the active state, only here and on the
+   selected privacy dot, so it reads as meaningful rather than decorative */
+.qc-icon-btn.active::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from 0deg,
+    var(--qc-violet) 0deg,
+    var(--qc-cyan) 110deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: qc-glow-spin 3.2s linear infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qc-icon-btn.active::before {
+    animation: none;
+  }
+}
+
+.qc-icon-btn.accent {
+  color: var(--qc-accent);
+}
+
+.qc-icon-btn.accent:hover {
+  background: var(--qc-accent-soft);
+}
+
+.qc-icon-btn.danger {
+  color: var(--qc-danger);
+}
+
+.qc-icon-btn.danger:hover {
+  background: var(--qc-danger-soft);
+}
+
+.qc-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   7. Pressable
+   -------------------------------------------------------------------------- */
+.qc-pressable {
+  cursor: pointer;
+  border-radius: var(--qc-radius-sm);
+  transition: background var(--qc-duration-fast) var(--qc-ease);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.qc-pressable:active {
+  background: var(--qc-accent-soft);
+}
+
+/* --------------------------------------------------------------------------
+   8. PrivacySelect
+   -------------------------------------------------------------------------- */
+.privacy-select-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--qc-space-2);
+  font-family: var(--qc-font-ui);
+}
+
+.privacy-select-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--qc-space-1);
+}
+
+.privacy-select-label {
+  font-size: var(--qc-text-sm);
+  font-weight: 600;
+  color: var(--qc-text-primary);
+}
+
+.privacy-select-description {
+  font-size: var(--qc-text-xs);
+  color: var(--qc-text-secondary);
+}
+
+.privacy-select-options {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--qc-radius-md);
+  overflow: hidden;
+  background: var(--qc-surface);
+}
+
+.privacy-select-option {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--qc-space-3);
+  padding: var(--qc-space-3) var(--qc-space-4);
+  font-size: var(--qc-text-md);
+  color: var(--qc-text-primary);
+  cursor: pointer;
+  transition: background var(--qc-duration-fast) var(--qc-ease);
+  box-sizing: border-box;
+}
+
+.privacy-select-option:not(:last-child) {
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.privacy-select-option:hover {
+  background: var(--qc-surface-elevated);
+}
+
+.privacy-select-option:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--qc-focus-ring);
+}
+
+.privacy-select-option.selected {
+  background: var(--qc-accent-soft);
+}
+
+.privacy-select-option[disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.privacy-select-dot {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--qc-border-strong);
+  background: transparent;
+  transition: border-color var(--qc-duration-fast) var(--qc-ease);
+}
+
+.privacy-select-option.selected .privacy-select-dot {
+  border-color: var(--qc-accent);
+}
+
+.privacy-select-option.selected .privacy-select-dot::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--qc-accent);
+}
+
+/* Signature glow on the selected dot — mirrors the active IconButton */
+.privacy-select-option.selected .privacy-select-dot::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  padding: 1.5px;
+  background: conic-gradient(
+    from 0deg,
+    var(--qc-violet) 0deg,
+    var(--qc-cyan) 110deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: qc-glow-spin 3.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .privacy-select-option.selected .privacy-select-dot::before {
+    animation: none;
+  }
+}
+
+.privacy-select-option-label {
+  flex: 1;
+}
+
+/* --------------------------------------------------------------------------
+   9. VirtualList
+   -------------------------------------------------------------------------- */
+.qc-virtual-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qc-border-strong) transparent;
+}
+
+.qc-virtual-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.qc-virtual-list::-webkit-scrollbar-thumb {
+  background: var(--qc-border-strong);
+  border-radius: var(--qc-radius-pill);
+}
+
+.qc-virtual-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   10. Theme toggle (see ThemeToggle.jsx)
+   -------------------------------------------------------------------------- */
+.qc-theme-toggle-icon {
+  width: 20px;
+  height: 20px;
+}
