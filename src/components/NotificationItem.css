@@ -1,0 +1,160 @@
+.notif-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #0d1b2a;
+  border: 1px solid #1c3049;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  position: relative;
+  max-width: 380px;
+}
+
+.notif-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #1c3049;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+.notif-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.notif-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.notif-icon-call {
+  color: #34d399;
+}
+
+.notif-icon-message {
+  color: #38bdf8;
+}
+
+.notif-sender {
+  font-weight: 600;
+  color: #f1f5f9;
+  font-size: 14px;
+}
+
+.notif-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.notif-text {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.notif-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.notif-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.notif-btn:hover {
+  opacity: 0.85;
+}
+
+.notif-btn-accept {
+  background: #16a34a;
+  color: #fff;
+}
+
+.notif-btn-decline {
+  background: #dc2626;
+  color: #fff;
+}
+
+.notif-btn-reply {
+  background: #38bdf8;
+  color: #07131f;
+}
+
+.notif-btn-read {
+  background: #1c3049;
+  color: #f1f5f9;
+}
+
+.notif-btn-send {
+  background: #38bdf8;
+  color: #07131f;
+  padding: 6px 10px;
+}
+
+.notif-reply-box {
+  display: flex;
+  gap: 8px;
+}
+
+.notif-reply-box input {
+  flex: 1;
+  background: #07131f;
+  border: 1px solid #1c3049;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #f1f5f9;
+  font-size: 13px;
+  outline: none;
+}
+
+.notif-reply-box input:focus {
+  border-color: #38bdf8;
+}
+
+.notif-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.notif-dismiss:hover {
+  background: #1c3049;
+  color: #f1f5f9;
+}
