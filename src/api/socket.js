@@ -13,7 +13,8 @@ let socket = null;
  * local dev `backend/server.js` does run Socket.IO — so `npm run dev` keeps
  * working (presence, typing, message push) with no extra setup. A serverless
  * *.vercel.app API has no Socket.IO at all, so we skip connecting there and
- * let the REST polling fallback handle messages and call signaling.
+ * the Chat page uses REST `/api/presence/heartbeat` for online + typing
+ * (same idea as `/api/call-signals` for calls).
  */
 export function getSignalUrl() {
   const configured = String(import.meta.env.VITE_SIGNAL_URL || '').trim().replace(/\/$/, '');
