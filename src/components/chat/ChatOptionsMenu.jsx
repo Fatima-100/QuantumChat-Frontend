@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, Image as ImageIcon, Lock, MoreVertical, Search, Star, Unlock, VolumeX } from 'lucide-react';
+import {
+  Ban,
+  Image as ImageIcon,
+  Info,
+  Lock,
+  MessageSquare,
+  MoreVertical,
+  Search,
+  Settings2,
+  Star,
+  Unlock,
+  VolumeX,
+} from 'lucide-react';
 
-const MENU_WIDTH = 210;
-const MENU_EST_HEIGHT = 260;
+const MENU_WIDTH = 220;
+const MENU_EST_HEIGHT = 320;
 
 function computePosition(triggerEl) {
   const rect = triggerEl.getBoundingClientRect();
@@ -30,6 +42,10 @@ export default function ChatOptionsMenu({
   onWallpaper,
   onStarred,
   onMedia,
+  onOpenAi,
+  onOpenInfo,
+  onOpenGroupSettings,
+  compactExtras = false,
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
@@ -83,6 +99,21 @@ export default function ChatOptionsMenu({
             aria-label="Chat options"
             style={{ position: 'fixed', top: pos.top, right: pos.right, left: 'auto', bottom: 'auto' }}
           >
+            {compactExtras && onOpenAi ? (
+              <button type="button" role="menuitem" onClick={() => run(onOpenAi)}>
+                <MessageSquare size={15} /> QuantumAI
+              </button>
+            ) : null}
+            {compactExtras && onOpenInfo ? (
+              <button type="button" role="menuitem" onClick={() => run(onOpenInfo)}>
+                <Info size={15} /> Chat details
+              </button>
+            ) : null}
+            {compactExtras && isGroup && onOpenGroupSettings ? (
+              <button type="button" role="menuitem" onClick={() => run(onOpenGroupSettings)}>
+                <Settings2 size={15} /> Group settings
+              </button>
+            ) : null}
             <button type="button" role="menuitem" onClick={() => run(onSearch)}>
               <Search size={15} /> Search in chat
             </button>
