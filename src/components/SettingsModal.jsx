@@ -22,6 +22,12 @@ import {
 } from '../api/deviceLink.js';
 import { getSocket, connectSocket } from '../api/socket.js';
 import QRCode from 'qrcode';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getNotificationPermission,
+} from '../utils/pushNotifications.js';
+import { unlockAudio, playReceiveSound } from '../utils/sounds.js';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -101,6 +107,7 @@ export default function SettingsModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [notifPermission, setNotifPermission] = useState(() => getNotificationPermission());
 
   const [username, setUsername] = useState(user?.username || '');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
@@ -215,9 +222,53 @@ export default function SettingsModal({
   }, [tab]);
   useEffect(() => {
     if (tab !== 'notifications') return;
+    setNotifPermission(getNotificationPermission());
     client.get('/users').then((res) => setDirectoryUsers(res.data.data || [])).catch(() => setDirectoryUsers([]));
     client.get('/groups').then((res) => setDirectoryGroups(res.data.data || [])).catch(() => setDirectoryGroups([]));
   }, [tab]);
+
+  async function enableBrowserNotifications() {
+    setBusy(true);
+    setError('');
+    setOk('');
+    unlockAudio();
+    const res = await enablePushNotifications();
+    setNotifPermission(res.permission || getNotificationPermission());
+    if (res.permission === 'granted') {
+      await updateNotifSettings({
+        webNotifications: { ...(notifSettings.webNotifications || {}), enabled: true },
+      });
+      setOk(
+        res.push
+          ? 'Browser notifications enabled (including when QuantumChat is closed)'
+          : 'Browser notifications enabled'
+      );
+    } else {
+      setError(res.error || 'Could not enable notifications');
+    }
+    setBusy(false);
+  }
+
+  async function testNotificationSound() {
+    unlockAudio();
+    const scale =
+      typeof notifSettings?.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 0.8;
+    playReceiveSound(scale);
+    if (getNotificationPermission() === 'granted' && notifSettings?.webNotifications?.enabled !== false) {
+      try {
+        // eslint-disable-next-line no-new
+        new Notification('QuantumChat', {
+          body: 'Test notification — you will see alerts like this for new messages.',
+          icon: '/logo.png',
+          silent: false,
+          tag: 'quantumchat-test',
+        });
+      } catch {
+        // ignore
+      }
+    }
+    setOk('Played test sound');
+  }
   async function handleAvatarChange(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -371,6 +422,22 @@ export default function SettingsModal({
     setBusy(true);
     setError('');
     setOk('');
+
+    if (parentKey === 'webNotifications' && childKey === 'enabled' && val === true) {
+      unlockAudio();
+      const perm = await enablePushNotifications();
+      setNotifPermission(perm.permission || getNotificationPermission());
+      if (perm.permission !== 'granted') {
+        setError(perm.error || 'Allow notifications in your browser to enable this');
+        setBusy(false);
+        return;
+      }
+    }
+
+    if (parentKey === 'webNotifications' && childKey === 'enabled' && val === false) {
+      await disablePushNotifications();
+    }
+
     const nextParent = { ...(notifSettings[parentKey] || {}), [childKey]: val };
     const res = await updateNotifSettings({ [parentKey]: nextParent });
     if (res.success) {
@@ -1358,16 +1425,46 @@ export default function SettingsModal({
 
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Desktop / Web Notifications</h3>
-                <p className="settings-section-copy">For sessions signed in on the web.</p>
+                <p className="settings-section-copy">
+                  Show system alerts (with sound) when QuantumChat is in the background or another
+                  app is open — like Chrome or WhatsApp notifications.
+                </p>
+
+                <div className="settings-row" style={{ cursor: 'default' }}>
+                  <span className="settings-row-left">
+                    <span className="settings-row-label">Browser permission</span>
+                    <span className="settings-row-hint">
+                      {notifPermission === 'granted'
+                        ? 'Allowed — alerts can appear outside QuantumChat'
+                        : notifPermission === 'denied'
+                          ? 'Blocked — allow QuantumChat in your browser site settings'
+                          : notifPermission === 'unsupported'
+                            ? 'Not supported in this browser'
+                            : 'Not decided yet — click Enable below'}
+                    </span>
+                  </span>
+                  {notifPermission !== 'granted' && notifPermission !== 'unsupported' ? (
+                    <button
+                      type="button"
+                      className="settings-btn primary"
+                      disabled={busy}
+                      onClick={enableBrowserNotifications}
+                    >
+                      Enable
+                    </button>
+                  ) : null}
+                </div>
 
                 <ToggleRow
                   label="Enable browser notifications"
+                  hint="Popup alerts when you are in another tab or app"
                   checked={notifSettings.webNotifications?.enabled}
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
                 />
                 <ToggleRow
                   label="Play notification sound on web"
+                  hint="Use system sound on background alerts"
                   checked={notifSettings.webNotifications?.soundOnWeb}
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
@@ -1378,6 +1475,16 @@ export default function SettingsModal({
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
                 />
+
+                <button
+                  type="button"
+                  className="settings-btn ghost"
+                  disabled={busy}
+                  onClick={testNotificationSound}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  Test sound &amp; notification
+                </button>
               </div>
 
               <div className="settings-fieldset">
