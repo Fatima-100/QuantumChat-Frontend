@@ -118,6 +118,7 @@ export default function SettingsModal({
     readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
       ? (user.privacy.readReceipts ? 'everyone' : 'nobody')
       : (user?.privacy?.readReceipts || 'everyone'),
+    typingIndicator: user?.privacy?.typingIndicator !== false,
     onlineStatus: user?.privacy?.onlineStatus || (user?.privacy?.online === 'nobody' ? 'selected' : (user?.privacy?.online || 'everyone')),
     onlineStatusVisibleTo: Array.isArray(user?.privacy?.onlineStatusVisibleTo)
       ? user.privacy.onlineStatusVisibleTo.map((id) => String(id._id || id))
@@ -251,10 +252,20 @@ export default function SettingsModal({
 
   async function testNotificationSound() {
     unlockAudio();
+    setError('');
+    setOk('');
     const scale =
       typeof notifSettings?.soundVolume === 'number' ? notifSettings.soundVolume / 100 : 0.8;
     playReceiveSound(scale);
-    if (getNotificationPermission() === 'granted' && notifSettings?.webNotifications?.enabled !== false) {
+
+    let permission = getNotificationPermission();
+    if (permission === 'default') {
+      const res = await enablePushNotifications();
+      permission = res.permission || getNotificationPermission();
+      setNotifPermission(permission);
+    }
+
+    if (permission === 'granted' && notifSettings?.webNotifications?.enabled !== false) {
       try {
         // eslint-disable-next-line no-new
         new Notification('QuantumChat', {
@@ -263,11 +274,15 @@ export default function SettingsModal({
           silent: false,
           tag: 'quantumchat-test',
         });
+        setOk('Played test sound and showed a notification');
       } catch {
-        // ignore
+        setOk('Played test sound');
       }
+    } else if (permission === 'denied') {
+      setError('Notifications are blocked in the browser. Allow them in site settings, then try again.');
+    } else {
+      setOk('Played test sound');
     }
-    setOk('Played test sound');
   }
   async function handleAvatarChange(e) {
     const file = e.target.files?.[0];
@@ -375,6 +390,10 @@ export default function SettingsModal({
         setPrivacy((prev) => ({ ...prev, ...res.data }));
       }
       onUserUpdated?.(res.user || { ...user, privacy: res.data || updated });
+      if (key === 'typingIndicator') {
+        const socket = getSocket() || connectSocket();
+        socket?.emit('privacy:typing-indicator', { enabled: Boolean(val) });
+      }
       setOk('Privacy settings saved');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save privacy');
@@ -1078,6 +1097,14 @@ export default function SettingsModal({
                   onChange={(v) => updatePrivacyField('readReceipts', v)}
                 />
 
+                <ToggleRow
+                  label="Typing indicator"
+                  hint="Show others when you are typing a message"
+                  checked={privacy.typingIndicator !== false}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('typingIndicator', v)}
+                />
+
                 <PrivacySelect
                   label="Online Status"
                   description="Who can see when you are online"
@@ -1266,7 +1293,7 @@ export default function SettingsModal({
                 <ToggleRow
                   label="Notification sounds"
                   hint="Play a sound when new notifications arrive"
-                  checked={notifSettings.soundEnabled}
+                  checked={notifSettings.soundEnabled !== false}
                   disabled={busy}
                   onChange={(v) => updateNotifField('soundEnabled', v)}
                 />
@@ -1458,20 +1485,20 @@ export default function SettingsModal({
                 <ToggleRow
                   label="Enable browser notifications"
                   hint="Popup alerts when you are in another tab or app"
-                  checked={notifSettings.webNotifications?.enabled}
+                  checked={notifSettings.webNotifications?.enabled !== false}
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'enabled', v)}
                 />
                 <ToggleRow
                   label="Play notification sound on web"
                   hint="Use system sound on background alerts"
-                  checked={notifSettings.webNotifications?.soundOnWeb}
+                  checked={notifSettings.webNotifications?.soundOnWeb !== false}
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'soundOnWeb', v)}
                 />
                 <ToggleRow
                   label="Sync read notifications across devices"
-                  checked={notifSettings.webNotifications?.syncReadAcrossDevices}
+                  checked={notifSettings.webNotifications?.syncReadAcrossDevices !== false}
                   disabled={busy}
                   onChange={(v) => updateNotifNested('webNotifications', 'syncReadAcrossDevices', v)}
                 />

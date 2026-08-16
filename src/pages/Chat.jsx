@@ -2575,6 +2575,7 @@ async function handleUnblockUser(peerId) {
       (selected.isSelfChat || String(selected.id) === String(user.id))
     )
       return;
+    if (user?.privacy?.typingIndicator === false) return;
     const socket = getSocket();
     if (!socket) return;
 

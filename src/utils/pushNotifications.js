@@ -40,7 +40,15 @@ export async function enablePushNotifications() {
 
   let permission = Notification.permission;
   if (permission === 'default') {
-    permission = await Notification.requestPermission();
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      return {
+        ok: false,
+        permission: Notification.permission,
+        error: 'Could not request notification permission',
+      };
+    }
   }
   if (permission !== 'granted') {
     return {
@@ -59,7 +67,7 @@ export async function enablePushNotifications() {
   }
 
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js');
+    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     await navigator.serviceWorker.ready;
 
     const vapidRes = await client.get('/users/me/push/vapid-public-key');
@@ -84,6 +92,7 @@ export async function enablePushNotifications() {
 
     return { ok: true, permission, push: true };
   } catch (err) {
+    // Permission is still granted — foreground Notification API works even if push subscribe fails.
     return {
       ok: true,
       permission,
