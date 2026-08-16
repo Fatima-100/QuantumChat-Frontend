@@ -7,7 +7,7 @@ import {
   saveChatTheme,
   uploadWallpaperImage,
 } from '../api/chatThemes.js';
-import { getWallpaperBackground } from '../theme/wallpaperBackgrounds.js';
+import { getWallpaperThumbnail, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 
 const MAX_WALLPAPER_BYTES = 10 * 1024 * 1024; // matches backend wallpaperUpload limit
 
@@ -15,8 +15,10 @@ const MAX_WALLPAPER_BYTES = 10 * 1024 * 1024; // matches backend wallpaperUpload
 // for this conversation (see Chat.jsx). `onApplied` receives the updated
 // theme object every time a change is saved, so the caller can update its
 // CSS variables immediately without waiting for a refetch.
-export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
-  const [catalog, setCatalog] = useState(null);
+// `catalog` may be passed from Chat.jsx (already fetched once at login) so
+// the modal opens instantly instead of waiting on /chat-themes/presets again.
+export default function ChatThemeModal({ peerId, theme, catalog: catalogProp, onApplied, onClose }) {
+  const [catalog, setCatalog] = useState(catalogProp || null);
   const [customizing, setCustomizing] = useState(null); // null | 'bubble' | 'wallpaper'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -24,10 +26,22 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
+    if (catalogProp) {
+      setCatalog(catalogProp);
+      return;
+    }
+    let cancelled = false;
     fetchThemeCatalog()
-      .then(setCatalog)
-      .catch(() => setError('Could not load theme options'));
-  }, []);
+      .then((data) => {
+        if (!cancelled) setCatalog(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Could not load theme options');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogProp]);
 
   // Custom wallpaper bytes aren't public — fetch them as an authenticated
   // blob (same pattern AttachmentBubble uses) and turn them into a local
@@ -58,6 +72,8 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
     setSaving(true);
     setError('');
     try {
+      const preset = catalog?.presets?.find((p) => p.id === presetId);
+      if (preset?.wallpaperId) preloadWallpaper(preset.wallpaperId);
       const updated = await saveChatTheme(peerId, { presetId });
       onApplied(updated);
     } catch (err) {
@@ -78,7 +94,10 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
       // upload route), so every bubble-color click would 400 forever.
       const payload = {};
       if (nextBubbleColorId != null) payload.bubbleColorId = nextBubbleColorId;
-      if (nextWallpaperId != null) payload.wallpaperId = nextWallpaperId;
+      if (nextWallpaperId != null) {
+        payload.wallpaperId = nextWallpaperId;
+        preloadWallpaper(nextWallpaperId);
+      }
       const updated = await saveChatTheme(peerId, payload);
       onApplied(updated);
     } catch (err) {
@@ -178,8 +197,10 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
                 key={preset.id}
                 type="button"
                 className={`theme-preset-tile ${active ? 'active' : ''}`}
-                style={{ background: getWallpaperBackground(preset.wallpaperId) }}
+                style={{ background: getWallpaperThumbnail(preset.wallpaperId) }}
                 onClick={() => applyPreset(preset.id)}
+                onMouseEnter={() => preloadWallpaper(preset.wallpaperId)}
+                onFocus={() => preloadWallpaper(preset.wallpaperId)}
                 disabled={saving}
                 title={preset.name}
               >
@@ -226,7 +247,7 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
             style={
               theme.wallpaperId === 'custom' && customWallpaperUrl
                 ? { backgroundImage: `url(${customWallpaperUrl})`, backgroundSize: 'cover' }
-                : { background: getWallpaperBackground(theme.wallpaperId) }
+                : { background: getWallpaperThumbnail(theme.wallpaperId) }
             }
           />
         </button>
@@ -238,9 +259,11 @@ export default function ChatThemeModal({ peerId, theme, onApplied, onClose }) {
                   key={w.id}
                   type="button"
                   className={`theme-swatch ${theme.wallpaperId === w.id ? 'active' : ''}`}
-                  style={{ background: getWallpaperBackground(w.id) }}
+                  style={{ background: getWallpaperThumbnail(w.id) }}
                   title={w.name}
                   disabled={saving}
+                  onMouseEnter={() => preloadWallpaper(w.id)}
+                  onFocus={() => preloadWallpaper(w.id)}
                   onClick={() => applyCustom(null, w.id)}
                 />
               ))}
