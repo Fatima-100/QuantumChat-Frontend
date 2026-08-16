@@ -1865,7 +1865,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => { });
+    // Keep Web Push subscribed so OS toasts work while using other apps (e.g. Cursor).
+    enablePushNotifications().catch(() => {});
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        enablePushNotifications().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [canChat]);
 
   const usernameById = useMemo(() => {

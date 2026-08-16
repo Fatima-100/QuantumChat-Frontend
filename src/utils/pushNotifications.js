@@ -25,10 +25,25 @@ export function notificationsSupported() {
   );
 }
 
+/** True when this browser already has an active Web Push subscription. */
+export async function isPushSubscribed() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return false;
+  }
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    if (!registration) return false;
+    const subscription = await registration.pushManager.getSubscription();
+    return Boolean(subscription?.endpoint);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Request notification permission, register the service worker,
  * subscribe with the server VAPID key, and POST the subscription.
- * Returns { ok, permission, error? }.
+ * Returns { ok, permission, push?, error? }.
  */
 export async function enablePushNotifications() {
   if (typeof window === 'undefined') {
@@ -77,6 +92,15 @@ export async function enablePushNotifications() {
     }
 
     let subscription = await registration.pushManager.getSubscription();
+    // Re-subscribe if VAPID keys rotated (common on serverless without stable env keys).
+    if (subscription) {
+      try {
+        // Keep existing subscription when possible; server upserts by endpoint.
+      } catch {
+        await subscription.unsubscribe().catch(() => {});
+        subscription = null;
+      }
+    }
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,

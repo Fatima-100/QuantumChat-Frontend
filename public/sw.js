@@ -43,7 +43,8 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || '/';
+  const rawUrl = event.notification?.data?.url || '/chat';
+  const targetUrl = new URL(rawUrl, self.location.origin).href;
 
   event.waitUntil(
     (async () => {
@@ -53,9 +54,10 @@ self.addEventListener('notificationclick', (event) => {
       });
 
       for (const client of allClients) {
-        if ('focus' in client) {
+        const clientUrl = client.url || '';
+        if (clientUrl.startsWith(self.location.origin) && 'focus' in client) {
           await client.focus();
-          if ('navigate' in client && targetUrl) {
+          if ('navigate' in client) {
             try {
               await client.navigate(targetUrl);
             } catch {
