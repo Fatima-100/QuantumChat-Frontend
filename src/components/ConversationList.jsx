@@ -24,8 +24,8 @@ function formatShortLastSeen(iso) {
 }
 function isOnlineUser(u, onlineUserIds) {
   if (!u || !onlineUserIds) return false;
-  const allowed = (u.privacy?.online || 'everyone') !== 'nobody';
-  return allowed && onlineUserIds.has(String(u.id));
+  // Presence snapshot/updates are already privacy-filtered on the server.
+  return onlineUserIds.has(String(u.id));
 }
 const FILTERS = [
   { id: 'all', label: 'All' },
