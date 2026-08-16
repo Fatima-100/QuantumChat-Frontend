@@ -171,6 +171,23 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isViewOnceEligibleFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  if (
+    mime.startsWith('audio/') ||
+    /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) ||
+    /^voice-note/i.test(name)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function memberId(m) {
   return String(m?.id || m?._id || m);
 }
@@ -283,6 +300,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const [viewOnceEnabled, setViewOnceEnabled] = useState(false);
   const [allowForward, setAllowForward] = useState(true);
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
@@ -1165,6 +1183,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
+    function handleViewOnceOpened(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      if (!isCurrentConversation(raw)) return;
+      setMessages((prev) =>
+        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
+      );
+    }
+
     function handleGroupNew(group) {
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(group.id))) {
@@ -1382,6 +1409,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("message:expired", handleExpired);
     socket.on("message:reaction", handleReaction);
     socket.on("message:edited", handleEdited);
+    socket.on("message:view-once-opened", handleViewOnceOpened);
     socket.on("group:new", handleGroupNew);
     socket.on("group:updated", handleGroupUpdated);
     socket.on("group:deleted", handleGroupDeleted);
@@ -1401,6 +1429,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       socket.off("message:expired", handleExpired);
       socket.off("message:reaction", handleReaction);
       socket.off("message:edited", handleEdited);
+      socket.off("message:view-once-opened", handleViewOnceOpened);
       socket.off("group:new", handleGroupNew);
       socket.off("group:updated", handleGroupUpdated);
       socket.off("group:deleted", handleGroupDeleted);
@@ -1454,6 +1483,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     loadedThreadKeyRef.current = threadKey;
 
     setDisappearSeconds(0);
+    setViewOnceEnabled(false);
     let cancelled = false;
     setPeerTyping(false);
     setHasMoreMessages(false);
@@ -2348,7 +2378,7 @@ return items.filter((c) => {
 
   async function sendGroupPayload(
     plaintext,
-    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+    { kind, mentionedUserIds, tempId, displayText, replyToId, attachmentId, viewOnce } = {},
   ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
@@ -2369,6 +2399,8 @@ return items.filter((c) => {
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
     const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
     if (reply) payload.replyTo = reply;
+    if (attachmentId) payload.attachmentId = attachmentId;
+    if (viewOnce) payload.viewOnce = true;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -3141,7 +3173,19 @@ async function handleUnblockUser(peerId) {
             attachment.mimetype || file.type || "application/octet-stream",
           size: attachment.size || file.size,
         });
-        await sendGroupPayload(plaintext, { kind: "file" });
+        const wantViewOnce = viewOnceEnabled && isViewOnceEligibleFile(file);
+        if (viewOnceEnabled && !wantViewOnce) {
+          showToast(
+            "View once is only available for photos, videos, and voice notes",
+            "info",
+            3500,
+          );
+        }
+        await sendGroupPayload(plaintext, {
+          kind: "file",
+          attachmentId: attachment.id,
+          ...(wantViewOnce ? { viewOnce: true } : {}),
+        });
         playSendSound();
         if (!quiet) showToast("File sent successfully", "success", 3000);
         setTimeout(() => scrollToBottom("smooth"), 50);
@@ -3242,8 +3286,17 @@ async function handleUnblockUser(peerId) {
         attachmentId,
       };
       if (disappearSeconds > 0) msgBody.expiresInSeconds = disappearSeconds;
+      const wantViewOnce = viewOnceEnabled && isViewOnceEligibleFile(file);
+      if (viewOnceEnabled && !wantViewOnce) {
+        showToast(
+          "View once is only available for photos, videos, and voice notes",
+          "info",
+          3500,
+        );
+      }
+      if (wantViewOnce) msgBody.viewOnce = true;
       const forwardPolicy = buildForwardPolicy();
-      if (forwardPolicy) msgBody.forwardPolicy = forwardPolicy;
+      if (forwardPolicy && !wantViewOnce) msgBody.forwardPolicy = forwardPolicy;
       const { data } = await client.post("/messages", msgBody);
       recordActivityFromMessage(data.data);
       setMessages((prev) => {
@@ -3610,6 +3663,19 @@ useEffect(() => {
     setDeletedForMeIds(deleteMessageForMe(user.id, messageId));
     setExtrasTick((n) => n + 1);
     showToast("Message removed for you", "success");
+  }
+
+  async function handleBurnViewOnce(message) {
+    const messageId = message?.id || message?._id;
+    if (!messageId) return;
+    const { data } = await client.post(`/messages/${messageId}/view-once`);
+    if (data?.data) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(messageId) ? decorate(data.data) : m,
+        ),
+      );
+    }
   }
 
   function handleCopyMessage(message) {
@@ -4936,6 +5002,7 @@ useEffect(() => {
                               onJumpToReply={handleJumpToReply}
                               onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
+                              onBurnViewOnce={handleBurnViewOnce}
                               onOpenStory={(storyId) =>
                                 storiesRailRef.current?.openStoryById(storyId)
                               }
@@ -5124,6 +5191,24 @@ useEffect(() => {
                           className="composer-context-close"
                           aria-label="Cancel announcement mode"
                           onClick={() => setPendingAnnouncement(false)}
+                        >
+                          <X size={16} strokeWidth={2} aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
+                    {viewOnceEnabled && !editingMessage && (
+                      <div className="composer-context">
+                        <div className="composer-context-copy">
+                          <strong>View once on</strong>
+                          <span>
+                            Next photo, video, or voice note opens only once
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="composer-context-close"
+                          aria-label="Turn off view once"
+                          onClick={() => setViewOnceEnabled(false)}
                         >
                           <X size={16} strokeWidth={2} aria-hidden="true" />
                         </button>
@@ -5805,6 +5890,8 @@ useEffect(() => {
           const i = steps.indexOf(disappearSeconds);
           setDisappearSeconds(steps[(i + 1) % steps.length]);
         }}
+        viewOnceEnabled={viewOnceEnabled}
+        onToggleViewOnce={() => setViewOnceEnabled((v) => !v)}
         allowForward={allowForward}
         onToggleForward={() => setAllowForward((v) => !v)}
         forwardUntilSeconds={forwardUntilSeconds}
@@ -5847,7 +5934,11 @@ useEffect(() => {
           !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
           String(actionSheetMessage.from) === String(user.id),
         )}
-        canForward={actionSheetMessage?.allowForward !== false}
+        canForward={
+          !actionSheetMessage?.viewOnce &&
+          actionSheetMessage?.forwardPolicy?.allowForward !== false &&
+          actionSheetMessage?.allowForward !== false
+        }
         onReply={(msg) => {
           setEditingMessage(null);
           setReplyTo(msg);

@@ -13040,6 +13040,11 @@ body.theme-dreamcloud {
   background: var(--chip-bg);
 }
 
+.qc-composer-plus-item.is-active {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, transparent);
+  color: var(--accent, #3b82f6);
+}
+
 .qc-msg-actions-list button.danger {
   color: var(--danger);
 }
@@ -13880,4 +13885,115 @@ body.theme-dreamcloud {
 @keyframes toast-shrink {
   from { transform: scaleX(1); }
   to { transform: scaleX(0); }
+}
+/* ================================================================
+   VIEW ONCE MEDIA
+   ================================================================ */
+.view-once-lock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 280px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle, #ccc) 80%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 88%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.view-once-lock.mine,
+div.view-once-lock {
+  cursor: default;
+}
+
+.view-once-lock-badge {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+  color: var(--accent, #3b82f6);
+  border: 2px solid color-mix(in srgb, var(--accent, #3b82f6) 45%, transparent);
+}
+
+.view-once-lock-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.view-once-lock-body strong {
+  font-size: 0.92rem;
+}
+
+.view-once-lock-body span {
+  font-size: 0.78rem;
+  opacity: 0.72;
+}
+
+.view-once-lock-status {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.view-once-lock-status.error {
+  color: var(--danger, #dc2626);
+}
+
+.view-once-media {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.view-once-done-btn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, transparent);
+  color: var(--accent, #3b82f6);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.view-once-tombstone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--chip-bg, #eee) 90%, transparent);
+  opacity: 0.9;
+}
+
+.view-once-tombstone-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  opacity: 0.7;
+}
+
+.view-once-tombstone span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.view-once-tombstone-sub {
+  font-size: 0.75rem;
+  opacity: 0.7;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { secretboxOpen } from '../crypto/keys.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
@@ -21,7 +21,18 @@ function MentionText({ text }) {
   return <>{parts}</>;
 }
 
-function GroupFileCard({ payload, resolveSecretKey }) {
+function mediaKindFromPayload(payload) {
+  const mime = String(payload?.mimetype || '').toLowerCase();
+  const name = String(payload?.filename || '').toLowerCase();
+  if (mime.startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) || /^voice-note/i.test(name)) {
+    return 'audio';
+  }
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return 'video';
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return 'image';
+  return 'image';
+}
+
+function GroupFileCard({ payload }) {
   const [url, setUrl] = useState(null);
   const [status, setStatus] = useState('idle');
   const [mime, setMime] = useState(payload.mimetype || 'application/octet-stream');
@@ -97,6 +108,159 @@ function GroupFileCard({ payload, resolveSecretKey }) {
   );
 }
 
+function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
+  const [unlocked, setUnlocked] = useState(false);
+  const [url, setUrl] = useState(null);
+  const [status, setStatus] = useState('idle');
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const burnedRef = useRef(false);
+  const kind = mediaKind || mediaKindFromPayload(payload);
+  const label = kind === 'video' ? 'Video' : kind === 'audio' ? 'Voice note' : 'Photo';
+
+  async function burn() {
+    if (burnedRef.current || !onBurnViewOnce) return;
+    burnedRef.current = true;
+    try {
+      await onBurnViewOnce();
+    } catch {
+      burnedRef.current = false;
+    }
+  }
+
+  async function openOnce() {
+    if (isMine || !payload?.attachmentId || !payload.key || !payload.nonce) return;
+    setStatus('loading');
+    try {
+      const res = await client.get(`/attachments/${payload.attachmentId}/raw`, { responseType: 'arraybuffer' });
+      const plain = secretboxOpen(new Uint8Array(res.data), payload.nonce, payload.key);
+      if (!plain) {
+        setStatus('error');
+        return;
+      }
+      const type = payload.mimetype || 'application/octet-stream';
+      const objectUrl = URL.createObjectURL(new Blob([plain], { type }));
+      setUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return objectUrl;
+      });
+      setUnlocked(true);
+      setStatus('idle');
+      if (kind === 'image') setViewerOpen(true);
+    } catch {
+      setStatus('error');
+    }
+  }
+
+  if (!unlocked) {
+    if (isMine) {
+      return (
+        <div className="view-once-lock mine">
+          <span className="view-once-lock-badge" aria-hidden="true">1</span>
+          <span className="view-once-lock-body">
+            <strong>View once {label.toLowerCase()}</strong>
+            <span>Waiting to be opened · opens once</span>
+          </span>
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="view-once-lock"
+        onClick={openOnce}
+        disabled={status === 'loading'}
+      >
+        <span className="view-once-lock-badge" aria-hidden="true">1</span>
+        <span className="view-once-lock-body">
+          <strong>Tap to view {label.toLowerCase()}</strong>
+          <span>Opens once, then disappears</span>
+        </span>
+        {status === 'loading' ? <span className="view-once-lock-status">Opening…</span> : null}
+        {status === 'error' ? <span className="view-once-lock-status error">Failed — retry</span> : null}
+      </button>
+    );
+  }
+
+  if (!url) return null;
+
+  if (kind === 'audio') {
+    return (
+      <audio
+        src={url}
+        controls
+        autoPlay
+        className="attachment-audio"
+        onEnded={burn}
+      />
+    );
+  }
+
+  if (kind === 'video') {
+    return (
+      <div className="attachment-media view-once-media">
+        <video
+          className="attachment-video"
+          src={url}
+          controls
+          playsInline
+          autoPlay
+          preload="metadata"
+          onEnded={burn}
+        />
+        <button type="button" className="view-once-done-btn" onClick={burn}>
+          Done · remove
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="attachment-media view-once-media">
+        <img
+          className="attachment-preview"
+          src={url}
+          alt="View once photo"
+          onClick={() => setViewerOpen(true)}
+          role="button"
+        />
+        <button type="button" className="view-once-done-btn" onClick={burn}>
+          Done · remove
+        </button>
+      </div>
+      {viewerOpen ? (
+        <div
+          className="lightbox-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            setViewerOpen(false);
+            burn();
+          }}
+        >
+          <button
+            type="button"
+            className="lightbox-close"
+            onClick={() => {
+              setViewerOpen(false);
+              burn();
+            }}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+          <img
+            src={url}
+            alt="View once photo"
+            className="lightbox-image"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export default function GroupMessageContent({
   message,
   payload,
@@ -107,6 +271,7 @@ export default function GroupMessageContent({
   isMine,
   onImagePreview,
   onImageReady,
+  onBurnViewOnce,
 }) {
   if (!payload || payload.type === 'text') {
     const body = payload?.body ?? message?.text ?? '';
@@ -177,7 +342,26 @@ export default function GroupMessageContent({
   }
 
   if (payload.type === 'file') {
-    return <GroupFileCard payload={payload} resolveSecretKey={resolveSecretKey} />;
+    if (message.viewOnce && message.viewOnceOpenedAt) {
+      return (
+        <AttachmentBubble
+          viewOnce
+          viewOnceOpened
+          viewOnceMediaKind={message.viewOnceMediaKind || mediaKindFromPayload(payload)}
+        />
+      );
+    }
+    if (message.viewOnce) {
+      return (
+        <ViewOnceGroupFileCard
+          payload={payload}
+          isMine={isMine}
+          mediaKind={message.viewOnceMediaKind}
+          onBurnViewOnce={onBurnViewOnce}
+        />
+      );
+    }
+    return <GroupFileCard payload={payload} />;
   }
 
   if (attachment) {
@@ -188,6 +372,10 @@ export default function GroupMessageContent({
         resolveSecretKey={resolveSecretKey}
         onImagePreview={onImagePreview}
         onImageReady={onImageReady}
+        viewOnce={Boolean(message.viewOnce)}
+        viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
+        viewOnceMediaKind={message.viewOnceMediaKind}
+        onBurnViewOnce={onBurnViewOnce}
       />
     );
   }
