@@ -129,6 +129,8 @@ import {
   conversationKeyForGroup,
   conversationKeyForUser,
   getConversationActivity,
+  getUnreadCount,
+  incrementUnreadCount,
   isUnreadConversation,
   markConversationRead,
   setConversationActivity,
@@ -991,10 +993,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
       if (!fromSelf) {
         const convKey = raw.group
-          ? conversationKeyForGroup(raw.group)
+          ? conversationKeyForGroup(
+              typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group,
+            )
           : conversationKeyForUser(
             String(raw.from) === String(user.id) ? raw.to : raw.from,
           );
+
+        // Count unread only when the message is for a chat that isn't open.
+        if (!isCurrent) {
+          incrementUnreadCount(user.id, convKey);
+          bumpActivity();
+        }
+
         const muted = isChatMuted(user.id, convKey);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
@@ -1765,12 +1776,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     if (user?.id && selfPeer) {
       const key = conversationKeyForUser(user.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       items.push({
         key,
         type: "dm",
@@ -1781,6 +1790,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           `message yourself notes to self ${user.username || ""}`.toLowerCase(),
         lastLoginAt: activity?.at || null,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || "",
         peer: selfPeer,
         muted: muted.has(String(key)),
@@ -1794,12 +1804,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       if (String(u.id) === String(user.id)) continue;
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const online =
         onlineUserIds.has(String(u.id)) &&
         (u.privacy?.online || "everyone") !== "nobody";
@@ -1813,6 +1821,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || u.lastLoginAt || "",
         peer: u,
         muted: muted.has(String(key)),
@@ -1824,12 +1833,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     for (const g of activeGroups) {
       const key = conversationKeyForGroup(g.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const memberCount = (g.members || []).length;
       const desc = (g.description || "").trim();
       items.push({
@@ -1843,6 +1850,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         searchText: `${g.name || ""} ${g.description || ""}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || g.updatedAt || g.createdAt || "",
         group: g,
         muted: muted.has(String(key)),
@@ -1903,10 +1911,9 @@ return items.filter((c) => {
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
-  // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
-      (acc, c) => acc + (c.unread ? 1 : 0),
+      (acc, c) => acc + (c.unreadCount || (c.unread ? 1 : 0)),
       0,
     );
     const showBadge = notifSettings?.badgeCount !== "hidden";

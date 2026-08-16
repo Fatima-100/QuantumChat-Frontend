@@ -1,5 +1,6 @@
 import BrandLogo from '../BrandLogo.jsx';
 import ConversationList from '../ConversationList.jsx';
+import NotificationPermissionBanner from '../NotificationPermissionBanner.jsx';
 import SidebarMenu from '../SidebarMenu.jsx';
 import StoriesRail from '../StoriesRail.jsx';
 
@@ -88,6 +89,7 @@ export default function ConversationPane({
           />
           </div>
         </div>
+        <NotificationPermissionBanner />
         {canChat && (
           <>
             <StoriesRail
