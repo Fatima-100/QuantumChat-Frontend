@@ -25,6 +25,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
@@ -438,6 +439,9 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  /** REST typing target while Socket.IO is unavailable (Vercel). */
+  const presenceTypingRef = useRef({ to: null, groupId: null });
   const pendingNotificationsRef = useRef(new Map()); // convKey -> [{ senderName, text }]
   const loadingOlderRef = useRef(false);
   const oldestCreatedAtRef = useRef(null);
@@ -454,7 +458,6 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const recordStartedAtRef = useRef(0);
   const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
-  const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
@@ -1485,6 +1488,89 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     showToast,
     notifSettings,
   ]);
+
+  // Production (Vercel API) has no Socket.IO — poll REST presence/typing instead.
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    async function syncPresence() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+      const socket = getSocket();
+      if (socket?.connected) return;
+
+      inFlight = true;
+      try {
+        const current = selectedRef.current;
+        const watchPeerId =
+          current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+            ? String(current.id)
+            : null;
+        const watchGroupId =
+          current?.type === "group" ? String(current.id) : null;
+        const typing = presenceTypingRef.current || {};
+
+        const data = await postPresenceHeartbeat({
+          typingTo: typing.to || null,
+          typingGroupId: typing.groupId || null,
+          watchPeerId,
+          watchGroupId,
+        });
+
+        if (cancelled) return;
+
+        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+
+        const events = Array.isArray(data.typing) ? data.typing : [];
+        if (watchPeerId) {
+          const peerTypingNow = events.some(
+            (t) => String(t.from) === watchPeerId && !t.groupId,
+          );
+          setPeerTyping(peerTypingNow);
+        } else {
+          setPeerTyping(false);
+        }
+
+        if (watchGroupId) {
+          const names = events
+            .filter((t) => String(t.groupId) === watchGroupId)
+            .map((t) => {
+              const u = usersRef.current.find(
+                (x) => String(x.id) === String(t.from),
+              );
+              return u?.username || u?.displayName || "Someone";
+            });
+          setGroupTypingNames([...new Set(names)].slice(-3));
+        } else {
+          setGroupTypingNames([]);
+        }
+      } catch {
+        // Keep retrying; transient failures should not require a reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    syncPresence();
+    const timer = window.setInterval(syncPresence, 2000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncPresence();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", syncPresence);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", syncPresence);
+    };
+  }, [hasLocalKeyring, user?.id]);
 
   const selectedKey = selected?.key;
   const selectedType = selected?.type;
@@ -2605,22 +2691,39 @@ async function handleUnblockUser(peerId) {
       return;
     if (user?.privacy?.typingIndicator === false) return;
     const socket = getSocket() || connectSocket();
-    if (!socket?.connected) return;
 
     if (selected.type === "dm") {
-      socket.emit("typing:start", { to: String(selected.id) });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        if (socket.connected) socket.emit("typing:stop", { to: String(selected.id) });
-      }, 2500);
+      presenceTypingRef.current = { to: String(selected.id), groupId: null };
+      if (socket?.connected) {
+        socket.emit("typing:start", { to: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) socket.emit("typing:stop", { to: String(selected.id) });
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     } else if (selected.type === "group") {
-      socket.emit("typing:start", { groupId: String(selected.id) });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        if (socket.connected) {
-          socket.emit("typing:stop", { groupId: String(selected.id) });
-        }
-      }, 2500);
+      presenceTypingRef.current = { to: null, groupId: String(selected.id) };
+      if (socket?.connected) {
+        socket.emit("typing:start", { groupId: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) {
+            socket.emit("typing:stop", { groupId: String(selected.id) });
+          }
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     }
   }
 
@@ -2870,6 +2973,7 @@ async function handleUnblockUser(peerId) {
     if (socket && selected.type === "dm")
       socket.emit("typing:stop", { to: selected.id });
     clearTimeout(typingTimeoutRef.current);
+    presenceTypingRef.current = { to: null, groupId: null };
 
     try {
       if (
