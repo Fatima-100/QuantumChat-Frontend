@@ -81,17 +81,24 @@ function typeLabel(kind) {
   return 'File';
 }
 
-function VoicePlayer({ url }) {
+function VoicePlayer({ url, onPlayedThrough }) {
   const audioRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const burnedRef = useRef(false);
 
   useEffect(() => {
     return () => {
       audioRef.current?.pause();
     };
   }, [url]);
+
+  function maybeBurn() {
+    if (burnedRef.current) return;
+    burnedRef.current = true;
+    onPlayedThrough?.();
+  }
 
   async function togglePlay() {
     const audio = audioRef.current;
@@ -126,6 +133,7 @@ function VoicePlayer({ url }) {
         onEnded={() => {
           setPlaying(false);
           setProgress(0);
+          maybeBurn();
         }}
         onPause={() => setPlaying(false)}
         onPlay={() => setPlaying(true)}
@@ -164,17 +172,78 @@ export default function AttachmentBubble({
   resolveAttachmentKey,
   onImagePreview,
   onImageReady,
+  viewOnce = false,
+  viewOnceOpened = false,
+  viewOnceMediaKind = null,
+  onBurnViewOnce,
 }) {
   const attachment = normalizeAttachment(rawAttachment);
   const [status, setStatus] = useState('idle');
   const [objectUrl, setObjectUrl] = useState(null);
   const [textPreview, setTextPreview] = useState(null);
   const [pdfExpanded, setPdfExpanded] = useState(false);
-  const kind = kindOf(attachment);
+  const [unlocked, setUnlocked] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const burnedRef = useRef(false);
+  const kind = viewOnceMediaKind || kindOf(attachment);
   const attachmentId = attachmentIdOf(attachment);
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
   const opened = pickAttachmentEnvelope(attachment, keyResolver);
-  const autoPreview = kind === 'audio' || kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'text';
+  const isViewOncePending = viewOnce && !viewOnceOpened;
+  const autoPreview =
+    !isViewOncePending &&
+    (kind === 'audio' || kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'text');
+
+  async function burn() {
+    if (burnedRef.current || !onBurnViewOnce) return;
+    burnedRef.current = true;
+    try {
+      await onBurnViewOnce();
+    } catch {
+      burnedRef.current = false;
+    }
+  }
+
+  async function decryptToUrl() {
+    if (!attachmentId || !opened) throw new Error('Cannot decrypt');
+    const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
+    const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
+    if (!plainBytes) throw new Error('Decrypt failed');
+    const mime =
+      attachment.mimetype ||
+      (kind === 'audio'
+        ? 'audio/webm'
+        : kind === 'image'
+          ? 'image/jpeg'
+          : kind === 'video'
+            ? 'video/mp4'
+            : 'application/octet-stream');
+    return URL.createObjectURL(new Blob([plainBytes], { type: mime }));
+  }
+
+  async function openViewOnce() {
+    if (!isViewOncePending || !opened) return;
+    setStatus('loading');
+    try {
+      const url = await decryptToUrl();
+      setObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+      setUnlocked(true);
+      setStatus('idle');
+      if (kind === 'image') {
+        setViewerOpen(true);
+      }
+    } catch {
+      setStatus('error');
+    }
+  }
+
+  function closeViewOnceViewer() {
+    setViewerOpen(false);
+    burn();
+  }
 
   useEffect(() => {
     let revoked = null;
@@ -243,6 +312,53 @@ export default function AttachmentBubble({
     kind,
   ]);
 
+  async function handleManualOpen() {
+    setStatus('loading');
+    try {
+      const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
+      const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
+      if (!plainBytes) {
+        setStatus('error');
+        return;
+      }
+      const mime = attachment.mimetype || 'application/octet-stream';
+      const blob = new Blob([plainBytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+      setObjectUrl(url);
+      triggerDownload(url, attachment.filename);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setStatus('idle');
+    } catch {
+      setStatus('error');
+    }
+  }
+
+  function handleDownload() {
+    if (objectUrl) {
+      triggerDownload(objectUrl, attachment.filename);
+      return;
+    }
+    handleManualOpen();
+  }
+
+  if (!attachment && !viewOnceOpened) return null;
+
+  if (viewOnce && viewOnceOpened) {
+    const label =
+      kind === 'video' ? 'Video' : kind === 'audio' ? 'Voice note' : 'Photo';
+    return (
+      <div className="view-once-tombstone" aria-label={`${label} opened`}>
+        <span className="view-once-tombstone-icon" aria-hidden="true">
+          {kind === 'audio' ? <MicIcon className="file-icon" /> : kind === 'video' ? '▶' : '📷'}
+        </span>
+        <span>
+          <strong>{label}</strong>
+          <span className="view-once-tombstone-sub">Opened · removed</span>
+        </span>
+      </div>
+    );
+  }
+
   if (!attachment) return null;
 
   if (!opened) {
@@ -263,33 +379,84 @@ export default function AttachmentBubble({
     );
   }
 
-  async function handleManualOpen() {
-    setStatus('loading');
-    try {
-      const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
-      const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
-      if (!plainBytes) {
-        setStatus('error');
-        return;
-      }
-      const mime = attachment.mimetype || 'application/octet-stream';
-      const blob = new Blob([plainBytes], { type: mime });
-      const url = URL.createObjectURL(blob);
-      setObjectUrl(url);
-      triggerDownload(url, attachment.filename);
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        setStatus('idle');
-    } catch {
-      setStatus('error');
+  if (isViewOncePending && !unlocked) {
+    const label =
+      kind === 'video' ? 'Video' : kind === 'audio' ? 'Voice note' : 'Photo';
+    if (isMine) {
+      return (
+        <div className="view-once-lock mine">
+          <span className="view-once-lock-badge" aria-hidden="true">1</span>
+          <span className="view-once-lock-body">
+            <strong>View once {label.toLowerCase()}</strong>
+            <span>Waiting to be opened · opens once</span>
+          </span>
+        </div>
+      );
     }
+    return (
+      <button
+        type="button"
+        className="view-once-lock"
+        onClick={openViewOnce}
+        disabled={status === 'loading'}
+      >
+        <span className="view-once-lock-badge" aria-hidden="true">1</span>
+        <span className="view-once-lock-body">
+          <strong>Tap to view {label.toLowerCase()}</strong>
+          <span>Opens once, then disappears</span>
+        </span>
+        {status === 'loading' ? <span className="view-once-lock-status">Opening…</span> : null}
+        {status === 'error' ? <span className="view-once-lock-status error">Failed — retry</span> : null}
+      </button>
+    );
   }
 
-  function handleDownload() {
-    if (objectUrl) {
-      triggerDownload(objectUrl, attachment.filename);
-      return;
+  if (isViewOncePending && unlocked && objectUrl) {
+    if (kind === 'audio') {
+      return <VoicePlayer url={objectUrl} onPlayedThrough={burn} />;
     }
-    handleManualOpen();
+    if (kind === 'video') {
+      return (
+        <div className="attachment-media view-once-media">
+          <video
+            className="attachment-video"
+            src={objectUrl}
+            controls
+            playsInline
+            autoPlay
+            preload="metadata"
+            onEnded={burn}
+          />
+          <button type="button" className="view-once-done-btn" onClick={burn}>
+            Done · remove
+          </button>
+        </div>
+      );
+    }
+    return (
+      <>
+        <div className="attachment-media view-once-media">
+          <img
+            className="attachment-preview"
+            src={objectUrl}
+            alt="View once photo"
+            onClick={() => setViewerOpen(true)}
+            role="button"
+          />
+          <button type="button" className="view-once-done-btn" onClick={burn}>
+            Done · remove
+          </button>
+        </div>
+        {viewerOpen ? (
+          <div className="lightbox-overlay" role="dialog" aria-modal="true" onClick={closeViewOnceViewer}>
+            <button type="button" className="lightbox-close" onClick={closeViewOnceViewer} aria-label="Close">
+              ✕
+            </button>
+            <img src={objectUrl} alt="View once photo" className="lightbox-image" onClick={(e) => e.stopPropagation()} />
+          </div>
+        ) : null}
+      </>
+    );
   }
 
   if (kind === 'audio' && objectUrl) {
@@ -309,9 +476,11 @@ export default function AttachmentBubble({
           role="button"
           aria-label="Open image gallery"
         />
-        <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download image">
-          <DownloadIcon className="file-icon" />
-        </button>
+        {!viewOnce && (
+          <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download image">
+            <DownloadIcon className="file-icon" />
+          </button>
+        )}
       </div>
     );
   }
@@ -320,9 +489,11 @@ export default function AttachmentBubble({
     return (
       <div className="attachment-media">
         <video className="attachment-video" src={objectUrl} controls playsInline preload="metadata" />
-        <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download video">
-          <DownloadIcon className="file-icon" />
-        </button>
+        {!viewOnce && (
+          <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download video">
+            <DownloadIcon className="file-icon" />
+          </button>
+        )}
       </div>
     );
   }
@@ -394,12 +565,12 @@ export default function AttachmentBubble({
   }
 
   if (status === 'error' && autoPreview) {
-  return (
-    <div className="attachment-chip">
-      <span className="attachment-filename">
-        <FileIcon className="file-icon" />
-        <span>{attachment.filename}</span>
-      </span>
+    return (
+      <div className="attachment-chip">
+        <span className="attachment-filename">
+          <FileIcon className="file-icon" />
+          <span>{attachment.filename}</span>
+        </span>
         <button type="button" onClick={handleManualOpen}>
           Retry download
         </button>
