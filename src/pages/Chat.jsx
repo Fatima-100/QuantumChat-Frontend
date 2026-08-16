@@ -78,7 +78,7 @@ import {
 } from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
-import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
+import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -417,6 +417,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     };
   }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
+
+  useEffect(() => {
+    if (chatTheme?.wallpaperId) preloadWallpaper(chatTheme.wallpaperId);
+  }, [chatTheme.wallpaperId]);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
@@ -5353,6 +5357,7 @@ useEffect(() => {
         <ChatThemeModal
           peerId={selected.id}
           theme={chatTheme}
+          catalog={themeCatalog}
           onApplied={(updated) => setChatTheme(updated)}
           onClose={() => setThemeModalOpen(false)}
         />
