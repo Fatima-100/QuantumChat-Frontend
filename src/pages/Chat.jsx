@@ -1331,7 +1331,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       clearTimeout(typingPeerTimeoutRef.current);
       typingPeerTimeoutRef.current = setTimeout(
         () => setPeerTyping(false),
-        3000,
+        4000,
       );
     }
 
@@ -1427,6 +1427,16 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("friend:request:new", handleFriendRequestNew);
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
+
+    // Auth may connect the socket before Chat mounts, so the initial
+    // presence:snapshot is easy to miss. Re-request whenever listeners attach
+    // and again after every reconnect.
+    function requestPresence() {
+      if (socket.connected) socket.emit("presence:request");
+    }
+    socket.on("connect", requestPresence);
+    requestPresence();
+
     return () => {
       socket.off("message:new", handleIncoming);
       socket.off("message:deleted", handleDeleted);
@@ -1447,6 +1457,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       socket.off("friend:request:new", handleFriendRequestNew);
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
+      socket.off("connect", requestPresence);
       clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [
@@ -1843,8 +1854,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         unreadCount > 0 ||
         isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const online =
-        onlineUserIds.has(String(u.id)) &&
-        (u.privacy?.online || "everyone") !== "nobody";
+        onlineUserIds.has(String(u.id));
       items.push({
         key,
         type: "dm",
@@ -2576,21 +2586,23 @@ async function handleUnblockUser(peerId) {
     )
       return;
     if (user?.privacy?.typingIndicator === false) return;
-    const socket = getSocket();
-    if (!socket) return;
+    const socket = getSocket() || connectSocket();
+    if (!socket?.connected) return;
 
     if (selected.type === "dm") {
-      socket.emit("typing:start", { to: selected.id });
+      socket.emit("typing:start", { to: String(selected.id) });
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { to: selected.id });
-      }, 2000);
+        if (socket.connected) socket.emit("typing:stop", { to: String(selected.id) });
+      }, 2500);
     } else if (selected.type === "group") {
-      socket.emit("typing:start", { groupId: selected.id });
+      socket.emit("typing:start", { groupId: String(selected.id) });
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { groupId: selected.id });
-      }, 2000);
+        if (socket.connected) {
+          socket.emit("typing:stop", { groupId: String(selected.id) });
+        }
+      }, 2500);
     }
   }
 
@@ -4092,10 +4104,9 @@ useEffect(() => {
     if (selected.isSelfChat || peer?.isSelfChat) return "Notes to self";
     if (peer?.systemRole === "quantum_ai")
       return aiBusy ? "generating…" : "AI Assistant";
-    const onlineAllowed = (peer?.privacy?.online || "everyone") !== "nobody";
     if (peerTyping) return "typing…";
-    if (onlineAllowed && onlineUserIds.has(String(selected.id)))
-      return "online";
+    // Server already filtered presence by the peer's onlineStatus privacy.
+    if (onlineUserIds.has(String(selected.id))) return "online";
     return formatLastSeen(peer?.lastLoginAt);
   }, [
     selected,
@@ -4221,8 +4232,8 @@ useEffect(() => {
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
     const peer = resolveDmPeer(selected);
-    if ((peer?.privacy?.online || "everyone") === "nobody") return false;
     if (onlineUserIds.has(String(selected.id))) return true;
+    // Fallback only when socket presence hasn't arrived yet.
     return isRecentlyActive(peer?.lastLoginAt);
   }, [selected, resolveDmPeer, onlineUserIds, user.id]);
 
@@ -5485,11 +5496,7 @@ useEffect(() => {
             users.find((u) => String(u.id) === String(profileUserId)) ||
             null
           }
-          online={
-            onlineUserIds.has(String(profileUserId)) &&
-            (users.find((u) => String(u.id) === String(profileUserId))?.privacy
-              ?.online || "everyone") !== "nobody"
-          }
+          online={onlineUserIds.has(String(profileUserId))}
           muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
           archived={archivedKeys
             .map(String)

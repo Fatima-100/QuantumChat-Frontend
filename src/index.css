@@ -8261,11 +8261,19 @@ body.theme-light .theme-switcher-btn:hover {
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
+  gap: 8px;
+  align-self: flex-start;
+  margin: 4px 8px 8px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-elevated, #1e293b) 88%, transparent);
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary, #94a3b8);
   animation: fadeSlideUp 200ms ease both;
+}
+
+.typing-indicator-text {
+  font-weight: 500;
 }
 
 .typing-dots {

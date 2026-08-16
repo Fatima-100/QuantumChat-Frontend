@@ -10,8 +10,8 @@ import {
 
 function formatPresence(profile, online) {
   if (!profile) return null;
-  const onlineAllowed = (profile.privacy?.onlineStatus || profile.privacy?.online) !== 'nobody';
-  if (onlineAllowed && online) return { label: 'Online', online: true };
+  // `online` is already privacy-filtered by the presence system.
+  if (online) return { label: 'Online', online: true };
 
   const lastSeenSetting = profile.privacy?.lastSeen || 'everyone';
   if (lastSeenSetting === 'nobody' || !profile.lastLoginAt) {
