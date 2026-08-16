@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   HelpCircle,
   Info,
-  Menu,
   MessageSquare,
   Mic,
   Phone,
@@ -37,6 +36,7 @@ import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import BottomSheet from "../components/ui/BottomSheet.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
@@ -327,6 +327,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
+  /** Phones + tablets: info as sheet, collapse secondary header actions */
+  const [isCompactChrome, setIsCompactChrome] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1023px)").matches
+      : false,
+  );
   const [decoyThreadExists, setDecoyThreadExists] = useState(false);
   const [themeCatalog, setThemeCatalog] = useState(null);
   const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
@@ -340,11 +346,18 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const sync = () => setIsMobileShell(mq.matches);
-    sync();
-    mq.addEventListener?.("change", sync);
-    return () => mq.removeEventListener?.("change", sync);
+    const mqMobile = window.matchMedia("(max-width: 768px)");
+    const mqCompact = window.matchMedia("(max-width: 1023px)");
+    const syncMobile = () => setIsMobileShell(mqMobile.matches);
+    const syncCompact = () => setIsCompactChrome(mqCompact.matches);
+    syncMobile();
+    syncCompact();
+    mqMobile.addEventListener?.("change", syncMobile);
+    mqCompact.addEventListener?.("change", syncCompact);
+    return () => {
+      mqMobile.removeEventListener?.("change", syncMobile);
+      mqCompact.removeEventListener?.("change", syncCompact);
+    };
   }, []);
 
   useEffect(() => {
@@ -2119,6 +2132,11 @@ return items.filter((c) => {
       setInfoPanelOpen(next);
       return next;
     });
+  }
+
+  function closeInfoPanel() {
+    setInfoPanelOpenState(false);
+    setInfoPanelOpen(false);
   }
 
   async function handleCreateGroup({
@@ -4292,7 +4310,7 @@ useEffect(() => {
   return (
     <ChatShell
       threadOpen={Boolean(selected)}
-      infoOpen={infoPanelOpen && Boolean(selected)}
+      infoOpen={infoPanelOpen && Boolean(selected) && !isCompactChrome}
       aiOpen={aiPanelOpen}
     >
       <ConversationPane
@@ -4565,13 +4583,6 @@ useEffect(() => {
                 >
                   <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
                 </button>
-                <button
-                  className="mobile-menu-btn"
-                  onClick={() => setSidebarOpen(true)}
-                  aria-label="Open conversation sidebar"
-                >
-                  <Menu size={20} strokeWidth={2} aria-hidden="true" />
-                </button>
                 {selected ? (
                   <div
                     className={`chat-header-peer${selected.type === "group" ||
@@ -4734,7 +4745,7 @@ useEffect(() => {
                   </button>
                 )}
                 <button
-                  className={`icon-btn accent${aiPanelOpen ? " active" : ""}`}
+                  className={`icon-btn accent chat-header-action-secondary${aiPanelOpen ? " active" : ""}`}
                   type="button"
                   onClick={() => setAiPanelOpen((open) => !open)}
                   title="Open QuantumAI"
@@ -4745,7 +4756,7 @@ useEffect(() => {
                 </button>
                 {selected?.type === "group" && (
                   <button
-                    className="icon-btn"
+                    className="icon-btn chat-header-action-secondary"
                     onClick={() => setShowGroupSettings(true)}
                     title="Group settings"
                     aria-label="Group settings"
@@ -4753,10 +4764,9 @@ useEffect(() => {
                     <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-                
                 {selected && (
                   <button
-                    className={`icon-btn${infoPanelOpen ? " active" : ""}`}
+                    className={`icon-btn chat-header-action-secondary${infoPanelOpen ? " active" : ""}`}
                     onClick={toggleInfoPanel}
                     title="Chat details"
                     aria-label="Chat details"
@@ -4765,38 +4775,67 @@ useEffect(() => {
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-               {selected && (
-  <ChatOptionsMenu
-    isGroup={selected.type === "group"}
-    isBlocked={(user.blockedUsers || []).map(String).includes(String(selected.id))}
-    isMuted={mutedKeys.map(String).includes(String(selected.key))}
-    isVaulted={selected.type === "dm" && !selected.isSelfChat && isPeerVaulted(selected.id)}
-    onToggleVault={
-      selected.type === "dm" && !selected.isSelfChat
-        ? () => handleToggleVault(selected.id)
-        : undefined
-    }
-    onToggleBlock={() => {
-      const isBlocked = (user.blockedUsers || []).map(String).includes(String(selected.id));
-      if (isBlocked) handleUnblockUser(selected.id);
-      else handleBlockUser(resolveDmPeer(selected));
-    }}
-    onToggleMute={() => {
-      const wasMuted = mutedKeys.map(String).includes(String(selected.key));
-      setMutedKeys(toggleMuteChat(user.id, selected.key));
-      const payload = selected.type === "group" ? { groupId: selected.id } : { peerId: selected.id };
-      const request = wasMuted ? unmuteChat(payload) : muteChat({ ...payload, duration: "always" });
-      request.catch(() => {});
-    }}
-    onSearch={() => setSearchOpen(true)}
-    onWallpaper={selected.type === "dm" && !selected.isSelfChat ? () => setThemeModalOpen(true) : undefined}
-    onStarred={() => {
-      setStarredScope('chat');
-      setShowStarredMessages(true);
-    }}
-    onMedia={() => setShowChatMedia(true)}
-  />
-)}
+                {selected && (
+                  <ChatOptionsMenu
+                    isGroup={selected.type === "group"}
+                    isBlocked={(user.blockedUsers || [])
+                      .map(String)
+                      .includes(String(selected.id))}
+                    isMuted={mutedKeys
+                      .map(String)
+                      .includes(String(selected.key))}
+                    isVaulted={
+                      selected.type === "dm" &&
+                      !selected.isSelfChat &&
+                      isPeerVaulted(selected.id)
+                    }
+                    compactExtras={isCompactChrome}
+                    onOpenAi={() => setAiPanelOpen((open) => !open)}
+                    onOpenInfo={toggleInfoPanel}
+                    onOpenGroupSettings={
+                      selected.type === "group"
+                        ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onToggleVault={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => handleToggleVault(selected.id)
+                        : undefined
+                    }
+                    onToggleBlock={() => {
+                      const isBlocked = (user.blockedUsers || [])
+                        .map(String)
+                        .includes(String(selected.id));
+                      if (isBlocked) handleUnblockUser(selected.id);
+                      else handleBlockUser(resolveDmPeer(selected));
+                    }}
+                    onToggleMute={() => {
+                      const wasMuted = mutedKeys
+                        .map(String)
+                        .includes(String(selected.key));
+                      setMutedKeys(toggleMuteChat(user.id, selected.key));
+                      const payload =
+                        selected.type === "group"
+                          ? { groupId: selected.id }
+                          : { peerId: selected.id };
+                      const request = wasMuted
+                        ? unmuteChat(payload)
+                        : muteChat({ ...payload, duration: "always" });
+                      request.catch(() => {});
+                    }}
+                    onSearch={() => setSearchOpen(true)}
+                    onWallpaper={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => setThemeModalOpen(true)
+                        : undefined
+                    }
+                    onStarred={() => {
+                      setStarredScope("chat");
+                      setShowStarredMessages(true);
+                    }}
+                    onMedia={() => setShowChatMedia(true)}
+                  />
+                )}
               </div>
             </header>
 
@@ -5975,29 +6014,71 @@ useEffect(() => {
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
       />
 
-     <InfoPanel
-        open={infoPanelOpen && Boolean(selected) && !isMobileShell}
-        onClose={() => {
-          setInfoPanelOpenState(false);
-          setInfoPanelOpen(false);
-        }}
-        selected={selected}
-        users={users}
-        onOpenProfile={setProfileUserId}
-        onOpenGroupSettings={() => setShowGroupSettings(true)}
-      >
-        {selected?.type === "dm" &&
-          !selected.isSelfChat &&
-          vaultUnlocked &&
-          isPeerVaulted(selected.id) &&
-          decoyThreadExists && (
-            <p className="qc-info-note" style={{ color: "var(--warning-text)" }}>
-              This chat has messages that were sent without your vault
-              password entered (decoy thread). They&apos;re kept separate
-              from this real conversation and never mix with it.
-            </p>
-          )}
-      </InfoPanel>
+      {!isCompactChrome && (
+        <InfoPanel
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          selected={selected}
+          users={users}
+          onOpenProfile={setProfileUserId}
+          onOpenGroupSettings={() => setShowGroupSettings(true)}
+        >
+          {selected?.type === "dm" &&
+            !selected.isSelfChat &&
+            vaultUnlocked &&
+            isPeerVaulted(selected.id) &&
+            decoyThreadExists && (
+              <p
+                className="qc-info-note"
+                style={{ color: "var(--warning-text)" }}
+              >
+                This chat has messages that were sent without your vault
+                password entered (decoy thread). They&apos;re kept separate
+                from this real conversation and never mix with it.
+              </p>
+            )}
+        </InfoPanel>
+      )}
+
+      {isCompactChrome && (
+        <BottomSheet
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          title="Chat details"
+          className="qc-info-sheet"
+        >
+          <InfoPanel
+            embedded
+            open={infoPanelOpen && Boolean(selected)}
+            onClose={closeInfoPanel}
+            selected={selected}
+            users={users}
+            onOpenProfile={(id) => {
+              closeInfoPanel();
+              setProfileUserId(id);
+            }}
+            onOpenGroupSettings={() => {
+              closeInfoPanel();
+              setShowGroupSettings(true);
+            }}
+          >
+            {selected?.type === "dm" &&
+              !selected.isSelfChat &&
+              vaultUnlocked &&
+              isPeerVaulted(selected.id) &&
+              decoyThreadExists && (
+                <p
+                  className="qc-info-note"
+                  style={{ color: "var(--warning-text)" }}
+                >
+                  This chat has messages that were sent without your vault
+                  password entered (decoy thread). They&apos;re kept separate
+                  from this real conversation and never mix with it.
+                </p>
+              )}
+          </InfoPanel>
+        </BottomSheet>
+      )}
     </ChatShell>
   );
 }
