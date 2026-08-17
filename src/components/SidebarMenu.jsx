@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCheck, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
+import { Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 export default function SidebarMenu({
   onSettings,
   onLogout,
@@ -10,6 +12,7 @@ export default function SidebarMenu({
   vaultUnlocked,
   onOpenVault,
 }) {
+  const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -130,6 +133,21 @@ export default function SidebarMenu({
               <span className="sidebar-menu-item-left">
                 <Settings size={16} aria-hidden="true" />
                 <span>Settings</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate('/chat/activity');
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                <Clock size={16} aria-hidden="true" />
+                <span>Activity</span>
               </span>
             </button>
 

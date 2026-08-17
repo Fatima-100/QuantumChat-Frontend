@@ -1,0 +1,31 @@
+import { formatDistanceToNow } from 'date-fns';
+
+export default function ActivityItem({ item = {}, onOpen = () => {} }) {
+  const when = item.at ? formatDistanceToNow(new Date(item.at), { addSuffix: true }) : '';
+  let title = '';
+  switch (item.type) {
+    case 'friend_request':
+      title = 'New friend request';
+      break;
+    case 'mention':
+      title = 'You were mentioned';
+      break;
+    case 'reaction':
+      title = item.emoji ? `Reaction ${item.emoji}` : 'Message reaction';
+      break;
+    case 'group':
+      title = 'Group updated';
+      break;
+    default:
+      title = item.type || 'Activity';
+  }
+
+  return (
+    <div className="activity-item" onClick={onOpen} role="button" tabIndex={0}>
+      <div className="activity-item-main">
+        <div className="activity-item-title">{title}</div>
+        <div className="activity-item-meta muted">{when}</div>
+      </div>
+    </div>
+  );
+}

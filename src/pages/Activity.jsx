@@ -1,0 +1,70 @@
+import { useEffect, useMemo, useState } from 'react';
+import ActivityTimeline from '../components/activity/ActivityTimeline.jsx';
+import ScreenTimeChart from '../components/activity/ScreenTimeChart.jsx';
+import '../styles/activity.css';
+import activityStore from '../utils/activityStore.js';
+import { useNavigate } from 'react-router-dom';
+
+export default function Activity() {
+  const [filter, setFilter] = useState('all');
+  const [items, setItems] = useState([]);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const res = activityStore.getEvents({ filter, limit: 200, cursor: 0 });
+    setItems(res.data || []);
+  }, [filter]);
+
+  const counts = useMemo(() => {
+    return {
+      conversations: 0,
+    };
+  }, []);
+
+  return (
+    <div className="activity-page">
+      <header className="page-header">
+        <h1>Chat Activity</h1>
+        <p className="muted">Recent friend requests, group events, mentions and reactions.</p>
+      </header>
+
+      <div className="activity-grid">
+        <main className="activity-main">
+          <div className="activity-controls">
+            <div className="segmented">
+              {['all','friend_request','group','mention','reaction'].map((f) => (
+                <button key={f} className={`seg-btn ${filter===f?'active':''}`} onClick={() => setFilter(f)}>{f==='all'?'All':f.replace('_',' ')}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="card activity-feed-card">
+            <h3>Recent activity</h3>
+            <div className="activity-feed-body">
+              <ActivityTimeline items={items} onOpen={(it) => {
+                // deep link behavior: navigate to chat; item may include conversationKey
+                if (it.conversationKey) {
+                  if (it.conversationKey.startsWith('group:')) navigate(`/chat/g/${it.targetId || ''}`);
+                  else if (it.conversationKey.startsWith('dm:')) navigate(`/chat/${it.targetId || ''}`);
+                }
+              }} />
+            </div>
+          </div>
+        </main>
+
+        <aside className="activity-side">
+          <div className="card">
+            <h3>Conversations</h3>
+            <div className="big-count">{counts.conversations}</div>
+            <p className="muted">Summary of your conversations</p>
+          </div>
+
+          <div className="card">
+            <h3>Screen time</h3>
+            <ScreenTimeChart />
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
