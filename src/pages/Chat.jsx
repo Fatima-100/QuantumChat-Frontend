@@ -1799,7 +1799,173 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
   }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
+  // Global inbox sync: covers every conversation, not just the one that's
+  // open. syncOpenConversation above only refreshes the active thread, so
+  // without this, other chats never update (no unread badge, no sidebar
+  // reorder, no notification sound) until the user manually clicks into
+  // them. Uses the backend's /messages/sync cursor endpoint, which is
+  // built for exactly this (see messageController.js syncMessages) but
+  // was previously never called from the frontend.
+  const lastSyncCursorRef = useRef(null);
 
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+    // Start from "now" so we don't replay a user's entire recent history
+    // as unread on first load — only genuinely new messages count.
+    if (!lastSyncCursorRef.current) {
+      lastSyncCursorRef.current = new Date().toISOString();
+    }
+
+    async function globalSync() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+      // When a real socket is connected it already delivers message:new
+      // live — skip polling so we don't double-process.
+      if (getSocket()?.connected) return;
+
+      inFlight = true;
+      try {
+        const { data } = await client.get("/messages/sync", {
+          params: { since: lastSyncCursorRef.current },
+        });
+        if (cancelled) return;
+
+        const rows = data?.data || [];
+        if (data?.meta?.cursor) lastSyncCursorRef.current = data.meta.cursor;
+        if (!rows.length) return;
+
+        const current = selectedRef.current;
+        const openThreadRows = [];
+
+        for (const raw of rows) {
+          const fromSelf = String(raw.from) === String(user.id);
+
+          // Figure out which conversation this row belongs to.
+          let convKey;
+          let isCurrent = false;
+          if (raw.group) {
+            const groupId =
+              typeof raw.group === "object"
+                ? raw.group.id || raw.group._id
+                : raw.group;
+            convKey = conversationKeyForGroup(groupId);
+            isCurrent =
+              current?.type === "group" &&
+              String(current.id) === String(groupId);
+          } else {
+            const otherId = fromSelf ? raw.to : raw.from;
+            if (!otherId) continue;
+            convKey = conversationKeyForUser(otherId);
+            isCurrent =
+              current?.type === "dm" && String(current.id) === String(otherId);
+          }
+
+          recordActivityRef.current(raw);
+
+          if (isCurrent) {
+            // Let the merge below handle inserting it into the open thread.
+            openThreadRows.push(raw);
+            if (!fromSelf) {
+              markConversationRead(
+                user.id,
+                current.key,
+                raw.createdAt || new Date().toISOString(),
+              );
+            }
+            continue;
+          }
+
+          if (fromSelf) continue; // own sends elsewhere already handled by their own flow
+
+          // Not the open thread: just bump unread + maybe notify.
+          incrementUnreadCount(user.id, convKey);
+          bumpActivityRef.current();
+
+          const muted = isChatMuted(user.id, convKey);
+          if (!muted && notifSettings) {
+            const decorated = decorateRef.current(raw);
+            const isMention = Array.isArray(raw.mentionedUserIds)
+              ? raw.mentionedUserIds.map(String).includes(String(user.id))
+              : false;
+            const notifyOk = shouldNotify(notifSettings, {
+              kind: raw.group ? "group" : "dm",
+              isMention,
+            });
+            if (notifyOk) {
+              playNotificationSound(notifSettings);
+              const senderName =
+                usersRef.current.find((u) => String(u.id) === String(raw.from))
+                  ?.displayName ||
+                usersRef.current.find((u) => String(u.id) === String(raw.from))
+                  ?.username ||
+                "Someone";
+              const groupName = raw.group
+                ? groupsRef.current.find(
+                    (g) => String(g.id) === String(raw.group),
+                  )?.name
+                : null;
+              const buffer = pendingNotificationsRef.current.get(convKey) || [];
+              buffer.push({ senderName, text: decorated.text });
+              pendingNotificationsRef.current.set(convKey, buffer);
+              const { title, body } = buildGroupedNotificationText(buffer, {
+                isGroup: Boolean(raw.group),
+                groupName,
+                notifSettings,
+              });
+              showNotificationPopup(
+                { title, body, tag: convKey },
+                notifSettings,
+                () => {
+                  const target = raw.group
+                    ? { key: convKey, type: "group", id: raw.group }
+                    : { key: convKey, type: "dm", id: raw.from };
+                  handleSelectConversation(target);
+                },
+              );
+            }
+          }
+        }
+
+        // Merge any rows belonging to the currently open thread, same
+        // dedupe-by-id pattern used elsewhere in this file.
+        if (openThreadRows.length) {
+          setMessages((prev) => {
+            const ids = new Set(prev.map((m) => String(m.id || m._id)));
+            const toAdd = openThreadRows
+              .filter((raw) => !ids.has(String(raw.id || raw._id)))
+              .map((raw) => decorateRef.current(raw));
+            if (!toAdd.length) return prev;
+            const merged = [...prev, ...toAdd];
+            merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            return merged;
+          });
+          setTimeout(() => scrollToBottomRef.current("smooth"), 50);
+        }
+      } catch {
+        // Keep retrying on the next tick; a blip shouldn't require reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    globalSync();
+    const timer = window.setInterval(globalSync, 3000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") globalSync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", globalSync);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", globalSync);
+    };
+  }, [hasLocalKeyring, user?.id, notifSettings]);
   const loadOlderMessages = useCallback(async () => {
     if (
       !selected ||
