@@ -142,6 +142,7 @@ function MessageBubble({
   onImageReady,
   onOpenStory,
   onVotePoll,
+  onBurnViewOnce,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
@@ -312,6 +313,7 @@ const storyReplyPayload = useMemo(() => {
             )}
             {hasTextContent &&
               onForward &&
+              !message.viewOnce &&
               message.forwardPolicy?.allowForward !== false &&
               !(
                 message.forwardPolicy?.forwardUntil &&
@@ -472,15 +474,22 @@ const storyReplyPayload = useMemo(() => {
                 <span className="message-reply-text">{replyPreview.text}</span>
               </button>
             )}
-            {message.attachment && structured.type !== 'file' && (
+            {(message.viewOnce && message.viewOnceOpenedAt) ||
+            (message.attachment && structured.type !== 'file') ? (
               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
                 resolveSecretKey={keyResolver}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                viewOnce={Boolean(message.viewOnce)}
+                viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
+                viewOnceMediaKind={message.viewOnceMediaKind}
+                onBurnViewOnce={
+                  onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
+                }
               />
-            )}
+            ) : null}
             {callMeta ? (
               <div className="call-message">
                 <div className="call-message-icon"><Phone size={20} /></div>
@@ -505,7 +514,9 @@ const storyReplyPayload = useMemo(() => {
                   </div>
                 </div>
               </div>
-            ) : message.group && message.text != null ? (
+            ) : message.group &&
+              message.text != null &&
+              !(message.viewOnce && message.viewOnceOpenedAt) ? (
               <GroupMessageContent
                 message={message}
                 payload={structured}
@@ -516,6 +527,9 @@ const storyReplyPayload = useMemo(() => {
                 isMine={isMine}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onBurnViewOnce={
+                  onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
+                }
               />
               ) : isStoryReaction ? (
               <button

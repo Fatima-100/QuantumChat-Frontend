@@ -11,37 +11,136 @@ function urlBase64ToUint8Array(base64String) {
   return output;
 }
 
+export function getNotificationPermission() {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+  return Notification.permission; // 'granted' | 'denied' | 'default'
+}
+
+export function notificationsSupported() {
+  return (
+    typeof window !== 'undefined' &&
+    'Notification' in window &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window
+  );
+}
+
+/** True when this browser already has an active Web Push subscription. */
+export async function isPushSubscribed() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return false;
+  }
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    if (!registration) return false;
+    const subscription = await registration.pushManager.getSubscription();
+    return Boolean(subscription?.endpoint);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Request notification permission, register the service worker,
  * subscribe with the server VAPID key, and POST the subscription.
+ * Returns { ok, permission, push?, error? }.
  */
 export async function enablePushNotifications() {
-  if (typeof window === 'undefined') return;
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-    return;
+  if (typeof window === 'undefined') {
+    return { ok: false, permission: 'unsupported', error: 'Not in a browser' };
+  }
+  if (!('Notification' in window)) {
+    return { ok: false, permission: 'unsupported', error: 'Notifications not supported' };
   }
 
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return;
+  let permission = Notification.permission;
+  if (permission === 'default') {
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      return {
+        ok: false,
+        permission: Notification.permission,
+        error: 'Could not request notification permission',
+      };
+    }
+  }
+  if (permission !== 'granted') {
+    return {
+      ok: false,
+      permission,
+      error:
+        permission === 'denied'
+          ? 'Notifications are blocked. Enable them in your browser site settings.'
+          : 'Notification permission was not granted.',
+    };
+  }
 
-  const registration = await navigator.serviceWorker.register('/sw.js');
-  await navigator.serviceWorker.ready;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    // Permission granted — in-tab/background OS notifications still work via Notification API.
+    return { ok: true, permission, push: false };
+  }
 
-  const vapidRes = await client.get('/users/me/push/vapid-public-key');
-  const publicKey = vapidRes?.data?.data?.publicKey;
-  if (!publicKey) return;
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
 
-  let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    const vapidRes = await client.get('/users/me/push/vapid-public-key');
+    const publicKey = vapidRes?.data?.data?.publicKey;
+    if (!publicKey) {
+      return { ok: true, permission, push: false, error: 'Push server key unavailable' };
+    }
+
+    let subscription = await registration.pushManager.getSubscription();
+    // Re-subscribe if VAPID keys rotated (common on serverless without stable env keys).
+    if (subscription) {
+      try {
+        // Keep existing subscription when possible; server upserts by endpoint.
+      } catch {
+        await subscription.unsubscribe().catch(() => {});
+        subscription = null;
+      }
+    }
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    const json = subscription.toJSON();
+    await client.post('/users/me/push/subscribe', {
+      endpoint: json.endpoint,
+      keys: json.keys,
     });
-  }
 
-  const json = subscription.toJSON();
-  await client.post('/users/me/push/subscribe', {
-    endpoint: json.endpoint,
-    keys: json.keys,
-  });
+    return { ok: true, permission, push: true };
+  } catch (err) {
+    // Permission is still granted — foreground Notification API works even if push subscribe fails.
+    return {
+      ok: true,
+      permission,
+      push: false,
+      error: err?.response?.data?.error || err.message || 'Push subscribe failed',
+    };
+  }
+}
+
+/** Unsubscribe this browser from push (keeps Notification permission). */
+export async function disablePushNotifications() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return { ok: true };
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      const endpoint = subscription.endpoint;
+      await subscription.unsubscribe().catch(() => {});
+      await client.delete('/users/me/push/subscribe', { data: { endpoint } }).catch(() => {});
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }

@@ -24,8 +24,8 @@ function formatShortLastSeen(iso) {
 }
 function isOnlineUser(u, onlineUserIds) {
   if (!u || !onlineUserIds) return false;
-  const allowed = (u.privacy?.online || 'everyone') !== 'nobody';
-  return allowed && onlineUserIds.has(String(u.id));
+  // Presence snapshot/updates are already privacy-filtered on the server.
+  return onlineUserIds.has(String(u.id));
 }
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -305,7 +305,7 @@ export default function ConversationList({
           onSelect(c);
         }
       }}
-      aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
+      aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unreadCount > 0 ? `, ${c.unreadCount} unread` : c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
@@ -340,10 +340,16 @@ export default function ConversationList({
               <BellOff size={12} strokeWidth={2} aria-hidden="true" />
             </span>
           )}
-          {c.unread && <span className="unread-dot" aria-hidden="true" />}
           <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
         </span>
-        <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
+        <span className="user-list-sub-row">
+          <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
+          {(c.unreadCount > 0 || c.unread) && (
+            <span className="unread-badge" aria-hidden="true">
+              {(c.unreadCount || 1) > 99 ? '99+' : c.unreadCount || 1}
+            </span>
+          )}
+        </span>
       </span>
 {!c.isSelfChat && c.type === 'dm' && !c.peer?.isSystemUser && !vaultUnlocked && isPeerVaulted(c.id) && (
       // Decoy view: shows regardless of which filter/tab rendered this row,

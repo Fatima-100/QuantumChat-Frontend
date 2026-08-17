@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   HelpCircle,
   Info,
-  Menu,
   MessageSquare,
   Mic,
   Phone,
@@ -26,6 +25,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
@@ -37,6 +37,7 @@ import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import BottomSheet from "../components/ui/BottomSheet.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
@@ -78,7 +79,7 @@ import {
 } from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
-import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
+import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -129,6 +130,8 @@ import {
   conversationKeyForGroup,
   conversationKeyForUser,
   getConversationActivity,
+  getUnreadCount,
+  incrementUnreadCount,
   isUnreadConversation,
   markConversationRead,
   setConversationActivity,
@@ -167,6 +170,23 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isViewOnceEligibleFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  if (
+    mime.startsWith('audio/') ||
+    /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) ||
+    /^voice-note/i.test(name)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function memberId(m) {
@@ -281,6 +301,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const [viewOnceEnabled, setViewOnceEnabled] = useState(false);
   const [allowForward, setAllowForward] = useState(true);
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
@@ -307,6 +328,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
+  /** Phones + tablets: info as sheet, collapse secondary header actions */
+  const [isCompactChrome, setIsCompactChrome] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1023px)").matches
+      : false,
+  );
   const [decoyThreadExists, setDecoyThreadExists] = useState(false);
   const [themeCatalog, setThemeCatalog] = useState(null);
   const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
@@ -320,11 +347,18 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const sync = () => setIsMobileShell(mq.matches);
-    sync();
-    mq.addEventListener?.("change", sync);
-    return () => mq.removeEventListener?.("change", sync);
+    const mqMobile = window.matchMedia("(max-width: 768px)");
+    const mqCompact = window.matchMedia("(max-width: 1023px)");
+    const syncMobile = () => setIsMobileShell(mqMobile.matches);
+    const syncCompact = () => setIsCompactChrome(mqCompact.matches);
+    syncMobile();
+    syncCompact();
+    mqMobile.addEventListener?.("change", syncMobile);
+    mqCompact.addEventListener?.("change", syncCompact);
+    return () => {
+      mqMobile.removeEventListener?.("change", syncMobile);
+      mqCompact.removeEventListener?.("change", syncCompact);
+    };
   }, []);
 
   useEffect(() => {
@@ -398,9 +432,16 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     };
   }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
 
+  useEffect(() => {
+    if (chatTheme?.wallpaperId) preloadWallpaper(chatTheme.wallpaperId);
+  }, [chatTheme.wallpaperId]);
+
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  /** REST typing target while Socket.IO is unavailable (Vercel). */
+  const presenceTypingRef = useRef({ to: null, groupId: null });
   const pendingNotificationsRef = useRef(new Map()); // convKey -> [{ senderName, text }]
   const loadingOlderRef = useRef(false);
   const oldestCreatedAtRef = useRef(null);
@@ -417,7 +458,6 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const recordStartedAtRef = useRef(0);
   const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
-  const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
@@ -991,10 +1031,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
       if (!fromSelf) {
         const convKey = raw.group
-          ? conversationKeyForGroup(raw.group)
+          ? conversationKeyForGroup(
+              typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group,
+            )
           : conversationKeyForUser(
             String(raw.from) === String(user.id) ? raw.to : raw.from,
           );
+
+        // Count unread only when the message is for a chat that isn't open.
+        if (!isCurrent) {
+          incrementUnreadCount(user.id, convKey);
+          bumpActivity();
+        }
+
         const muted = isChatMuted(user.id, convKey);
         const isMention = Array.isArray(raw.mentionedUserIds)
           ? raw.mentionedUserIds.map(String).includes(String(user.id))
@@ -1154,6 +1203,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
+    function handleViewOnceOpened(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      if (!isCurrentConversation(raw)) return;
+      setMessages((prev) =>
+        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
+      );
+    }
+
     function handleGroupNew(group) {
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(group.id))) {
@@ -1289,7 +1347,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       clearTimeout(typingPeerTimeoutRef.current);
       typingPeerTimeoutRef.current = setTimeout(
         () => setPeerTyping(false),
-        3000,
+        4000,
       );
     }
 
@@ -1371,6 +1429,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("message:expired", handleExpired);
     socket.on("message:reaction", handleReaction);
     socket.on("message:edited", handleEdited);
+    socket.on("message:view-once-opened", handleViewOnceOpened);
     socket.on("group:new", handleGroupNew);
     socket.on("group:updated", handleGroupUpdated);
     socket.on("group:deleted", handleGroupDeleted);
@@ -1384,12 +1443,23 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("friend:request:new", handleFriendRequestNew);
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
+
+    // Auth may connect the socket before Chat mounts, so the initial
+    // presence:snapshot is easy to miss. Re-request whenever listeners attach
+    // and again after every reconnect.
+    function requestPresence() {
+      if (socket.connected) socket.emit("presence:request");
+    }
+    socket.on("connect", requestPresence);
+    requestPresence();
+
     return () => {
       socket.off("message:new", handleIncoming);
       socket.off("message:deleted", handleDeleted);
       socket.off("message:expired", handleExpired);
       socket.off("message:reaction", handleReaction);
       socket.off("message:edited", handleEdited);
+      socket.off("message:view-once-opened", handleViewOnceOpened);
       socket.off("group:new", handleGroupNew);
       socket.off("group:updated", handleGroupUpdated);
       socket.off("group:deleted", handleGroupDeleted);
@@ -1403,6 +1473,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       socket.off("friend:request:new", handleFriendRequestNew);
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
+      socket.off("connect", requestPresence);
       clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [
@@ -1417,6 +1488,89 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     showToast,
     notifSettings,
   ]);
+
+  // Production (Vercel API) has no Socket.IO — poll REST presence/typing instead.
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    async function syncPresence() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+      const socket = getSocket();
+      if (socket?.connected) return;
+
+      inFlight = true;
+      try {
+        const current = selectedRef.current;
+        const watchPeerId =
+          current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+            ? String(current.id)
+            : null;
+        const watchGroupId =
+          current?.type === "group" ? String(current.id) : null;
+        const typing = presenceTypingRef.current || {};
+
+        const data = await postPresenceHeartbeat({
+          typingTo: typing.to || null,
+          typingGroupId: typing.groupId || null,
+          watchPeerId,
+          watchGroupId,
+        });
+
+        if (cancelled) return;
+
+        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+
+        const events = Array.isArray(data.typing) ? data.typing : [];
+        if (watchPeerId) {
+          const peerTypingNow = events.some(
+            (t) => String(t.from) === watchPeerId && !t.groupId,
+          );
+          setPeerTyping(peerTypingNow);
+        } else {
+          setPeerTyping(false);
+        }
+
+        if (watchGroupId) {
+          const names = events
+            .filter((t) => String(t.groupId) === watchGroupId)
+            .map((t) => {
+              const u = usersRef.current.find(
+                (x) => String(x.id) === String(t.from),
+              );
+              return u?.username || u?.displayName || "Someone";
+            });
+          setGroupTypingNames([...new Set(names)].slice(-3));
+        } else {
+          setGroupTypingNames([]);
+        }
+      } catch {
+        // Keep retrying; transient failures should not require a reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    syncPresence();
+    const timer = window.setInterval(syncPresence, 2000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncPresence();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", syncPresence);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", syncPresence);
+    };
+  }, [hasLocalKeyring, user?.id]);
 
   const selectedKey = selected?.key;
   const selectedType = selected?.type;
@@ -1443,6 +1597,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     loadedThreadKeyRef.current = threadKey;
 
     setDisappearSeconds(0);
+    setViewOnceEnabled(false);
     let cancelled = false;
     setPeerTyping(false);
     setHasMoreMessages(false);
@@ -1710,7 +1865,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => { });
+    // Keep Web Push subscribed so OS toasts work while using other apps (e.g. Cursor).
+    enablePushNotifications().catch(() => {});
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        enablePushNotifications().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -1765,12 +1928,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     if (user?.id && selfPeer) {
       const key = conversationKeyForUser(user.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       items.push({
         key,
         type: "dm",
@@ -1781,6 +1942,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           `message yourself notes to self ${user.username || ""}`.toLowerCase(),
         lastLoginAt: activity?.at || null,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || "",
         peer: selfPeer,
         muted: muted.has(String(key)),
@@ -1794,15 +1956,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       if (String(u.id) === String(user.id)) continue;
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const online =
-        onlineUserIds.has(String(u.id)) &&
-        (u.privacy?.online || "everyone") !== "nobody";
+        onlineUserIds.has(String(u.id));
       items.push({
         key,
         type: "dm",
@@ -1813,6 +1972,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || u.lastLoginAt || "",
         peer: u,
         muted: muted.has(String(key)),
@@ -1824,12 +1984,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     for (const g of activeGroups) {
       const key = conversationKeyForGroup(g.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const memberCount = (g.members || []).length;
       const desc = (g.description || "").trim();
       items.push({
@@ -1843,6 +2001,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         searchText: `${g.name || ""} ${g.description || ""}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || g.updatedAt || g.createdAt || "",
         group: g,
         muted: muted.has(String(key)),
@@ -1903,10 +2062,9 @@ return items.filter((c) => {
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
-  // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
-      (acc, c) => acc + (c.unread ? 1 : 0),
+      (acc, c) => acc + (c.unreadCount || (c.unread ? 1 : 0)),
       0,
     );
     const showBadge = notifSettings?.badgeCount !== "hidden";
@@ -2068,6 +2226,11 @@ return items.filter((c) => {
       setInfoPanelOpen(next);
       return next;
     });
+  }
+
+  function closeInfoPanel() {
+    setInfoPanelOpenState(false);
+    setInfoPanelOpen(false);
   }
 
   async function handleCreateGroup({
@@ -2341,7 +2504,7 @@ return items.filter((c) => {
 
   async function sendGroupPayload(
     plaintext,
-    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+    { kind, mentionedUserIds, tempId, displayText, replyToId, attachmentId, viewOnce } = {},
   ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
@@ -2362,6 +2525,8 @@ return items.filter((c) => {
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
     const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
     if (reply) payload.replyTo = reply;
+    if (attachmentId) payload.attachmentId = attachmentId;
+    if (viewOnce) payload.viewOnce = true;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -2532,21 +2697,41 @@ async function handleUnblockUser(peerId) {
       (selected.isSelfChat || String(selected.id) === String(user.id))
     )
       return;
-    const socket = getSocket();
-    if (!socket) return;
+    if (user?.privacy?.typingIndicator === false) return;
+    const socket = getSocket() || connectSocket();
 
     if (selected.type === "dm") {
-      socket.emit("typing:start", { to: selected.id });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { to: selected.id });
-      }, 2000);
+      presenceTypingRef.current = { to: String(selected.id), groupId: null };
+      if (socket?.connected) {
+        socket.emit("typing:start", { to: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) socket.emit("typing:stop", { to: String(selected.id) });
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     } else if (selected.type === "group") {
-      socket.emit("typing:start", { groupId: selected.id });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { groupId: selected.id });
-      }, 2000);
+      presenceTypingRef.current = { to: null, groupId: String(selected.id) };
+      if (socket?.connected) {
+        socket.emit("typing:start", { groupId: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) {
+            socket.emit("typing:stop", { groupId: String(selected.id) });
+          }
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     }
   }
 
@@ -2796,6 +2981,7 @@ async function handleUnblockUser(peerId) {
     if (socket && selected.type === "dm")
       socket.emit("typing:stop", { to: selected.id });
     clearTimeout(typingTimeoutRef.current);
+    presenceTypingRef.current = { to: null, groupId: null };
 
     try {
       if (
@@ -3134,7 +3320,19 @@ async function handleUnblockUser(peerId) {
             attachment.mimetype || file.type || "application/octet-stream",
           size: attachment.size || file.size,
         });
-        await sendGroupPayload(plaintext, { kind: "file" });
+        const wantViewOnce = viewOnceEnabled && isViewOnceEligibleFile(file);
+        if (viewOnceEnabled && !wantViewOnce) {
+          showToast(
+            "View once is only available for photos, videos, and voice notes",
+            "info",
+            3500,
+          );
+        }
+        await sendGroupPayload(plaintext, {
+          kind: "file",
+          attachmentId: attachment.id,
+          ...(wantViewOnce ? { viewOnce: true } : {}),
+        });
         playSendSound();
         if (!quiet) showToast("File sent successfully", "success", 3000);
         setTimeout(() => scrollToBottom("smooth"), 50);
@@ -3235,8 +3433,17 @@ async function handleUnblockUser(peerId) {
         attachmentId,
       };
       if (disappearSeconds > 0) msgBody.expiresInSeconds = disappearSeconds;
+      const wantViewOnce = viewOnceEnabled && isViewOnceEligibleFile(file);
+      if (viewOnceEnabled && !wantViewOnce) {
+        showToast(
+          "View once is only available for photos, videos, and voice notes",
+          "info",
+          3500,
+        );
+      }
+      if (wantViewOnce) msgBody.viewOnce = true;
       const forwardPolicy = buildForwardPolicy();
-      if (forwardPolicy) msgBody.forwardPolicy = forwardPolicy;
+      if (forwardPolicy && !wantViewOnce) msgBody.forwardPolicy = forwardPolicy;
       const { data } = await client.post("/messages", msgBody);
       recordActivityFromMessage(data.data);
       setMessages((prev) => {
@@ -3603,6 +3810,19 @@ useEffect(() => {
     setDeletedForMeIds(deleteMessageForMe(user.id, messageId));
     setExtrasTick((n) => n + 1);
     showToast("Message removed for you", "success");
+  }
+
+  async function handleBurnViewOnce(message) {
+    const messageId = message?.id || message?._id;
+    if (!messageId) return;
+    const { data } = await client.post(`/messages/${messageId}/view-once`);
+    if (data?.data) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(messageId) ? decorate(data.data) : m,
+        ),
+      );
+    }
   }
 
   function handleCopyMessage(message) {
@@ -4014,10 +4234,9 @@ useEffect(() => {
     if (selected.isSelfChat || peer?.isSelfChat) return "Notes to self";
     if (peer?.systemRole === "quantum_ai")
       return aiBusy ? "generating…" : "AI Assistant";
-    const onlineAllowed = (peer?.privacy?.online || "everyone") !== "nobody";
     if (peerTyping) return "typing…";
-    if (onlineAllowed && onlineUserIds.has(String(selected.id)))
-      return "online";
+    // Server already filtered presence by the peer's onlineStatus privacy.
+    if (onlineUserIds.has(String(selected.id))) return "online";
     return formatLastSeen(peer?.lastLoginAt);
   }, [
     selected,
@@ -4143,8 +4362,8 @@ useEffect(() => {
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
     const peer = resolveDmPeer(selected);
-    if ((peer?.privacy?.online || "everyone") === "nobody") return false;
     if (onlineUserIds.has(String(selected.id))) return true;
+    // Fallback only when socket presence hasn't arrived yet.
     return isRecentlyActive(peer?.lastLoginAt);
   }, [selected, resolveDmPeer, onlineUserIds, user.id]);
 
@@ -4203,7 +4422,7 @@ useEffect(() => {
   return (
     <ChatShell
       threadOpen={Boolean(selected)}
-      infoOpen={infoPanelOpen && Boolean(selected)}
+      infoOpen={infoPanelOpen && Boolean(selected) && !isCompactChrome}
       aiOpen={aiPanelOpen}
     >
       <ConversationPane
@@ -4476,13 +4695,6 @@ useEffect(() => {
                 >
                   <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
                 </button>
-                <button
-                  className="mobile-menu-btn"
-                  onClick={() => setSidebarOpen(true)}
-                  aria-label="Open conversation sidebar"
-                >
-                  <Menu size={20} strokeWidth={2} aria-hidden="true" />
-                </button>
                 {selected ? (
                   <div
                     className={`chat-header-peer${selected.type === "group" ||
@@ -4645,7 +4857,7 @@ useEffect(() => {
                   </button>
                 )}
                 <button
-                  className={`icon-btn accent${aiPanelOpen ? " active" : ""}`}
+                  className={`icon-btn accent chat-header-action-secondary${aiPanelOpen ? " active" : ""}`}
                   type="button"
                   onClick={() => setAiPanelOpen((open) => !open)}
                   title="Open QuantumAI"
@@ -4656,7 +4868,7 @@ useEffect(() => {
                 </button>
                 {selected?.type === "group" && (
                   <button
-                    className="icon-btn"
+                    className="icon-btn chat-header-action-secondary"
                     onClick={() => setShowGroupSettings(true)}
                     title="Group settings"
                     aria-label="Group settings"
@@ -4664,10 +4876,9 @@ useEffect(() => {
                     <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-                
                 {selected && (
                   <button
-                    className={`icon-btn${infoPanelOpen ? " active" : ""}`}
+                    className={`icon-btn chat-header-action-secondary${infoPanelOpen ? " active" : ""}`}
                     onClick={toggleInfoPanel}
                     title="Chat details"
                     aria-label="Chat details"
@@ -4676,38 +4887,67 @@ useEffect(() => {
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
                 )}
-               {selected && (
-  <ChatOptionsMenu
-    isGroup={selected.type === "group"}
-    isBlocked={(user.blockedUsers || []).map(String).includes(String(selected.id))}
-    isMuted={mutedKeys.map(String).includes(String(selected.key))}
-    isVaulted={selected.type === "dm" && !selected.isSelfChat && isPeerVaulted(selected.id)}
-    onToggleVault={
-      selected.type === "dm" && !selected.isSelfChat
-        ? () => handleToggleVault(selected.id)
-        : undefined
-    }
-    onToggleBlock={() => {
-      const isBlocked = (user.blockedUsers || []).map(String).includes(String(selected.id));
-      if (isBlocked) handleUnblockUser(selected.id);
-      else handleBlockUser(resolveDmPeer(selected));
-    }}
-    onToggleMute={() => {
-      const wasMuted = mutedKeys.map(String).includes(String(selected.key));
-      setMutedKeys(toggleMuteChat(user.id, selected.key));
-      const payload = selected.type === "group" ? { groupId: selected.id } : { peerId: selected.id };
-      const request = wasMuted ? unmuteChat(payload) : muteChat({ ...payload, duration: "always" });
-      request.catch(() => {});
-    }}
-    onSearch={() => setSearchOpen(true)}
-    onWallpaper={selected.type === "dm" && !selected.isSelfChat ? () => setThemeModalOpen(true) : undefined}
-    onStarred={() => {
-      setStarredScope('chat');
-      setShowStarredMessages(true);
-    }}
-    onMedia={() => setShowChatMedia(true)}
-  />
-)}
+                {selected && (
+                  <ChatOptionsMenu
+                    isGroup={selected.type === "group"}
+                    isBlocked={(user.blockedUsers || [])
+                      .map(String)
+                      .includes(String(selected.id))}
+                    isMuted={mutedKeys
+                      .map(String)
+                      .includes(String(selected.key))}
+                    isVaulted={
+                      selected.type === "dm" &&
+                      !selected.isSelfChat &&
+                      isPeerVaulted(selected.id)
+                    }
+                    compactExtras={isCompactChrome}
+                    onOpenAi={() => setAiPanelOpen((open) => !open)}
+                    onOpenInfo={toggleInfoPanel}
+                    onOpenGroupSettings={
+                      selected.type === "group"
+                        ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onToggleVault={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => handleToggleVault(selected.id)
+                        : undefined
+                    }
+                    onToggleBlock={() => {
+                      const isBlocked = (user.blockedUsers || [])
+                        .map(String)
+                        .includes(String(selected.id));
+                      if (isBlocked) handleUnblockUser(selected.id);
+                      else handleBlockUser(resolveDmPeer(selected));
+                    }}
+                    onToggleMute={() => {
+                      const wasMuted = mutedKeys
+                        .map(String)
+                        .includes(String(selected.key));
+                      setMutedKeys(toggleMuteChat(user.id, selected.key));
+                      const payload =
+                        selected.type === "group"
+                          ? { groupId: selected.id }
+                          : { peerId: selected.id };
+                      const request = wasMuted
+                        ? unmuteChat(payload)
+                        : muteChat({ ...payload, duration: "always" });
+                      request.catch(() => {});
+                    }}
+                    onSearch={() => setSearchOpen(true)}
+                    onWallpaper={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => setThemeModalOpen(true)
+                        : undefined
+                    }
+                    onStarred={() => {
+                      setStarredScope("chat");
+                      setShowStarredMessages(true);
+                    }}
+                    onMedia={() => setShowChatMedia(true)}
+                  />
+                )}
               </div>
             </header>
 
@@ -4929,6 +5169,7 @@ useEffect(() => {
                               onJumpToReply={handleJumpToReply}
                               onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
+                              onBurnViewOnce={handleBurnViewOnce}
                               onOpenStory={(storyId) =>
                                 storiesRailRef.current?.openStoryById(storyId)
                               }
@@ -5122,6 +5363,24 @@ useEffect(() => {
                         </button>
                       </div>
                     )}
+                    {viewOnceEnabled && !editingMessage && (
+                      <div className="composer-context">
+                        <div className="composer-context-copy">
+                          <strong>View once on</strong>
+                          <span>
+                            Next photo, video, or voice note opens only once
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="composer-context-close"
+                          aria-label="Turn off view once"
+                          onClick={() => setViewOnceEnabled(false)}
+                        >
+                          <X size={16} strokeWidth={2} aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
                     {mentionOpen && mentionSuggestions.length > 0 && (
                       <div
                         className="composer-context"
@@ -5261,6 +5520,7 @@ useEffect(() => {
         <ChatThemeModal
           peerId={selected.id}
           theme={chatTheme}
+          catalog={themeCatalog}
           onApplied={(updated) => setChatTheme(updated)}
           onClose={() => setThemeModalOpen(false)}
         />
@@ -5387,11 +5647,7 @@ useEffect(() => {
             users.find((u) => String(u.id) === String(profileUserId)) ||
             null
           }
-          online={
-            onlineUserIds.has(String(profileUserId)) &&
-            (users.find((u) => String(u.id) === String(profileUserId))?.privacy
-              ?.online || "everyone") !== "nobody"
-          }
+          online={onlineUserIds.has(String(profileUserId))}
           muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
           archived={archivedKeys
             .map(String)
@@ -5798,6 +6054,8 @@ useEffect(() => {
           const i = steps.indexOf(disappearSeconds);
           setDisappearSeconds(steps[(i + 1) % steps.length]);
         }}
+        viewOnceEnabled={viewOnceEnabled}
+        onToggleViewOnce={() => setViewOnceEnabled((v) => !v)}
         allowForward={allowForward}
         onToggleForward={() => setAllowForward((v) => !v)}
         forwardUntilSeconds={forwardUntilSeconds}
@@ -5840,7 +6098,11 @@ useEffect(() => {
           !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
           String(actionSheetMessage.from) === String(user.id),
         )}
-        canForward={actionSheetMessage?.allowForward !== false}
+        canForward={
+          !actionSheetMessage?.viewOnce &&
+          actionSheetMessage?.forwardPolicy?.allowForward !== false &&
+          actionSheetMessage?.allowForward !== false
+        }
         onReply={(msg) => {
           setEditingMessage(null);
           setReplyTo(msg);
@@ -5864,29 +6126,71 @@ useEffect(() => {
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
       />
 
-     <InfoPanel
-        open={infoPanelOpen && Boolean(selected) && !isMobileShell}
-        onClose={() => {
-          setInfoPanelOpenState(false);
-          setInfoPanelOpen(false);
-        }}
-        selected={selected}
-        users={users}
-        onOpenProfile={setProfileUserId}
-        onOpenGroupSettings={() => setShowGroupSettings(true)}
-      >
-        {selected?.type === "dm" &&
-          !selected.isSelfChat &&
-          vaultUnlocked &&
-          isPeerVaulted(selected.id) &&
-          decoyThreadExists && (
-            <p className="qc-info-note" style={{ color: "var(--warning-text)" }}>
-              This chat has messages that were sent without your vault
-              password entered (decoy thread). They&apos;re kept separate
-              from this real conversation and never mix with it.
-            </p>
-          )}
-      </InfoPanel>
+      {!isCompactChrome && (
+        <InfoPanel
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          selected={selected}
+          users={users}
+          onOpenProfile={setProfileUserId}
+          onOpenGroupSettings={() => setShowGroupSettings(true)}
+        >
+          {selected?.type === "dm" &&
+            !selected.isSelfChat &&
+            vaultUnlocked &&
+            isPeerVaulted(selected.id) &&
+            decoyThreadExists && (
+              <p
+                className="qc-info-note"
+                style={{ color: "var(--warning-text)" }}
+              >
+                This chat has messages that were sent without your vault
+                password entered (decoy thread). They&apos;re kept separate
+                from this real conversation and never mix with it.
+              </p>
+            )}
+        </InfoPanel>
+      )}
+
+      {isCompactChrome && (
+        <BottomSheet
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          title="Chat details"
+          className="qc-info-sheet"
+        >
+          <InfoPanel
+            embedded
+            open={infoPanelOpen && Boolean(selected)}
+            onClose={closeInfoPanel}
+            selected={selected}
+            users={users}
+            onOpenProfile={(id) => {
+              closeInfoPanel();
+              setProfileUserId(id);
+            }}
+            onOpenGroupSettings={() => {
+              closeInfoPanel();
+              setShowGroupSettings(true);
+            }}
+          >
+            {selected?.type === "dm" &&
+              !selected.isSelfChat &&
+              vaultUnlocked &&
+              isPeerVaulted(selected.id) &&
+              decoyThreadExists && (
+                <p
+                  className="qc-info-note"
+                  style={{ color: "var(--warning-text)" }}
+                >
+                  This chat has messages that were sent without your vault
+                  password entered (decoy thread). They&apos;re kept separate
+                  from this real conversation and never mix with it.
+                </p>
+              )}
+          </InfoPanel>
+        </BottomSheet>
+      )}
     </ChatShell>
   );
 }

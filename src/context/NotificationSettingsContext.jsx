@@ -22,6 +22,20 @@ const DEFAULT_SETTINGS = {
   priority: 'normal',
 };
 
+function mergeNotificationSettings(base, patch) {
+  const next = { ...base, ...patch };
+  if (patch?.doNotDisturb) {
+    next.doNotDisturb = { ...(base.doNotDisturb || {}), ...patch.doNotDisturb };
+  }
+  if (patch?.callNotifications) {
+    next.callNotifications = { ...(base.callNotifications || {}), ...patch.callNotifications };
+  }
+  if (patch?.webNotifications) {
+    next.webNotifications = { ...(base.webNotifications || {}), ...patch.webNotifications };
+  }
+  return next;
+}
+
 const NotificationSettingsContext = createContext(null);
 
 export function NotificationSettingsProvider({ children }) {
@@ -34,16 +48,20 @@ export function NotificationSettingsProvider({ children }) {
       setSettings(DEFAULT_SETTINGS);
       return;
     }
+    // Prefer settings already on the session user, then refresh from API.
+    if (user.notificationSettings && typeof user.notificationSettings === 'object') {
+      setSettings((prev) => mergeNotificationSettings(prev, user.notificationSettings));
+    }
     let cancelled = false;
     setLoading(true);
     getNotificationSettings()
       .then((res) => {
         if (!cancelled && res?.data) {
-          setSettings((prev) => ({ ...prev, ...res.data }));
+          setSettings((prev) => mergeNotificationSettings(DEFAULT_SETTINGS, res.data));
         }
       })
       .catch(() => {
-        // keep defaults on failure
+        // keep defaults / session values on failure
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -54,11 +72,11 @@ export function NotificationSettingsProvider({ children }) {
   }, [user]);
 
   const updateSettings = useCallback(async (partial) => {
-    setSettings((prev) => ({ ...prev, ...partial }));
+    setSettings((prev) => mergeNotificationSettings(prev, partial));
     try {
       const res = await updateNotificationSettings(partial);
       if (res?.data) {
-        setSettings((prev) => ({ ...prev, ...res.data }));
+        setSettings(mergeNotificationSettings(DEFAULT_SETTINGS, res.data));
       }
       return { success: true };
     } catch (err) {
@@ -66,14 +84,7 @@ export function NotificationSettingsProvider({ children }) {
     }
   }, []);
 
-  const isMuted = useCallback(
-    (chatId) => {
-      // Placeholder hook point for per-chat mute logic (Section 7).
-      // Per-chat mutes will live on the chat/conversation model, not here.
-      return false;
-    },
-    []
-  );
+  const isMuted = useCallback(() => false, []);
 
   const value = useMemo(
     () => ({ settings, loading, updateSettings, isMuted }),
