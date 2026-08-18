@@ -1229,15 +1229,21 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
-    function handleGroupNew(group) {
-      activityStore.appendEvent({
-        id: `new:${group?.id || group?._id}`,
-        type: "group",
-        targetId: group?.id || group?._id,
-        groupId: group?.id || group?._id,
-        groupName: group?.name,
-      });
+    function handleGroupNew(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group?.id || group?._id || payload?.groupId;
+      if (groupId) {
+        activityStore.appendEvent({
+          id: `new:${groupId}`,
+          type: "group",
+          targetId: groupId,
+          groupId,
+          groupName: group?.name || payload?.groupName,
+        });
+      }
       setGroups((prev) => {
+        if (!groupId) return prev;
+
         if (prev.some((g) => String(g.id) === String(group.id))) {
           return prev.map((g) =>
             String(g.id) === String(group.id) ? group : g,
@@ -1247,13 +1253,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       });
     }
     async function handleFriendRequestNew(payload = {}) {
-      const requestId = payload.id || payload.requestId || payload.from || payload.userId;
-      if (requestId) {
+      const request = payload?.request || payload;
+      const requestId = request.id || request._id || request.requestId || payload.requestId;
+      const actorId = request.from || request.senderId || request.userId || payload.from;
+      if (requestId || actorId) {
         activityStore.appendEvent({
-          id: requestId,
+          id: requestId || `from:${actorId}`,
           type: "friend_request",
-          actorId: payload.from || payload.userId,
-          targetId: payload.to || user?.id,
+          actorId,
+          targetId: request.to || request.recipientId || user?.id,
         });
       }
       loadFriendRequests();
@@ -1283,22 +1291,24 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       loadMyFriends();
     }
 
-    function handleGroupUpdated(payload) {
-      if (!payload?.id) return;
+    function handleGroupUpdated(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group.id || group._id || payload.groupId;
+      if (!groupId) return;
       activityStore.appendEvent({
-        id: `updated:${payload.id}`,
+        id: `updated:${groupId}`,
         type: "group",
-        targetId: payload.id,
-        groupId: payload.id,
-        groupName: payload.name,
+        targetId: groupId,
+        groupId,
+        groupName: group.name || payload.groupName,
       });
       setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(payload.id))) {
+        if (prev.some((g) => String(g.id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(payload.id) ? payload : g,
+            String(g.id) === String(groupId) ? group : g,
           );
         }
-        return [payload, ...prev];
+        return [group, ...prev];
       });
       const current = selectedRef.current;
       if (
@@ -1323,7 +1333,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     }
 
-    function handleGroupDeleted({ id } = {}) {
+    function handleGroupDeleted(payload = {}) {
+      const id = payload.id || payload._id || payload.groupId || payload.group?.id || payload.group?._id;
       if (!id) return;
       activityStore.appendEvent({
         id: `deleted:${id}`,
@@ -1355,16 +1366,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     }
 
     function handleMentionNew(payload = {}) {
-      const { from } = payload;
-      const mentionId = payload.id || payload.messageId || payload._id;
+      const message = payload?.message || payload;
+      const from = message.from || message.senderId || payload.from;
+      const messageId = message.id || message._id || message.messageId || payload.messageId;
+      const groupId = message.groupId || message.group || payload.groupId;
+      const mentionId = messageId || (from && groupId ? `${from}:${groupId}` : null);
       if (mentionId) {
         activityStore.appendEvent({
           id: mentionId,
           type: "mention",
           actorId: from,
-          targetId: payload.groupId || payload.to,
-          messageId: payload.messageId || payload.id || payload._id,
-          conversationKey: payload.groupId ? `group:${payload.groupId}` : undefined,
+          targetId: groupId || message.to || payload.to,
+          messageId,
+          conversationKey: groupId ? `group:${groupId}` : undefined,
         });
       }
       const username =
