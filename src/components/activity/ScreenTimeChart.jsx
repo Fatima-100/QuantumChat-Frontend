@@ -18,9 +18,13 @@ export default function ScreenTimeChart() {
   const [data, setData] = useState(() => read());
 
   useEffect(() => {
-    const onStorage = () => setData(read());
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    const reload = () => setData(read());
+    window.addEventListener('storage', reload);
+    window.addEventListener('qc:screen-time:updated', reload);
+    return () => {
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('qc:screen-time:updated', reload);
+    };
   }, []);
 
   const total = Object.values(data).reduce((s, v) => s + (v || 0), 0);
