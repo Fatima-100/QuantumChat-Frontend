@@ -1,6 +1,7 @@
 import {
   Copy,
   Forward,
+  Info,
   Pencil,
   Pin,
   Reply,
@@ -25,8 +26,9 @@ export default function MessageActionSheet({
   onForward,
   onEdit,
   onDelete,
-  onStar,
+   onStar,
   onPin,
+  onShowInfo,
   starred = false,
   pinned = false,
   canEdit = false,
@@ -62,9 +64,14 @@ export default function MessageActionSheet({
         </button>
       </div>
       <div className="qc-msg-actions-list" role="menu">
-        <button type="button" role="menuitem" onClick={() => run(onReply)}>
+               <button type="button" role="menuitem" onClick={() => run(onReply)}>
           <Reply size={18} /> Reply
         </button>
+        {isMine && onShowInfo ? (
+          <button type="button" role="menuitem" onClick={() => run(onShowInfo)}>
+            <Info size={18} /> Message info
+          </button>
+        ) : null}
         <button type="button" role="menuitem" onClick={() => run(onCopy)}>
           <Copy size={18} /> Copy
         </button>
