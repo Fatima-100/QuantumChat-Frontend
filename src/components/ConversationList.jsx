@@ -170,6 +170,8 @@ export default function ConversationList({
     return { friendItems: friends, otherItems: others };
   }, [filter, conversations, friendSet]);
 
+  const pendingFriendCount = visibleIncomingRequests.length;
+
   const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
 
   const visibleFilters = useMemo(
@@ -188,6 +190,16 @@ export default function ConversationList({
       return start;
     });
   }, [filter, maxFilterStart]);
+
+  useEffect(() => {
+    if (!pendingFriendCount) return;
+    const friendsIndex = FILTERS.findIndex((f) => f.id === 'friends');
+    if (friendsIndex < 0) return;
+    setFilterStart((start) => {
+      if (friendsIndex >= start && friendsIndex < start + FILTER_WINDOW) return start;
+      return Math.min(Math.max(0, friendsIndex - FILTER_WINDOW + 1), maxFilterStart);
+    });
+  }, [pendingFriendCount, maxFilterStart]);
 
   useEffect(() => {
     if (!openMenuKey) return undefined;
@@ -533,18 +545,33 @@ export default function ConversationList({
         </button>
 
         <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-          {visibleFilters.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.id}
-              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-              onClick={() => onFilterChange(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
+          {visibleFilters.map((f) => {
+            const showFriendBadge = f.id === 'friends' && pendingFriendCount > 0;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={filter === f.id}
+                aria-label={
+                  showFriendBadge
+                    ? `Friends, ${pendingFriendCount} pending request${pendingFriendCount === 1 ? '' : 's'}`
+                    : f.label
+                }
+                className={`sidebar-filter-btn${filter === f.id ? ' active' : ''}${
+                  showFriendBadge ? ' has-requests' : ''
+                }`}
+                onClick={() => onFilterChange(f.id)}
+              >
+                <span className="sidebar-filter-label">{f.label}</span>
+                {showFriendBadge ? (
+                  <span className="sidebar-filter-badge" aria-hidden="true">
+                    {pendingFriendCount > 9 ? '9+' : pendingFriendCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
 
         <button
