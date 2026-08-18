@@ -170,17 +170,28 @@ export default function ConversationList({
     return { friendItems: friends, otherItems: others };
   }, [filter, conversations, friendSet]);
 
-  const pendingFriendCount = visibleIncomingRequests.length;
+  const pendingFriendCount = incomingRequests.length;
 
-  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+  const orderedFilters = useMemo(() => {
+    if (!pendingFriendCount) return FILTERS;
+    const friendsTab = FILTERS.find((f) => f.id === 'friends');
+    if (!friendsTab) return FILTERS;
+    return [
+      FILTERS[0],
+      friendsTab,
+      ...FILTERS.filter((f) => f.id !== 'all' && f.id !== 'friends'),
+    ];
+  }, [pendingFriendCount]);
+
+  const maxFilterStart = Math.max(0, orderedFilters.length - FILTER_WINDOW);
 
   const visibleFilters = useMemo(
-    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
-    [filterStart],
+    () => orderedFilters.slice(filterStart, filterStart + FILTER_WINDOW),
+    [orderedFilters, filterStart],
   );
 
   useEffect(() => {
-    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    const activeIndex = orderedFilters.findIndex((f) => f.id === filter);
     if (activeIndex < 0) return;
     setFilterStart((start) => {
       if (activeIndex < start) return activeIndex;
@@ -189,17 +200,12 @@ export default function ConversationList({
       }
       return start;
     });
-  }, [filter, maxFilterStart]);
+  }, [filter, orderedFilters, maxFilterStart]);
 
   useEffect(() => {
     if (!pendingFriendCount) return;
-    const friendsIndex = FILTERS.findIndex((f) => f.id === 'friends');
-    if (friendsIndex < 0) return;
-    setFilterStart((start) => {
-      if (friendsIndex >= start && friendsIndex < start + FILTER_WINDOW) return start;
-      return Math.min(Math.max(0, friendsIndex - FILTER_WINDOW + 1), maxFilterStart);
-    });
-  }, [pendingFriendCount, maxFilterStart]);
+    setFilterStart(0);
+  }, [pendingFriendCount]);
 
   useEffect(() => {
     if (!openMenuKey) return undefined;
