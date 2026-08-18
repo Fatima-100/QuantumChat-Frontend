@@ -29,6 +29,7 @@ export function appendEvent(item) {
   if (next.length > MAX_ITEMS) next.length = MAX_ITEMS;
   try {
     localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent('qc:activity:updated'));
   } catch {
     // ignore quota
   }

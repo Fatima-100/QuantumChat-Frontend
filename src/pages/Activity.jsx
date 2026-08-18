@@ -11,8 +11,14 @@ export default function Activity() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const res = activityStore.getEvents({ filter, limit: 200, cursor: 0 });
-    setItems(res.data || []);
+    const loadActivity = () => {
+      const res = activityStore.getEvents({ filter, limit: 200, cursor: 0 });
+      setItems(res.data || []);
+    };
+
+    loadActivity();
+    window.addEventListener('qc:activity:updated', loadActivity);
+    return () => window.removeEventListener('qc:activity:updated', loadActivity);
   }, [filter]);
 
   const counts = useMemo(() => {
