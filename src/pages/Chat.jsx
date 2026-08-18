@@ -96,6 +96,8 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import activityStore from "../utils/activityStore.js";
+import screenTimeCollector from "../utils/screenTimeCollector.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -360,6 +362,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       mqCompact.removeEventListener?.("change", syncCompact);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+    screenTimeCollector.start();
+    return () => screenTimeCollector.stop();
+  }, [hasLocalKeyring, user?.id]);
 
   useEffect(() => {
     const cores = navigator.hardwareConcurrency || 4;
@@ -1188,6 +1196,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     function handleReaction(raw) {
       const id = String(raw?.id || raw?._id || "");
       if (!id) return;
+      activityStore.appendEvent({
+        id,
+        type: "reaction",
+        targetId: id,
+        messageId: id,
+        actorId: raw?.from || raw?.userId,
+        emoji: raw?.emoji || raw?.reaction,
+        conversationKey: raw?.group ? `group:${raw.group}` : undefined,
+      });
       if (!isCurrentConversation(raw)) return;
       setMessages((prev) =>
         prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
@@ -1213,6 +1230,13 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     }
 
     function handleGroupNew(group) {
+      activityStore.appendEvent({
+        id: `new:${group?.id || group?._id}`,
+        type: "group",
+        targetId: group?.id || group?._id,
+        groupId: group?.id || group?._id,
+        groupName: group?.name,
+      });
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(group.id))) {
           return prev.map((g) =>
@@ -1222,7 +1246,16 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         return [group, ...prev];
       });
     }
-    async function handleFriendRequestNew() {
+    async function handleFriendRequestNew(payload = {}) {
+      const requestId = payload.id || payload.requestId || payload.from || payload.userId;
+      if (requestId) {
+        activityStore.appendEvent({
+          id: requestId,
+          type: "friend_request",
+          actorId: payload.from || payload.userId,
+          targetId: payload.to || user?.id,
+        });
+      }
       loadFriendRequests();
       showToast("New friend request", "info");
     }
@@ -1252,6 +1285,13 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
     function handleGroupUpdated(payload) {
       if (!payload?.id) return;
+      activityStore.appendEvent({
+        id: `updated:${payload.id}`,
+        type: "group",
+        targetId: payload.id,
+        groupId: payload.id,
+        groupName: payload.name,
+      });
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(payload.id))) {
           return prev.map((g) =>
@@ -1285,6 +1325,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
     function handleGroupDeleted({ id } = {}) {
       if (!id) return;
+      activityStore.appendEvent({
+        id: `deleted:${id}`,
+        type: "group",
+        targetId: id,
+        groupId: id,
+      });
       setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
       const current = selectedRef.current;
       if (current?.type === "group" && String(current.id) === String(id)) {
@@ -1308,7 +1354,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
-    function handleMentionNew({ from } = {}) {
+    function handleMentionNew(payload = {}) {
+      const { from } = payload;
+      const mentionId = payload.id || payload.messageId || payload._id;
+      if (mentionId) {
+        activityStore.appendEvent({
+          id: mentionId,
+          type: "mention",
+          actorId: from,
+          targetId: payload.groupId || payload.to,
+          messageId: payload.messageId || payload.id || payload._id,
+          conversationKey: payload.groupId ? `group:${payload.groupId}` : undefined,
+        });
+      }
       const username =
         String(from) === String(user.id)
           ? user.username
