@@ -25,7 +25,7 @@ function checkpoint() {
   const today = new Date(lastVisibleAt).toISOString().slice(0, 10);
   const data = read();
   data[today] = (data[today] || 0) + delta;
-  if (write(data)) lastVisibleAt = now;  
+  if (write(data)) lastVisibleAt = now;
 }
 
 function onVisibilityChange() {
