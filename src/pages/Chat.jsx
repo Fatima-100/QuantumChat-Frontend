@@ -984,7 +984,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   useEffect(() => {
     if (!user?.id) return;
     loadMyFriends();
-  }, [user?.id, loadMyFriends]);
+    loadFriendRequests();
+  }, [user?.id, loadMyFriends, loadFriendRequests]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const tick = () => {
+      if (document.visibilityState === "hidden") return;
+      if (getSocket()?.connected) return;
+      loadFriendRequests();
+    };
+    const timer = window.setInterval(tick, 12000);
+    return () => window.clearInterval(timer);
+  }, [user?.id, loadFriendRequests]);
 
   useEffect(() => {
     if (filter === "all") {
