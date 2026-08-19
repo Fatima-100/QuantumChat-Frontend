@@ -480,6 +480,17 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   usersRef.current = users;
   groupsRef.current = groups;
 
+  const resolveActivityActor = useCallback((actorId) => {
+    if (actorId == null) return {};
+    const normalizedId = String(actorId);
+    if (String(user?.id) === normalizedId) return { actorLabel: "you", actorIsCurrentUser: true };
+    const actor = usersRef.current.find((candidate) => String(candidate.id || candidate._id) === normalizedId);
+    return {
+      actorLabel: actor?.displayName || actor?.username,
+      actorIsCurrentUser: false,
+    };
+  }, [user?.id]);
+
   const webrtc = useWebRTCCall({
     userId: user?.id,
     resolvePeerPublicKeys: async (peerId) => {
@@ -1077,17 +1088,21 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     const groupId = typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group;
     const groupName = typeof raw.group === "object" ? raw.group.name : undefined;
     const actorId = raw.from;
+    const actor = resolveActivityActor(actorId);
+    const decoratedMessage = decorate(raw);
     const mentionId = messageId || (actorId && (groupId || raw.to) ? `${actorId}:${groupId || raw.to}` : null);
     if (mentionId) {
       activityStore.appendEvent({
         id: mentionId,
         type: "mention",
         actorId,
-        actorName: users.find((u) => String(u.id) === String(actorId))?.username,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
         targetId: groupId || raw.to,
         messageId,
         groupId,
-        groupName,
+        groupName: groupName || groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name,
+        preview: decoratedMessage.text,
         conversationKey: groupId ? `group:${groupId}` : raw.to ? `dm:${raw.from}` : undefined,
       });
     }
@@ -1229,18 +1244,35 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
     }
 
-    function handleReaction(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
-      activityStore.appendEvent({
-        id,
-        type: "reaction",
-        targetId: id,
-        messageId: id,
-        actorId: raw?.from || raw?.userId,
-        emoji: raw?.emoji || raw?.reaction,
-        conversationKey: raw?.group ? `group:${raw.group}` : undefined,
-      });
+  function handleReaction(raw) {
+    const messageId = String(raw?.messageId || raw?.message?.id || raw?.message?._id || "");
+    const eventId = String(raw?.id || raw?._id || messageId || "");
+    if (!eventId) return;
+    const actorId = raw?.from || raw?.userId || raw?.actorId;
+    const actor = resolveActivityActor(actorId);
+    const message = messagesRef.current.find((candidate) => String(candidate.id || candidate._id) === messageId);
+    const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
+    const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
+    const reactedByYou = actor.actorIsCurrentUser;
+    const originalAuthorId = message?.from || message?.senderId;
+    const originalAuthor = resolveActivityActor(originalAuthorId);
+    activityStore.appendEvent({
+      id: eventId,
+      type: "reaction",
+      targetId: messageId || eventId,
+      messageId: messageId || undefined,
+      actorId,
+      actorName: actor.actorLabel,
+      actorIsCurrentUser: actor.actorIsCurrentUser,
+      emoji: raw?.emoji || raw?.reaction,
+      groupId,
+      groupName,
+      preview: message ? decorate(message).text : undefined,
+      originalAuthorLabel: originalAuthor.actorLabel,
+      originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
+      reactedByYou,
+      conversationKey: groupId ? `group:${groupId}` : undefined,
+    });
       if (!isCurrentConversation(raw)) return;
       setMessages((prev) =>
         prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
@@ -1276,6 +1308,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         groupId,
         groupName: group?.name || payload?.groupName,
         action: "created",
+        actorId: payload?.actorId || payload?.createdBy,
+        ...resolveActivityActor(payload?.actorId || payload?.createdBy),
       });
       }
       setGroups((prev) => {
@@ -1292,14 +1326,17 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     async function handleFriendRequestNew(payload = {}) {
       const request = payload?.request || payload;
       const requestId = request.id || request._id || request.requestId || payload.requestId;
-      const actorId = request.from || request.senderId || request.userId || payload.from;
-      if (requestId || actorId) {
-        activityStore.appendEvent({
-          id: requestId || `from:${actorId}`,
-          type: "friend_request",
-          actorId,
-          targetId: request.to || request.recipientId || user?.id,
-        });
+    const actorId = request.from || request.senderId || request.userId || payload.from;
+    const actor = resolveActivityActor(actorId);
+    if (requestId || actorId) {
+      activityStore.appendEvent({
+        id: requestId || `from:${actorId}`,
+        type: "friend_request",
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        targetId: request.to || request.recipientId || user?.id,
+      });
       }
       loadFriendRequests();
       showToast("New friend request", "info");
@@ -1339,6 +1376,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         groupId,
         groupName: group.name || payload.groupName,
         action: "updated",
+        actorId: payload.actorId || payload.updatedBy,
+        ...resolveActivityActor(payload.actorId || payload.updatedBy),
       });
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(groupId))) {
@@ -1381,6 +1420,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         groupId: id,
         groupName: payload.groupName || payload.group?.name,
         action: "deleted",
+        actorId: payload.actorId || payload.deletedBy,
+        ...resolveActivityActor(payload.actorId || payload.deletedBy),
       });
       setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
       const current = selectedRef.current;
@@ -2531,9 +2572,12 @@ return items.filter((c) => {
         type: "group",
         targetId: groupId,
         groupId,
-        groupName: group.name,
-        action: "created",
-      });
+  groupName: group.name,
+  action: "created",
+  actorId: user?.id,
+  actorLabel: "you",
+  actorIsCurrentUser: true,
+  });
     }
     setGroups((prev) => {
       if (prev.some((g) => String(g.id) === String(group.id))) return prev;
@@ -4647,6 +4691,9 @@ useEffect(() => {
       groupId,
       groupName: group.name,
       action: "updated",
+      actorId: user?.id,
+      actorLabel: "you",
+      actorIsCurrentUser: true,
     });
     setGroups((prev) =>
       prev.map((g) => (String(g.id) === String(group.id) ? group : g)),
@@ -4682,6 +4729,9 @@ useEffect(() => {
         groupId,
         groupName: group?.name,
         action: "deleted",
+        actorId: user?.id,
+        actorLabel: "you",
+        actorIsCurrentUser: true,
       });
     }
     setGroups((prev) => prev.filter((g) => String(g.id) !== String(groupId)));
