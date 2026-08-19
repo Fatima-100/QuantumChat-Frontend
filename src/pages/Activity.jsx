@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import client from '../api/client.js';
 import ActivityTimeline from '../components/activity/ActivityTimeline.jsx';
 import ScreenTimeChart from '../components/activity/ScreenTimeChart.jsx';
 import '../styles/activity.css';
@@ -8,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 export default function Activity() {
   const [filter, setFilter] = useState('all');
   const [items, setItems] = useState([]);
+  const [conversationCount, setConversationCount] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -21,11 +23,23 @@ export default function Activity() {
     return () => window.removeEventListener('qc:activity:updated', loadActivity);
   }, [filter]);
 
-  const counts = useMemo(() => {
-    return {
-      conversations: 0,
-    };
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      client.get('/users', { params: { limit: 100 } }),
+      client.get('/groups', { params: { limit: 100 } }),
+    ]).then(([usersRes, groupsRes]) => {
+      if (!active) return;
+      const users = usersRes.data?.data || [];
+      const groups = groupsRes.data?.data || [];
+      setConversationCount(users.length + groups.length);
+    }).catch(() => {
+      if (active) setConversationCount(0);
+    });
+    return () => { active = false; };
   }, []);
+
+  const counts = useMemo(() => ({ conversations: conversationCount }), [conversationCount]);
 
   return (
     <div className="activity-page">

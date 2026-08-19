@@ -1069,10 +1069,30 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         }
 
         const muted = isChatMuted(user.id, convKey);
-        const isMention = Array.isArray(raw.mentionedUserIds)
-          ? raw.mentionedUserIds.map(String).includes(String(user.id))
-          : false;
-        const decoratedForNotif = decorate(raw);
+  const isMention = Array.isArray(raw.mentionedUserIds)
+  ? raw.mentionedUserIds.map(String).includes(String(user.id))
+  : false;
+  if (isMention) {
+    const messageId = raw.id || raw._id;
+    const groupId = typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group;
+    const groupName = typeof raw.group === "object" ? raw.group.name : undefined;
+    const actorId = raw.from;
+    const mentionId = messageId || (actorId && (groupId || raw.to) ? `${actorId}:${groupId || raw.to}` : null);
+    if (mentionId) {
+      activityStore.appendEvent({
+        id: mentionId,
+        type: "mention",
+        actorId,
+        actorName: users.find((u) => String(u.id) === String(actorId))?.username,
+        targetId: groupId || raw.to,
+        messageId,
+        groupId,
+        groupName,
+        conversationKey: groupId ? `group:${groupId}` : raw.to ? `dm:${raw.from}` : undefined,
+      });
+    }
+  }
+  const decoratedForNotif = decorate(raw);
         const storyPayload = parseStoryPayload(decoratedForNotif.text);
         const reactionsExcluded =
           notifSettings?.messageNotifications === "all_except_reactions" &&
@@ -1249,20 +1269,21 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       const group = payload?.group || payload;
       const groupId = group?.id || group?._id || payload?.groupId;
       if (groupId) {
-        activityStore.appendEvent({
-          id: `new:${groupId}`,
-          type: "group",
-          targetId: groupId,
-          groupId,
-          groupName: group?.name || payload?.groupName,
-        });
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name || payload?.groupName,
+        action: "created",
+      });
       }
       setGroups((prev) => {
         if (!groupId) return prev;
 
-        if (prev.some((g) => String(g.id) === String(group.id))) {
+        if (prev.some((g) => String(g.id || g._id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(group.id) ? group : g,
+            String(g.id || g._id) === String(groupId) ? group : g,
           );
         }
         return [group, ...prev];
@@ -1317,6 +1338,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         targetId: groupId,
         groupId,
         groupName: group.name || payload.groupName,
+        action: "updated",
       });
       setGroups((prev) => {
         if (prev.some((g) => String(g.id) === String(groupId))) {
@@ -1329,23 +1351,23 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       const current = selectedRef.current;
       if (
         current?.type === "group" &&
-        String(current.id) === String(payload.id)
+        String(current.id) === String(groupId)
       ) {
-        const memberCount = (payload.members || []).length;
-        const desc = (payload.description || "").trim();
+        const memberCount = (group.members || []).length;
+        const desc = (group.description || "").trim();
         setSelected((prev) =>
           prev
             ? {
               ...prev,
-              group: payload,
-              title: payload.name || prev.title,
+              group,
+              title: group.name || prev.title,
               subtitle: desc
                 ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
                 : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
             }
             : prev,
         );
-        setPinnedIds((payload.pinnedMessageIds || []).map(String));
+        setPinnedIds((group.pinnedMessageIds || []).map(String));
       }
     }
 
@@ -1357,6 +1379,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         type: "group",
         targetId: id,
         groupId: id,
+        groupName: payload.groupName || payload.group?.name,
+        action: "deleted",
       });
       setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
       const current = selectedRef.current;
