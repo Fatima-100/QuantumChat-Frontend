@@ -8,13 +8,13 @@ export default function ActivityItem({ item = {}, onOpen = () => {} }) {
       title = 'New friend request';
       break;
     case 'mention':
-      title = 'You were mentioned';
+      title = `${item.actorName || 'Someone'} mentioned you${item.groupName ? ` in ${item.groupName}` : ''}`;
       break;
     case 'reaction':
       title = item.emoji ? `Reaction ${item.emoji}` : 'Message reaction';
       break;
     case 'group':
-      title = 'Group updated';
+      title = `${item.action ? item.action[0].toUpperCase() + item.action.slice(1) : 'Updated'} group${item.groupName ? ` ${item.groupName}` : ''}`;
       break;
     default:
       title = item.type || 'Activity';
