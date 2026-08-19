@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import client from '../api/client.js';
 import ActivityTimeline from '../components/activity/ActivityTimeline.jsx';
 import ScreenTimeChart from '../components/activity/ScreenTimeChart.jsx';
@@ -44,6 +45,16 @@ export default function Activity() {
   return (
     <div className="activity-page">
       <header className="page-header">
+        <button
+          type="button"
+          className="activity-back-button"
+          onClick={() => navigate('/chat')}
+          aria-label="Back to chat"
+          title="Back to chat"
+        >
+          <ArrowLeft size={17} aria-hidden="true" />
+          <span>Back to chat</span>
+        </button>
         <h1>Chat Activity</h1>
         <p className="muted">Recent friend requests, group events, mentions and reactions.</p>
       </header>
