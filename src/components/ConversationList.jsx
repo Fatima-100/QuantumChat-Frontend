@@ -170,15 +170,28 @@ export default function ConversationList({
     return { friendItems: friends, otherItems: others };
   }, [filter, conversations, friendSet]);
 
-  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+  const pendingFriendCount = incomingRequests.length;
+
+  const orderedFilters = useMemo(() => {
+    if (!pendingFriendCount) return FILTERS;
+    const friendsTab = FILTERS.find((f) => f.id === 'friends');
+    if (!friendsTab) return FILTERS;
+    return [
+      FILTERS[0],
+      friendsTab,
+      ...FILTERS.filter((f) => f.id !== 'all' && f.id !== 'friends'),
+    ];
+  }, [pendingFriendCount]);
+
+  const maxFilterStart = Math.max(0, orderedFilters.length - FILTER_WINDOW);
 
   const visibleFilters = useMemo(
-    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
-    [filterStart],
+    () => orderedFilters.slice(filterStart, filterStart + FILTER_WINDOW),
+    [orderedFilters, filterStart],
   );
 
   useEffect(() => {
-    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    const activeIndex = orderedFilters.findIndex((f) => f.id === filter);
     if (activeIndex < 0) return;
     setFilterStart((start) => {
       if (activeIndex < start) return activeIndex;
@@ -187,7 +200,12 @@ export default function ConversationList({
       }
       return start;
     });
-  }, [filter, maxFilterStart]);
+  }, [filter, orderedFilters, maxFilterStart]);
+
+  useEffect(() => {
+    if (!pendingFriendCount) return;
+    setFilterStart(0);
+  }, [pendingFriendCount]);
 
   useEffect(() => {
     if (!openMenuKey) return undefined;
@@ -533,18 +551,33 @@ export default function ConversationList({
         </button>
 
         <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-          {visibleFilters.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.id}
-              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-              onClick={() => onFilterChange(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
+          {visibleFilters.map((f) => {
+            const showFriendBadge = f.id === 'friends' && pendingFriendCount > 0;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={filter === f.id}
+                aria-label={
+                  showFriendBadge
+                    ? `Friends, ${pendingFriendCount} pending request${pendingFriendCount === 1 ? '' : 's'}`
+                    : f.label
+                }
+                className={`sidebar-filter-btn${filter === f.id ? ' active' : ''}${
+                  showFriendBadge ? ' has-requests' : ''
+                }`}
+                onClick={() => onFilterChange(f.id)}
+              >
+                <span className="sidebar-filter-label">{f.label}</span>
+                {showFriendBadge ? (
+                  <span className="sidebar-filter-badge" aria-hidden="true">
+                    {pendingFriendCount > 9 ? '9+' : pendingFriendCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
 
         <button

@@ -49,6 +49,7 @@ import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
+import MessageInfoModal from "../components/MessageInfoModal.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
@@ -80,6 +81,7 @@ import {
 import useMeetingCall from "../hooks/useMeetingCall.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
+import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -324,6 +326,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     getInfoPanelOpen(),
   );
   const [actionSheetMessage, setActionSheetMessage] = useState(null);
+  const [messageInfoData, setMessageInfoData] = useState(null);
+    const [editHistoryMessage, setEditHistoryMessage] = useState(null);
   const [callMinimized, setCallMinimized] = useState(false);
   const [isMobileShell, setIsMobileShell] = useState(() =>
     typeof window !== "undefined"
@@ -992,7 +996,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   useEffect(() => {
     if (!user?.id) return;
     loadMyFriends();
-  }, [user?.id, loadMyFriends]);
+    loadFriendRequests();
+  }, [user?.id, loadMyFriends, loadFriendRequests]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const tick = () => {
+      if (document.visibilityState === "hidden") return;
+      if (getSocket()?.connected) return;
+      loadFriendRequests();
+    };
+    const timer = window.setInterval(tick, 12000);
+    return () => window.clearInterval(timer);
+  }, [user?.id, loadFriendRequests]);
 
   useEffect(() => {
     if (filter === "all") {
@@ -4152,7 +4168,33 @@ useEffect(() => {
       showToast(err.response?.data?.error || "Failed to vote", "error");
     }
   }
+  function handleShowMessageInfo(message) {
+    const id = message?.id || message?._id;
+    if (!id) return;
+    const idStr = String(id);
+    const replies = visibleMessages
+      .filter((m) => m.replyTo && String(m.replyTo.id) === idStr)
+      .map((m) => ({
+        id: String(m.id || m._id),
+        from: m.from,
+        text: m.text,
+        createdAt: m.createdAt,
+      }));
+    setMessageInfoData({
+      id: idStr,
+      reactions: message.reactions || [],
+      replies,
+    });
+  }
+    function handleShowEditHistory(message) {
+    if (!message) return;
+    setEditHistoryMessage(message);
+  }
 
+  function handleSelectReplyFromInfo(replyId) {
+    setMessageInfoData(null);
+    handleSearchResult(replyId);
+  }
   function handleJumpToReply(replyId) {
     if (!replyId) return;
     handleSearchResult(String(replyId));
@@ -5429,9 +5471,11 @@ useEffect(() => {
                                 isGroupChat ? handleVotePoll : undefined
                               }
                               onJumpToReply={handleJumpToReply}
-                              onImagePreview={handleImagePreview}
+                                                            onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
                               onBurnViewOnce={handleBurnViewOnce}
+                              onShowInfo={handleShowMessageInfo}
+                              onShowEditHistory={handleShowEditHistory}
                               onOpenStory={(storyId) =>
                                 storiesRailRef.current?.openStoryById(storyId)
                               }
@@ -6260,6 +6304,23 @@ useEffect(() => {
     }}
   />
 )}
+      {messageInfoData && (
+        <MessageInfoModal
+          data={messageInfoData}
+          usernameById={usernameById}
+          currentUserId={user.id}
+          onSelectReply={handleSelectReplyFromInfo}
+          onClose={() => setMessageInfoData(null)}
+        />
+      )}
+            {editHistoryMessage && (
+        <EditHistoryModal
+          message={editHistoryMessage}
+          currentUserId={user.id}
+          resolveSecretKey={resolveMySecretKey}
+          onClose={() => setEditHistoryMessage(null)}
+        />
+      )}
       {logoutConfirmOpen && (
         <ConfirmDialog
           open={logoutConfirmOpen}
@@ -6386,6 +6447,7 @@ useEffect(() => {
         }
         onStar={(msg) => handleStarMessage(msg?.id || msg?._id || msg)}
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
+        onShowInfo={handleShowMessageInfo}
       />
 
       {!isCompactChrome && (
