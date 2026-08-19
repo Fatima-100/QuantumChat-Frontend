@@ -11,9 +11,11 @@ function isRecentlyActive(iso) {
   return Date.now() - new Date(iso).getTime() < 5 * 60 * 1000;
 }
 
-function formatShortLastSeen(iso) {
-  if (!iso) return 'never seen';
-  const diff = Date.now() - new Date(iso).getTime();
+function formatShortRelative(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -358,7 +360,7 @@ export default function ConversationList({
               <BellOff size={12} strokeWidth={2} aria-hidden="true" />
             </span>
           )}
-          <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
+          <span className="conv-row-time">{formatShortRelative(c.lastMessageAt)}</span>
         </span>
         <span className="user-list-sub-row">
           <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
