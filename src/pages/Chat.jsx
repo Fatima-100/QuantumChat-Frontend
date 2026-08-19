@@ -98,6 +98,8 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import activityStore from "../utils/activityStore.js";
+import screenTimeCollector from "../utils/screenTimeCollector.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -366,6 +368,12 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   }, []);
 
   useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+    screenTimeCollector.start();
+    return () => screenTimeCollector.stop();
+  }, [hasLocalKeyring, user?.id]);
+
+  useEffect(() => {
     const cores = navigator.hardwareConcurrency || 4;
     const reduced =
       window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
@@ -471,6 +479,17 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   messagesRef.current = messages;
   usersRef.current = users;
   groupsRef.current = groups;
+
+  const resolveActivityActor = useCallback((actorId) => {
+    if (actorId == null) return {};
+    const normalizedId = String(actorId);
+    if (String(user?.id) === normalizedId) return { actorLabel: "you", actorIsCurrentUser: true };
+    const actor = usersRef.current.find((candidate) => String(candidate.id || candidate._id) === normalizedId);
+    return {
+      actorLabel: actor?.displayName || actor?.username,
+      actorIsCurrentUser: false,
+    };
+  }, [user?.id]);
 
   const webrtc = useWebRTCCall({
     userId: user?.id,
@@ -1061,10 +1080,34 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         }
 
         const muted = isChatMuted(user.id, convKey);
-        const isMention = Array.isArray(raw.mentionedUserIds)
-          ? raw.mentionedUserIds.map(String).includes(String(user.id))
-          : false;
-        const decoratedForNotif = decorate(raw);
+  const isMention = Array.isArray(raw.mentionedUserIds)
+  ? raw.mentionedUserIds.map(String).includes(String(user.id))
+  : false;
+  if (isMention) {
+    const messageId = raw.id || raw._id;
+    const groupId = typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group;
+    const groupName = typeof raw.group === "object" ? raw.group.name : undefined;
+    const actorId = raw.from;
+    const actor = resolveActivityActor(actorId);
+    const decoratedMessage = decorate(raw);
+    const mentionId = messageId || (actorId && (groupId || raw.to) ? `${actorId}:${groupId || raw.to}` : null);
+    if (mentionId) {
+      activityStore.appendEvent({
+        id: mentionId,
+        type: "mention",
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        targetId: groupId || raw.to,
+        messageId,
+        groupId,
+        groupName: groupName || groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name,
+        preview: decoratedMessage.text,
+        conversationKey: groupId ? `group:${groupId}` : raw.to ? `dm:${raw.from}` : undefined,
+      });
+    }
+  }
+  const decoratedForNotif = decorate(raw);
         const storyPayload = parseStoryPayload(decoratedForNotif.text);
         const reactionsExcluded =
           notifSettings?.messageNotifications === "all_except_reactions" &&
@@ -1201,9 +1244,35 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
     }
 
-    function handleReaction(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
+  function handleReaction(raw) {
+    const messageId = String(raw?.messageId || raw?.message?.id || raw?.message?._id || "");
+    const eventId = String(raw?.id || raw?._id || messageId || "");
+    if (!eventId) return;
+    const actorId = raw?.from || raw?.userId || raw?.actorId;
+    const actor = resolveActivityActor(actorId);
+    const message = messagesRef.current.find((candidate) => String(candidate.id || candidate._id) === messageId);
+    const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
+    const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
+    const reactedByYou = actor.actorIsCurrentUser;
+    const originalAuthorId = message?.from || message?.senderId;
+    const originalAuthor = resolveActivityActor(originalAuthorId);
+    activityStore.appendEvent({
+      id: eventId,
+      type: "reaction",
+      targetId: messageId || eventId,
+      messageId: messageId || undefined,
+      actorId,
+      actorName: actor.actorLabel,
+      actorIsCurrentUser: actor.actorIsCurrentUser,
+      emoji: raw?.emoji || raw?.reaction,
+      groupId,
+      groupName,
+      preview: message ? decorate(message).text : undefined,
+      originalAuthorLabel: originalAuthor.actorLabel,
+      originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
+      reactedByYou,
+      conversationKey: groupId ? `group:${groupId}` : undefined,
+    });
       if (!isCurrentConversation(raw)) return;
       setMessages((prev) =>
         prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
@@ -1228,17 +1297,47 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
-    function handleGroupNew(group) {
+    function handleGroupNew(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group?.id || group?._id || payload?.groupId;
+      if (groupId) {
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name || payload?.groupName,
+        action: "created",
+        actorId: payload?.actorId || payload?.createdBy,
+        ...resolveActivityActor(payload?.actorId || payload?.createdBy),
+      });
+      }
       setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(group.id))) {
+        if (!groupId) return prev;
+
+        if (prev.some((g) => String(g.id || g._id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(group.id) ? group : g,
+            String(g.id || g._id) === String(groupId) ? group : g,
           );
         }
         return [group, ...prev];
       });
     }
-    async function handleFriendRequestNew() {
+    async function handleFriendRequestNew(payload = {}) {
+      const request = payload?.request || payload;
+      const requestId = request.id || request._id || request.requestId || payload.requestId;
+    const actorId = request.from || request.senderId || request.userId || payload.from;
+    const actor = resolveActivityActor(actorId);
+    if (requestId || actorId) {
+      activityStore.appendEvent({
+        id: requestId || `from:${actorId}`,
+        type: "friend_request",
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        targetId: request.to || request.recipientId || user?.id,
+      });
+      }
       loadFriendRequests();
       showToast("New friend request", "info");
     }
@@ -1266,41 +1365,64 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       loadMyFriends();
     }
 
-    function handleGroupUpdated(payload) {
-      if (!payload?.id) return;
+    function handleGroupUpdated(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group.id || group._id || payload.groupId;
+      if (!groupId) return;
+      activityStore.appendEvent({
+        id: `updated:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group.name || payload.groupName,
+        action: "updated",
+        actorId: payload.actorId || payload.updatedBy,
+        ...resolveActivityActor(payload.actorId || payload.updatedBy),
+      });
       setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(payload.id))) {
+        if (prev.some((g) => String(g.id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(payload.id) ? payload : g,
+            String(g.id) === String(groupId) ? group : g,
           );
         }
-        return [payload, ...prev];
+        return [group, ...prev];
       });
       const current = selectedRef.current;
       if (
         current?.type === "group" &&
-        String(current.id) === String(payload.id)
+        String(current.id) === String(groupId)
       ) {
-        const memberCount = (payload.members || []).length;
-        const desc = (payload.description || "").trim();
+        const memberCount = (group.members || []).length;
+        const desc = (group.description || "").trim();
         setSelected((prev) =>
           prev
             ? {
               ...prev,
-              group: payload,
-              title: payload.name || prev.title,
+              group,
+              title: group.name || prev.title,
               subtitle: desc
                 ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
                 : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
             }
             : prev,
         );
-        setPinnedIds((payload.pinnedMessageIds || []).map(String));
+        setPinnedIds((group.pinnedMessageIds || []).map(String));
       }
     }
 
-    function handleGroupDeleted({ id } = {}) {
+    function handleGroupDeleted(payload = {}) {
+      const id = payload.id || payload._id || payload.groupId || payload.group?.id || payload.group?._id;
       if (!id) return;
+      activityStore.appendEvent({
+        id: `deleted:${id}`,
+        type: "group",
+        targetId: id,
+        groupId: id,
+        groupName: payload.groupName || payload.group?.name,
+        action: "deleted",
+        actorId: payload.actorId || payload.deletedBy,
+        ...resolveActivityActor(payload.actorId || payload.deletedBy),
+      });
       setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
       const current = selectedRef.current;
       if (current?.type === "group" && String(current.id) === String(id)) {
@@ -1324,7 +1446,22 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
-    function handleMentionNew({ from } = {}) {
+    function handleMentionNew(payload = {}) {
+      const message = payload?.message || payload;
+      const from = message.from || message.senderId || payload.from;
+      const messageId = message.id || message._id || message.messageId || payload.messageId;
+      const groupId = message.groupId || message.group || payload.groupId;
+      const mentionId = messageId || (from && groupId ? `${from}:${groupId}` : null);
+      if (mentionId) {
+        activityStore.appendEvent({
+          id: mentionId,
+          type: "mention",
+          actorId: from,
+          targetId: groupId || message.to || payload.to,
+          messageId,
+          conversationKey: groupId ? `group:${groupId}` : undefined,
+        });
+      }
       const username =
         String(from) === String(user.id)
           ? user.username
@@ -2428,6 +2565,20 @@ return items.filter((c) => {
       joinPolicy,
     });
     const group = data.data;
+    const groupId = group?.id || group?._id;
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+  groupName: group.name,
+  action: "created",
+  actorId: user?.id,
+  actorLabel: "you",
+  actorIsCurrentUser: true,
+  });
+    }
     setGroups((prev) => {
       if (prev.some((g) => String(g.id) === String(group.id))) return prev;
       return [group, ...prev];
@@ -4531,7 +4682,19 @@ useEffect(() => {
   }
 
   function mergeUpdatedGroup(group) {
-    if (!group?.id) return;
+    const groupId = group?.id || group?._id;
+    if (!groupId) return;
+    activityStore.appendEvent({
+      id: `updated:${groupId}`,
+      type: "group",
+      targetId: groupId,
+      groupId,
+      groupName: group.name,
+      action: "updated",
+      actorId: user?.id,
+      actorLabel: "you",
+      actorIsCurrentUser: true,
+    });
     setGroups((prev) =>
       prev.map((g) => (String(g.id) === String(group.id) ? group : g)),
     );
@@ -4557,6 +4720,20 @@ useEffect(() => {
   }
 
   function handleLeftOrDeletedGroup(groupId) {
+    const group = groupsRef.current.find((g) => String(g.id || g._id) === String(groupId));
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `deleted:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name,
+        action: "deleted",
+        actorId: user?.id,
+        actorLabel: "you",
+        actorIsCurrentUser: true,
+      });
+    }
     setGroups((prev) => prev.filter((g) => String(g.id) !== String(groupId)));
     if (selected?.type === "group" && String(selected.id) === String(groupId)) {
       applyConversationSelection(null);
