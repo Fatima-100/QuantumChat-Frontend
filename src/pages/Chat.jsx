@@ -2123,6 +2123,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         searchText:
           `message yourself notes to self ${user.username || ""}`.toLowerCase(),
         lastLoginAt: activity?.at || null,
+        lastMessageAt: activity?.at || null,
         unread,
         unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || "",
@@ -2153,9 +2154,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         searchText:
           `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
+        lastMessageAt: activity?.at || null,
         unread,
         unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
-        sortAt: activity?.at || u.lastLoginAt || "",
+        sortAt: activity?.at || "",
         peer: u,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
@@ -2182,6 +2184,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
         searchText: `${g.name || ""} ${g.description || ""}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
+        lastMessageAt: activity?.at || null,
         unread,
         unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || g.updatedAt || g.createdAt || "",
@@ -2192,13 +2195,34 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       });
     }
 
+    if (selected && messages.length) {
+      const last = messages[messages.length - 1];
+      const lastAt = last?.createdAt;
+      if (lastAt) {
+        for (const item of items) {
+          if (item.type !== selected.type || String(item.id) !== String(selected.id)) {
+            continue;
+          }
+          const prevMs = item.lastMessageAt
+            ? new Date(item.lastMessageAt).getTime()
+            : 0;
+          const nextMs = new Date(lastAt).getTime();
+          if (Number.isFinite(nextMs) && nextMs >= prevMs) {
+            item.lastMessageAt = lastAt;
+            item.sortAt = lastAt;
+          }
+          break;
+        }
+      }
+    }
+
     items.sort((a, b) => {
       if (a.isSelfChat !== b.isSelfChat) return a.isSelfChat ? -1 : 1;
       if (a.unread !== b.unread) return a.unread ? -1 : 1;
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
 
-return items.filter((c) => {
+    return items.filter((c) => {
       if (c.type === "dm" && !q && !c.isSelfChat && hidden.has(String(c.id)))
         return false;
       // Vault: while locked, a vaulted DM never appears in the ambient list
@@ -2241,6 +2265,8 @@ return items.filter((c) => {
     searchResults,
     vaultUnlocked,
     isPeerVaulted,
+    selected,
+    messages,
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
