@@ -2524,6 +2524,17 @@ return items.filter((c) => {
       joinPolicy,
     });
     const group = data.data;
+    const groupId = group?.id || group?._id;
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group.name,
+        action: "created",
+      });
+    }
     setGroups((prev) => {
       if (prev.some((g) => String(g.id) === String(group.id))) return prev;
       return [group, ...prev];
@@ -4627,7 +4638,16 @@ useEffect(() => {
   }
 
   function mergeUpdatedGroup(group) {
-    if (!group?.id) return;
+    const groupId = group?.id || group?._id;
+    if (!groupId) return;
+    activityStore.appendEvent({
+      id: `updated:${groupId}`,
+      type: "group",
+      targetId: groupId,
+      groupId,
+      groupName: group.name,
+      action: "updated",
+    });
     setGroups((prev) =>
       prev.map((g) => (String(g.id) === String(group.id) ? group : g)),
     );
@@ -4653,6 +4673,17 @@ useEffect(() => {
   }
 
   function handleLeftOrDeletedGroup(groupId) {
+    const group = groupsRef.current.find((g) => String(g.id || g._id) === String(groupId));
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `deleted:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name,
+        action: "deleted",
+      });
+    }
     setGroups((prev) => prev.filter((g) => String(g.id) !== String(groupId)));
     if (selected?.type === "group" && String(selected.id) === String(groupId)) {
       applyConversationSelection(null);
