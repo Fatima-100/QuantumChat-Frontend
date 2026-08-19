@@ -3,18 +3,24 @@ import { formatDistanceToNow } from 'date-fns';
 export default function ActivityItem({ item = {}, onOpen = () => {} }) {
   const when = item.at ? formatDistanceToNow(new Date(item.at), { addSuffix: true }) : '';
   let title = '';
+  const actor = item.actorIsCurrentUser ? 'You' : (item.actorLabel || item.actorName || 'Someone');
+  const originalAuthor = item.originalAuthorIsCurrentUser ? 'your' : (item.originalAuthorLabel ? `${item.originalAuthorLabel}'s` : 'the');
   switch (item.type) {
     case 'friend_request':
-      title = 'New friend request';
+      title = item.actorLabel || item.actorIsCurrentUser ? `${actor} sent you a friend request` : 'New friend request';
       break;
     case 'mention':
-      title = `${item.actorName || 'Someone'} mentioned you${item.groupName ? ` in ${item.groupName}` : ''}`;
+      title = `${actor} mentioned you${item.groupName ? ` in ${item.groupName}` : ''}`;
       break;
     case 'reaction':
-      title = item.emoji ? `Reaction ${item.emoji}` : 'Message reaction';
+      title = `${actor} reacted${item.emoji ? ` ${item.emoji}` : ''} to ${originalAuthor} message`;
       break;
     case 'group':
-      title = `${item.action ? item.action[0].toUpperCase() + item.action.slice(1) : 'Updated'} group${item.groupName ? ` ${item.groupName}` : ''}`;
+      if (item.action === 'deleted') {
+        title = `${item.groupName || 'Group'} was deleted by ${actor}`;
+      } else {
+        title = `${actor} ${item.action || 'updated'} the group${item.groupName ? ` ${item.groupName}` : ''}`;
+      }
       break;
     default:
       title = item.type || 'Activity';
@@ -24,6 +30,7 @@ export default function ActivityItem({ item = {}, onOpen = () => {} }) {
     <div className="activity-item" onClick={onOpen} role="button" tabIndex={0}>
       <div className="activity-item-main">
         <div className="activity-item-title">{title}</div>
+        {item.preview ? <div className="activity-item-preview muted">{item.preview}</div> : null}
         <div className="activity-item-meta muted">{when}</div>
       </div>
     </div>
