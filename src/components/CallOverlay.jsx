@@ -6,8 +6,11 @@ import {
   PictureInPicture2,
   ScreenShare,
   ScreenShareOff,
+  UserPlus,
   Video,
   VideoOff,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
@@ -220,6 +223,7 @@ export default function CallOverlay({
   onToggleMute,
   onToggleCamera,
   onToggleScreenShare,
+  onOpenAddParticipant,
 }) {
   const remoteVideoRef = useRef(null);
   const pipWindowRef = useRef(null);
@@ -227,6 +231,31 @@ export default function CallOverlay({
   const [pipActive, setPipActive] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const autoPipAttemptedRef = useRef(false);
+
+  const supportsSpeaker =
+    typeof HTMLMediaElement !== 'undefined' &&
+    typeof HTMLMediaElement.prototype.setSinkId === 'function';
+
+  const toggleSpeaker = useCallback(async () => {
+    if (!supportsSpeaker) return;
+    try {
+      const devices = await navigator.mediaDevices?.enumerateDevices?.();
+      const audioOutputs = (devices || []).filter((d) => d.kind === 'audiooutput');
+      const targetDevice = speakerActive
+        ? ''
+        : (audioOutputs.find((d) => d.deviceId !== 'default' && d.deviceId !== '')?.deviceId || '');
+
+      const mediaElements = document.querySelectorAll('audio, video');
+      for (const el of mediaElements) {
+        if (typeof el.setSinkId === 'function') {
+          await el.setSinkId(targetDevice).catch(() => {});
+        }
+      }
+      setSpeakerActive(!speakerActive);
+    } catch {
+      /* ignore sink errors */
+    }
+  }, [speakerActive, supportsSpeaker]);
 
   const name = peerLabel || call?.peerName || 'User';
   const isIncoming = call?.status === 'incoming';
@@ -632,17 +661,28 @@ export default function CallOverlay({
                 className={`call-ctrl${muted ? ' active' : ''}`}
                 onClick={onToggleMute}
                 aria-label={muted ? 'Unmute' : 'Mute'}
+                title={muted ? 'Unmute' : 'Mute'}
               >
                 {muted ? <MicOff size={20} /> : <Mic size={20} />}
               </button>
-              {call.video ? (
+              <button
+                type="button"
+                className={`call-ctrl${cameraOff ? ' active' : ''}`}
+                onClick={onToggleCamera}
+                aria-label={cameraOff ? 'Camera on' : 'Camera off'}
+                title={cameraOff ? 'Camera on' : 'Camera off'}
+              >
+                {cameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+              </button>
+              {supportsSpeaker ? (
                 <button
                   type="button"
-                  className={`call-ctrl${cameraOff ? ' active' : ''}`}
-                  onClick={onToggleCamera}
-                  aria-label={cameraOff ? 'Camera on' : 'Camera off'}
+                  className={`call-ctrl${speakerActive ? ' active' : ''}`}
+                  onClick={toggleSpeaker}
+                  aria-label={speakerActive ? 'Earpiece' : 'Speaker'}
+                  title={speakerActive ? 'Earpiece' : 'Speaker'}
                 >
-                  {cameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+                  {speakerActive ? <Volume2 size={20} /> : <VolumeX size={20} />}
                 </button>
               ) : null}
               {canShareScreen ? (
@@ -654,6 +694,17 @@ export default function CallOverlay({
                   title={screenSharing ? 'Stop sharing screen' : 'Share screen'}
                 >
                   {screenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
+                </button>
+              ) : null}
+              {typeof onOpenAddParticipant === 'function' ? (
+                <button
+                  type="button"
+                  className="call-ctrl"
+                  onClick={onOpenAddParticipant}
+                  aria-label="Add participant"
+                  title="Add participant"
+                >
+                  <UserPlus size={20} />
                 </button>
               ) : null}
               <button type="button" className="call-ctrl hangup" onClick={onHangup} aria-label="End call">
