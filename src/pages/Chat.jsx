@@ -37,6 +37,7 @@ import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import AddParticipantModal from '../components/AddParticipantModal.jsx';
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
@@ -214,6 +215,7 @@ export default function Chat() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -5084,6 +5086,7 @@ export default function Chat() {
         onToggleMinimize={(next) =>
           setCallMinimized((v) => (typeof next === "boolean" ? next : !v))
         }
+        onOpenAddParticipant={() => setShowAddParticipantModal(true)}
       />
 
       <MeetingOverlay
@@ -5108,7 +5111,42 @@ export default function Chat() {
         onEndForAll={meetingCall.endMeetingForAll}
         onToggleMute={meetingCall.toggleMute}
         onToggleCamera={meetingCall.toggleCamera}
+        onOpenAddParticipant={() => setShowAddParticipantModal(true)}
       />
+
+      {showAddParticipantModal && (
+        <AddParticipantModal
+          users={users}
+          currentParticipantIds={
+            meetingCall.meeting
+              ? [user?.id, ...Array.from(meetingCall.participants.keys())]
+              : webrtc.call
+              ? [user?.id, webrtc.call.peerId]
+              : [user?.id]
+          }
+          onClose={() => setShowAddParticipantModal(false)}
+          onAddParticipant={async (targetUser) => {
+            try {
+              if (meetingCall.meeting) {
+                await meetingCall.inviteParticipant(targetUser);
+                showToast(`Invited ${targetUser.displayName || targetUser.username} to call`, "success");
+              } else if (webrtc.call) {
+                const originalPeerId = webrtc.call.peerId;
+                const originalPeerUser = users.find((u) => String(u.id) === String(originalPeerId));
+                await meetingCall.startMeeting({
+                  video: Boolean(webrtc.call.video),
+                });
+                await meetingCall.inviteParticipant({ id: originalPeerId, publicKeys: originalPeerUser?.publicKeys || [] });
+                await meetingCall.inviteParticipant(targetUser);
+                webrtc.hangup();
+                showToast(`Created group meeting & invited ${targetUser.displayName || targetUser.username}`, "success");
+              }
+            } catch (err) {
+              showToast("Could not invite participant", "error");
+            }
+          }}
+        />
+      )}
 
       {showCreateGroup && (
         <CreateGroupModal
