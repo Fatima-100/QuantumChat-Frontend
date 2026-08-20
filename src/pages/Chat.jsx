@@ -578,6 +578,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           title: caller,
           body: call.video ? "Incoming video call" : "Incoming voice call",
           requireInteraction: true,
+          silent: false,
+          tag: `call:${call.callId}`,
         },
         notifSettings,
         () => {
@@ -2350,10 +2352,11 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   useEffect(() => {
     if (!canChat) return;
     // Keep Web Push subscribed so OS toasts work while using other apps (e.g. Cursor).
-    enablePushNotifications().catch(() => {});
+    // Do not prompt from this effect — browsers block permission without a user gesture.
+    enablePushNotifications({ requestPermission: false }).catch(() => {});
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        enablePushNotifications().catch(() => {});
+        enablePushNotifications({ requestPermission: false }).catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', onVisible);

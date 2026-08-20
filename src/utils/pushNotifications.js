@@ -41,11 +41,17 @@ export async function isPushSubscribed() {
 }
 
 /**
- * Request notification permission, register the service worker,
+ * Request notification permission (optional), register the service worker,
  * subscribe with the server VAPID key, and POST the subscription.
  * Returns { ok, permission, push?, error? }.
+ *
+ * @param {{ requestPermission?: boolean }} [opts]
+ *   When requestPermission is false, do not prompt — only subscribe if already granted.
+ *   Use that from background mount effects (browsers block permission prompts without a gesture).
  */
-export async function enablePushNotifications() {
+export async function enablePushNotifications(opts = {}) {
+  const requestPermission = opts.requestPermission !== false;
+
   if (typeof window === 'undefined') {
     return { ok: false, permission: 'unsupported', error: 'Not in a browser' };
   }
@@ -55,6 +61,14 @@ export async function enablePushNotifications() {
 
   let permission = Notification.permission;
   if (permission === 'default') {
+    if (!requestPermission) {
+      return {
+        ok: false,
+        permission: 'default',
+        push: false,
+        error: 'Notification permission not granted yet',
+      };
+    }
     try {
       permission = await Notification.requestPermission();
     } catch {
