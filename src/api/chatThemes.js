@@ -1,10 +1,21 @@
 import client from './client.js';
 
+let catalogPromise = null;
+
 // Static catalog (preset combos + individual bubble colors/wallpapers) the
-// picker renders from. Rarely changes, so callers are free to cache it.
+// picker renders from. Cached after the first successful fetch — it rarely
+// changes and the theme modal used to re-request it every open.
 export async function fetchThemeCatalog() {
-  const { data } = await client.get('/chat-themes/presets');
-  return data.data;
+  if (!catalogPromise) {
+    catalogPromise = client
+      .get('/chat-themes/presets')
+      .then(({ data }) => data.data)
+      .catch((err) => {
+        catalogPromise = null;
+        throw err;
+      });
+  }
+  return catalogPromise;
 }
 
 // The caller's saved theme for a specific 1:1 conversation, or the default

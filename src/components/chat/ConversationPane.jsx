@@ -1,5 +1,6 @@
 import BrandLogo from '../BrandLogo.jsx';
 import ConversationList from '../ConversationList.jsx';
+import NotificationPermissionBanner from '../NotificationPermissionBanner.jsx';
 import SidebarMenu from '../SidebarMenu.jsx';
 import StoriesRail from '../StoriesRail.jsx';
 
@@ -14,6 +15,9 @@ export default function ConversationPane({
   onSettings,
   onLogout,
    onMarkAllRead,
+  vaultEnabled,
+  vaultUnlocked,
+  onOpenVault,
   storiesRailRef,
   users,
   onStoriesError,
@@ -31,6 +35,7 @@ export default function ConversationPane({
   onBlock,
   onMute,
   onArchive,
+   onToggleVault,
   loadingUsers,
     hasMoreContacts,
   onLoadMoreContacts,
@@ -51,8 +56,8 @@ export default function ConversationPane({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onOpenFriend,
-
-  
+  onlineUserIds,  
+  onOpenStarred,
 }) {
   return (
     <>
@@ -73,9 +78,18 @@ export default function ConversationPane({
             </div>
           </div>
           <div className="sidebar-header-actions">
-            <SidebarMenu onSettings={onSettings} onLogout={onLogout} onMarkAllRead={onMarkAllRead} />
+         <SidebarMenu
+            onSettings={onSettings}
+            onLogout={onLogout}
+            onMarkAllRead={onMarkAllRead}
+            onOpenStarred={onOpenStarred}
+            vaultEnabled={vaultEnabled}
+            vaultUnlocked={vaultUnlocked}
+            onOpenVault={onOpenVault}
+          />
           </div>
         </div>
+        <NotificationPermissionBanner />
         {canChat && (
           <>
             <StoriesRail
@@ -97,6 +111,7 @@ export default function ConversationPane({
         )}
         {canChat ? (
           <ConversationList
+            currentUser={user}
             conversations={conversations}
             filter={filter}
             onFilterChange={onFilterChange}
@@ -104,10 +119,11 @@ export default function ConversationPane({
             onSelect={onSelect}
             onCreateGroup={onCreateGroup}
             onDiscoverJoin={onDiscoverJoin}
-            onHide={onHide}
+          onHide={onHide}
             onBlock={onBlock}
             onMute={onMute}
             onArchive={onArchive}
+            onToggleVault={onToggleVault}
             loading={loadingUsers}
             searchQuery={search}
             friendCandidates={friendCandidates}
@@ -127,6 +143,7 @@ export default function ConversationPane({
             onAcceptFriendRequest={onAcceptFriendRequest}
             onDeclineFriendRequest={onDeclineFriendRequest}
             onOpenFriend={onOpenFriend}
+            onlineUserIds={onlineUserIds} 
             hasMoreContacts={hasMoreContacts}
             onLoadMoreContacts={onLoadMoreContacts}
           />

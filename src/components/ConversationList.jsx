@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Mail, MoreVertical, Phone, Search, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Lock, Mail, MoreVertical, Phone, Search, Unlock, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
+import { useVault } from '../context/VaultContext.jsx';
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
   return Date.now() - new Date(iso).getTime() < 5 * 60 * 1000;
 }
 
-function formatShortLastSeen(iso) {
-  if (!iso) return 'never seen';
-  const diff = Date.now() - new Date(iso).getTime();
+function formatShortRelative(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -21,14 +24,18 @@ function formatShortLastSeen(iso) {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
+function isOnlineUser(u, onlineUserIds) {
+  if (!u || !onlineUserIds) return false;
+  // Presence snapshot/updates are already privacy-filtered on the server.
+  return onlineUserIds.has(String(u.id));
+}
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
   { id: 'groups', label: 'Groups' },
   { id: 'friends', label: 'Friends' },
-  { id: 'discover', label: 'Discover' },
-  { id: 'public', label: 'Public Groups' },
+  // { id: 'discover', label: 'Discover' },
+  { id: 'public', label: 'Discover' },
   { id: 'archived', label: 'Archived' },
 ];
 
@@ -57,6 +64,7 @@ function computeConvMenuPosition(triggerEl) {
 }
 
 export default function ConversationList({
+  currentUser,
   conversations,
   filter,
   onFilterChange,
@@ -64,10 +72,11 @@ export default function ConversationList({
   onSelect,
   onCreateGroup,
   onDiscoverJoin,
-  onHide,
+ onHide,
   onBlock,
   onMute,
   onArchive,
+  onToggleVault,
   loading,
   hasMoreContacts,
   onLoadMoreContacts,
@@ -78,6 +87,7 @@ export default function ConversationList({
   outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
+  onlineUserIds = new Set(),
   contactQuery = '',
   onContactQueryChange,
   contactLookupResult = null,
@@ -90,6 +100,7 @@ export default function ConversationList({
   onDeclineFriendRequest,
   onOpenFriend,
 }) {
+ const { isUnlocked: vaultUnlocked, isPeerVaulted } = useVault();
   const [discoverItems, setDiscoverItems] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState('');
@@ -99,15 +110,90 @@ export default function ConversationList({
   const panelRef = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
 
-  const maxFilterStart = Math.max(0, FILTERS.length - FILTER_WINDOW);
+  const visibleMyFriends = useMemo(
+    () => myFriends.filter((u) => vaultUnlocked || !isPeerVaulted(u.id)),
+    [myFriends, vaultUnlocked, isPeerVaulted]
+  );
+  const visibleFriendCandidates = useMemo(
+    () => friendCandidates.filter((u) => vaultUnlocked || !isPeerVaulted(u.id)),
+    [friendCandidates, vaultUnlocked, isPeerVaulted]
+  );
+  const visibleIncomingRequests = useMemo(
+    () => incomingRequests.filter((r) => vaultUnlocked || !isPeerVaulted(r.user?.id)),
+    [incomingRequests, vaultUnlocked, isPeerVaulted]
+  );
+  const visibleOutgoingRequests = useMemo(
+    () => outgoingRequests.filter((r) => vaultUnlocked || !isPeerVaulted(r.user?.id)),
+    [outgoingRequests, vaultUnlocked, isPeerVaulted]
+  );
+  // Decoy view: hides real friend/request status for a locked vaulted peer
+  // entirely, so a lookup-by-email/phone can't be used to confirm the real
+  // relationship while locked.
+  const displayedContactLookupResult = useMemo(() => {
+    if (!contactLookupResult) return null;
+    if (!vaultUnlocked && isPeerVaulted(contactLookupResult.id)) {
+      return {
+        ...contactLookupResult,
+        requestStatus: 'none',
+        requestId: null,
+        __vaultedLocked: true,
+      };
+    }
+    return contactLookupResult;
+  }, [contactLookupResult, vaultUnlocked, isPeerVaulted]);
+
+  const friendSet = useMemo(() => {
+    const ids = new Set();
+    if (Array.isArray(myFriends)) {
+      myFriends.forEach((f) => {
+        if (f?.id) ids.add(String(f.id));
+        if (f?._id) ids.add(String(f._id));
+      });
+    }
+    if (Array.isArray(currentUser?.friends)) {
+      currentUser.friends.forEach((id) => ids.add(String(id)));
+    }
+    return ids;
+  }, [myFriends, currentUser?.friends]);
+
+  const { friendItems, otherItems } = useMemo(() => {
+    if (filter !== 'all') {
+      return { friendItems: conversations, otherItems: [] };
+    }
+    const friends = [];
+    const others = [];
+    for (const c of conversations) {
+      if (c.type === 'group' || c.isSelfChat || friendSet.has(String(c.id))) {
+        friends.push(c);
+      } else {
+        others.push(c);
+      }
+    }
+    return { friendItems: friends, otherItems: others };
+  }, [filter, conversations, friendSet]);
+
+  const pendingFriendCount = incomingRequests.length;
+
+  const orderedFilters = useMemo(() => {
+    if (!pendingFriendCount) return FILTERS;
+    const friendsTab = FILTERS.find((f) => f.id === 'friends');
+    if (!friendsTab) return FILTERS;
+    return [
+      FILTERS[0],
+      friendsTab,
+      ...FILTERS.filter((f) => f.id !== 'all' && f.id !== 'friends'),
+    ];
+  }, [pendingFriendCount]);
+
+  const maxFilterStart = Math.max(0, orderedFilters.length - FILTER_WINDOW);
 
   const visibleFilters = useMemo(
-    () => FILTERS.slice(filterStart, filterStart + FILTER_WINDOW),
-    [filterStart],
+    () => orderedFilters.slice(filterStart, filterStart + FILTER_WINDOW),
+    [orderedFilters, filterStart],
   );
 
   useEffect(() => {
-    const activeIndex = FILTERS.findIndex((f) => f.id === filter);
+    const activeIndex = orderedFilters.findIndex((f) => f.id === filter);
     if (activeIndex < 0) return;
     setFilterStart((start) => {
       if (activeIndex < start) return activeIndex;
@@ -116,7 +202,12 @@ export default function ConversationList({
       }
       return start;
     });
-  }, [filter, maxFilterStart]);
+  }, [filter, orderedFilters, maxFilterStart]);
+
+  useEffect(() => {
+    if (!pendingFriendCount) return;
+    setFilterStart(0);
+  }, [pendingFriendCount]);
 
   useEffect(() => {
     if (!openMenuKey) return undefined;
@@ -217,6 +308,237 @@ export default function ConversationList({
     }
   }
 
+  const renderConvItem = (c, index, isOtherUser = false) => (
+    <motion.div
+      key={c.key}
+      className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        setOpenMenuKey(null);
+        setMenuPos(null);
+        onSelect(c);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(c);
+        }
+      }}
+      aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unreadCount > 0 ? `, ${c.unreadCount} unread` : c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
+      whileHover={{ y: -1 }}
+    >
+      <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
+        {c.type === 'group' ? (
+          <span className="avatar group-avatar">
+            <Users size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : c.isSelfChat ? (
+          <span className="avatar group-avatar self-chat-avatar">
+            <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
+          </span>
+        ) : (
+          <span className="avatar-wrap" style={{ position: 'relative' }}>
+            <UserAvatar
+              userId={c.id}
+              name={c.title}
+              hasAvatar={Boolean(c.peer?.hasAvatar)}
+              className="conv-row-avatar"
+            />
+            {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
+          </span>
+        )}
+      </span>
+      <span className="user-list-meta">
+        <span className="user-list-name-row">
+          <span className="user-list-name">{c.title}</span>
+          {c.muted && (
+            <span className="conv-muted-icon" title="Muted" aria-label="Muted">
+              <BellOff size={12} strokeWidth={2} aria-hidden="true" />
+            </span>
+          )}
+          <span className="conv-row-time">{formatShortRelative(c.lastMessageAt)}</span>
+        </span>
+        <span className="user-list-sub-row">
+          <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
+          {(c.unreadCount > 0 || c.unread) && (
+            <span className="unread-badge" aria-hidden="true">
+              {(c.unreadCount || 1) > 99 ? '99+' : c.unreadCount || 1}
+            </span>
+          )}
+        </span>
+      </span>
+{!c.isSelfChat && c.type === 'dm' && !c.peer?.isSystemUser && !vaultUnlocked && isPeerVaulted(c.id) && (
+      // Decoy view: shows regardless of which filter/tab rendered this row,
+      // not just the "all" list's Other-users section. No real
+      // friend-request call while locked.
+      <button
+        type="button"
+        className="friend-action-btn add"
+        style={{ marginRight: '6px' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        Add
+      </button>
+    )}
+    {isOtherUser && !c.peer?.isSystemUser && !(!vaultUnlocked && isPeerVaulted(c.id)) && (() => {
+        const pendingOut = outgoingRequests.find((r) => String(r.user?.id) === String(c.id));
+        const pendingIn = incomingRequests.find((r) => String(r.user?.id) === String(c.id));
+
+        if (pendingOut) {
+          return (
+            <button
+              type="button"
+              className="friend-action-btn cancel"
+              style={{ marginRight: '6px' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancelFriendRequest?.(pendingOut.id);
+              }}
+            >
+              Cancel
+            </button>
+          );
+        }
+        if (pendingIn) {
+          return (
+            <div className="friend-request-actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="friend-action-btn accept"
+                aria-label={`Accept request from ${c.title}`}
+                onClick={() => onAcceptFriendRequest?.(pendingIn.id)}
+              >
+                <Check size={15} strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
+                className="friend-action-btn decline"
+                aria-label={`Decline request from ${c.title}`}
+                onClick={() => onDeclineFriendRequest?.(pendingIn.id)}
+              >
+                <X size={15} strokeWidth={2.5} />
+              </button>
+            </div>
+          );
+        }
+        return (
+          <button
+            type="button"
+            className="friend-action-btn add"
+            style={{ marginRight: '6px' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendFriendRequest?.(c.id);
+            }}
+          >
+            Add
+          </button>
+        );
+      })()}
+
+      {(onHide || onBlock || onMute || onArchive) && (
+        <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
+            aria-label={`Options for ${c.title}`}
+            aria-haspopup="menu"
+            aria-expanded={openMenuKey === c.key}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (openMenuKey === c.key) {
+                setOpenMenuKey(null);
+                setMenuPos(null);
+                return;
+              }
+              setMenuPos(computeConvMenuPosition(e.currentTarget));
+              setOpenMenuKey(c.key);
+            }}
+          >
+            <MoreVertical size={16} />
+          </button>
+          {openMenuKey === c.key && menuPos
+            ? createPortal(
+                <div
+                  className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
+                  role="menu"
+                  aria-label={`Conversation options for ${c.title}`}
+                  style={{
+                    position: 'fixed',
+                    top: menuPos.top,
+                    right: menuPos.right,
+                    left: 'auto',
+                    bottom: 'auto',
+                  }}
+                >
+                  <div className="conv-row-dropdown-title">Conversation options</div>
+                  {onMute && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onMute(c))}
+                    >
+                      <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
+                    </button>
+                  )}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onArchive(c))}
+                    >
+                      <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                  )}
+                  {c.type === 'dm' && onHide && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onHide(c.peer || c))}
+                    >
+                      <X size={14} /> Hide chat
+                    </button>
+                  )}
+                 {c.type === 'dm' && onToggleVault && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => runMenuAction(() => onToggleVault(c))}
+                    >
+                     {isPeerVaulted(c.id) ? (
+                        <>
+                          <Unlock size={14} /> Remove from vault
+                        </>
+                      ) : (
+                        <>
+                          <Lock size={14} /> Add to vault
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {c.type === 'dm' && onBlock && !c.isSelfChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => runMenuAction(() => onBlock(c.peer || c))}
+                    >
+                      <Ban size={14} /> Block user
+                    </button>
+                  )}
+                </div>,
+                document.body,
+              )
+            : null}
+        </div>
+      )}
+    </motion.div>
+  );
+
   return (
     <div className="conversation-panel" ref={panelRef}>
       <div className="sidebar-filters-wrap">
@@ -231,18 +553,33 @@ export default function ConversationList({
         </button>
 
         <div className="sidebar-filters" role="tablist" aria-label="Conversation filters">
-          {visibleFilters.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.id}
-              className={`sidebar-filter-btn ${filter === f.id ? 'active' : ''}`}
-              onClick={() => onFilterChange(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
+          {visibleFilters.map((f) => {
+            const showFriendBadge = f.id === 'friends' && pendingFriendCount > 0;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={filter === f.id}
+                aria-label={
+                  showFriendBadge
+                    ? `Friends, ${pendingFriendCount} pending request${pendingFriendCount === 1 ? '' : 's'}`
+                    : f.label
+                }
+                className={`sidebar-filter-btn${filter === f.id ? ' active' : ''}${
+                  showFriendBadge ? ' has-requests' : ''
+                }`}
+                onClick={() => onFilterChange(f.id)}
+              >
+                <span className="sidebar-filter-label">{f.label}</span>
+                {showFriendBadge ? (
+                  <span className="sidebar-filter-badge" aria-hidden="true">
+                    {pendingFriendCount > 9 ? '9+' : pendingFriendCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
 
         <button
@@ -326,16 +663,16 @@ export default function ConversationList({
         </div>
       ) : filter === 'friends' ? (
         <div className="user-list friends-list">
-          <div className="friend-requests-incoming">
+         <div className="friend-requests-incoming">
             <p className="friend-requests-heading">
               Requests
-              {incomingRequests.length + outgoingRequests.length > 0 ? (
+              {visibleIncomingRequests.length + visibleOutgoingRequests.length > 0 ? (
                 <span className="friend-section-count">
-                  {incomingRequests.length + outgoingRequests.length}
+                  {visibleIncomingRequests.length + visibleOutgoingRequests.length}
                 </span>
               ) : null}
             </p>
-            {incomingRequests.length === 0 && outgoingRequests.length === 0 ? (
+            {visibleIncomingRequests.length === 0 && visibleOutgoingRequests.length === 0 ? (
               <div className="friends-empty-card" role="status">
                 <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" />
                 <p className="friends-empty-title">No pending requests</p>
@@ -344,14 +681,17 @@ export default function ConversationList({
                 </p>
               </div>
             ) : (
-              <>
-                {incomingRequests.map((r) => (
+             <>
+                {visibleIncomingRequests.map((r) => (
                   <div key={`in-${r.id}`} className="user-list-item friend-request-item">
-                    <UserAvatar
-                      userId={r.user.id}
-                      name={r.user.displayName || r.user.username}
-                      hasAvatar={Boolean(r.user.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{r.user.displayName || r.user.username}</span>
                       <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
@@ -376,13 +716,16 @@ export default function ConversationList({
                     </div>
                   </div>
                 ))}
-                {outgoingRequests.map((r) => (
+               {visibleOutgoingRequests.map((r) => (
                   <div key={`out-${r.id}`} className="user-list-item friend-request-item">
-                    <UserAvatar
-                      userId={r.user.id}
-                      name={r.user.displayName || r.user.username}
-                      hasAvatar={Boolean(r.user.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={r.user.id}
+                        name={r.user.displayName || r.user.username}
+                        hasAvatar={Boolean(r.user.hasAvatar)}
+                      />
+                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{r.user.displayName || r.user.username}</span>
                       <span className="user-list-lastseen">Pending · @{r.user.username}</span>
@@ -401,11 +744,11 @@ export default function ConversationList({
             )}
           </div>
 
-          <div className="friend-connections">
+         <div className="friend-connections">
             <p className="friend-requests-heading">
               Your friends
-              {myFriends.length > 0 ? (
-                <span className="friend-section-count">{myFriends.length}</span>
+              {visibleMyFriends.length > 0 ? (
+                <span className="friend-section-count">{visibleMyFriends.length}</span>
               ) : null}
             </p>
             {myFriendsLoading ? (
@@ -418,7 +761,7 @@ export default function ConversationList({
                   </div>
                 </div>
               ))
-            ) : myFriends.length === 0 ? (
+           ) : visibleMyFriends.length === 0 ? (
               <div className="friends-empty-card" role="status">
                 <Users size={20} strokeWidth={1.75} aria-hidden="true" />
                 <p className="friends-empty-title">No friends yet</p>
@@ -427,7 +770,7 @@ export default function ConversationList({
                 </p>
               </div>
             ) : (
-              myFriends
+              visibleMyFriends
                 .filter((u) => {
                   const q = searchQuery.trim().toLowerCase();
                   if (!q) return true;
@@ -450,11 +793,14 @@ export default function ConversationList({
                       }
                     }}
                   >
-                    <UserAvatar
-                      userId={u.id}
-                      name={u.displayName || u.username}
-                      hasAvatar={Boolean(u.hasAvatar)}
-                    />
+                    <span className="avatar-wrap" style={{ position: 'relative' }}>
+                      <UserAvatar
+                        userId={u.id}
+                        name={u.displayName || u.username}
+                        hasAvatar={Boolean(u.hasAvatar)}
+                      />
+                      {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                    </span>
                     <span className="user-list-meta">
                       <span className="user-list-name">{u.displayName || u.username}</span>
                       <span className="user-list-lastseen">@{u.username}</span>
@@ -499,61 +845,64 @@ export default function ConversationList({
                 <span>Find</span>
               </button>
             </form>
-            {contactLookupError ? (
+           {contactLookupError ? (
               <p className="friend-contact-error" role="alert">{contactLookupError}</p>
             ) : null}
-            {contactLookupResult ? (
+            {displayedContactLookupResult ? (
               <motion.div
                 className="user-list-item friend-candidate-item"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <UserAvatar
-                  userId={contactLookupResult.id}
-                  name={contactLookupResult.displayName || contactLookupResult.username}
-                  hasAvatar={Boolean(contactLookupResult.hasAvatar)}
-                />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar
+                    userId={displayedContactLookupResult.id}
+                    name={displayedContactLookupResult.displayName || displayedContactLookupResult.username}
+                    hasAvatar={Boolean(displayedContactLookupResult.hasAvatar)}
+                  />
+                  {isOnlineUser(displayedContactLookupResult, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">
-                    {contactLookupResult.displayName || contactLookupResult.username}
+                    {displayedContactLookupResult.displayName || displayedContactLookupResult.username}
                   </span>
                   <span className="user-list-lastseen">
-                    @{contactLookupResult.username}
-                    {contactLookupResult.matchedBy
-                      ? ` · matched by ${contactLookupResult.matchedBy}`
+                    @{displayedContactLookupResult.username}
+                    {displayedContactLookupResult.matchedBy
+                      ? ` · matched by ${displayedContactLookupResult.matchedBy}`
                       : ''}
                   </span>
                 </span>
-                {contactLookupResult.requestStatus === 'friends' ? (
+                {displayedContactLookupResult.requestStatus === 'friends' ? (
                   <button
                     type="button"
                     className="friend-action-btn add"
-                    onClick={() => onOpenFriend?.(contactLookupResult)}
+                    onClick={() => onOpenFriend?.(displayedContactLookupResult)}
                   >
                     Chat
                   </button>
-                ) : contactLookupResult.requestStatus === 'pending_sent' ? (
+                ) : displayedContactLookupResult.requestStatus === 'pending_sent' ? (
                   <button
                     type="button"
                     className="friend-action-btn cancel"
-                    onClick={() => onCancelFriendRequest?.(contactLookupResult.requestId)}
+                    onClick={() => onCancelFriendRequest?.(displayedContactLookupResult.requestId)}
                   >
                     Cancel
                   </button>
-                ) : contactLookupResult.requestStatus === 'pending_received' ? (
+                ) : displayedContactLookupResult.requestStatus === 'pending_received' ? (
                   <div className="friend-request-actions">
                     <button
                       type="button"
                       className="friend-action-btn accept"
-                      onClick={() => onAcceptFriendRequest?.(contactLookupResult.requestId)}
+                      onClick={() => onAcceptFriendRequest?.(displayedContactLookupResult.requestId)}
                     >
                       <Check size={15} strokeWidth={2.5} />
                     </button>
                     <button
                       type="button"
                       className="friend-action-btn decline"
-                      onClick={() => onDeclineFriendRequest?.(contactLookupResult.requestId)}
+                      onClick={() => onDeclineFriendRequest?.(displayedContactLookupResult.requestId)}
                     >
                       <X size={15} strokeWidth={2.5} />
                     </button>
@@ -562,7 +911,11 @@ export default function ConversationList({
                   <button
                     type="button"
                     className="friend-action-btn add"
-                    onClick={() => onSendFriendRequest?.(contactLookupResult.id)}
+                    onClick={
+                      displayedContactLookupResult.__vaultedLocked
+                        ? undefined
+                        : () => onSendFriendRequest?.(displayedContactLookupResult.id)
+                    }
                   >
                     Add
                   </button>
@@ -603,7 +956,10 @@ export default function ConversationList({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               >
-                <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                <span className="avatar-wrap" style={{ position: 'relative' }}>
+                  <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                  {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
+                </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">{u.displayName || u.username}</span>
                   <span className="user-list-lastseen">@{u.username}</span>
@@ -662,145 +1018,29 @@ export default function ConversationList({
         </div>
       ) : (
         <div className="user-list">
-          {conversations.map((c, index) => (
-            <motion.div
-              key={c.key}
-              className={`user-list-item ${c.key === selectedKey ? 'active' : ''} ${c.unread ? 'unread' : ''} ${openMenuKey === c.key ? 'menu-open' : ''}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setOpenMenuKey(null);
-                setMenuPos(null);
-                onSelect(c);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(c);
-                }
-              }}
-              aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
-              whileHover={{ y: -1 }}
-            >
-              <span className={`avatar-container ${c.type === 'group' || c.isSelfChat ? 'group' : ''}`}>
-                {c.type === 'group' ? (
-                  <span className="avatar group-avatar">
-                    <Users size={18} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                ) : c.isSelfChat ? (
-                  <span className="avatar group-avatar self-chat-avatar">
-                    <Bookmark size={18} strokeWidth={2} aria-hidden="true" />
-                  </span>
-                ) : (
-                  <span className="avatar-wrap" style={{ position: 'relative' }}>
-                    <UserAvatar
-                      userId={c.id}
-                      name={c.title}
-                      hasAvatar={Boolean(c.peer?.hasAvatar)}
-                      className="conv-row-avatar"
-                    />
-                    {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
-                  </span>
-                )}
-              </span>
-              <span className="user-list-meta">
-                <span className="user-list-name-row">
-                  <span className="user-list-name">{c.title}</span>
-                  {c.muted && (
-                    <span className="conv-muted-icon" title="Muted" aria-label="Muted">
-                      <BellOff size={12} strokeWidth={2} aria-hidden="true" />
-                    </span>
-                  )}
-                  {c.unread && <span className="unread-dot" aria-hidden="true" />}
-                  <span className="conv-row-time">{c.isSelfChat ? '' : formatShortLastSeen(c.lastLoginAt)}</span>
-                </span>
-                <span className="user-list-lastseen">{c.subtitle || (c.isSelfChat ? 'Notes to self' : '')}</span>
-              </span>
-              {(onHide || onBlock || onMute || onArchive) && (
-                <div className="conv-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className={`conv-row-menu ${openMenuKey === c.key ? 'open' : ''}`}
-                    aria-label={`Options for ${c.title}`}
-                    aria-haspopup="menu"
-                    aria-expanded={openMenuKey === c.key}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (openMenuKey === c.key) {
-                        setOpenMenuKey(null);
-                        setMenuPos(null);
-                        return;
-                      }
-                      setMenuPos(computeConvMenuPosition(e.currentTarget));
-                      setOpenMenuKey(c.key);
-                    }}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                  {openMenuKey === c.key && menuPos
-                    ? createPortal(
-                        <div
-                          className={`conv-row-dropdown open${menuPos.openUp ? ' open-up' : ''}`}
-                          role="menu"
-                          aria-label={`Conversation options for ${c.title}`}
-                          style={{
-                            position: 'fixed',
-                            top: menuPos.top,
-                            right: menuPos.right,
-                            left: 'auto',
-                            bottom: 'auto',
-                          }}
-                        >
-                          <div className="conv-row-dropdown-title">Conversation options</div>
-                          {onMute && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onMute(c))}
-                            >
-                              <VolumeX size={14} /> {c.muted ? 'Unmute' : 'Mute'}
-                            </button>
-                          )}
-                          {onArchive && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onArchive(c))}
-                            >
-                              <Archive size={14} /> {c.archived ? 'Unarchive' : 'Archive'}
-                            </button>
-                          )}
-                          {c.type === 'dm' && onHide && !c.isSelfChat && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => runMenuAction(() => onHide(c.peer || c))}
-                            >
-                              <X size={14} /> Hide chat
-                            </button>
-                          )}
-                          {c.type === 'dm' && onBlock && !c.isSelfChat && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="danger"
-                              onClick={() => runMenuAction(() => onBlock(c.peer || c))}
-                            >
-                              <Ban size={14} /> Block user
-                            </button>
-                          )}
-                        </div>,
-                        document.body,
-                      )
-                    : null}
-                </div>
-              )}
-            </motion.div>
-          ))}
-          
+{filter === 'all' ? (
+  <>
+    {friendItems.length > 0 && (
+      <>
+        <p className="friend-requests-heading" style={{ padding: '0 12px 4px' }}>Friends</p>
+        {friendItems.map((c, index) => renderConvItem(c, index, false))}
+      </>
+    )}
+    {otherItems.length > 0 && (
+      <>
+        <p
+          className="friend-requests-heading"
+          style={{ marginTop: friendItems.length > 0 ? '12px' : '0px', padding: '0 12px 4px' }}
+        >
+          Other users
+        </p>
+        {otherItems.map((c, index) => renderConvItem(c, index, true))}
+      </>
+    )}
+  </>
+) : (
+  conversations.map((c, index) => renderConvItem(c, index, false))
+)}
           {conversations.length === 0 && (
             <p className="empty-hint">
               {searchQuery.trim()
@@ -825,7 +1065,7 @@ export default function ConversationList({
           )}
         </div>
       )}
-       
+
     </div>
   );
 }

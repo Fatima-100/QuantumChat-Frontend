@@ -4,6 +4,7 @@ import {
   Copy,
   Forward,
   Image as ImageIcon,
+  Info,
   MoreHorizontal,
   Music,
   Pencil,
@@ -142,6 +143,9 @@ function MessageBubble({
   onImageReady,
   onOpenStory,
   onVotePoll,
+  onBurnViewOnce,
+  onShowInfo,
+    onShowEditHistory,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
@@ -228,7 +232,18 @@ const storyReplyPayload = useMemo(() => {
         </span>
       ) : null}
       {relativeTime}
-      {message.editedAt ? <span className="message-edited"> · edited</span> : null}
+      {message.editedAt ? (
+        <span
+          className="message-edited"
+          role={onShowEditHistory ? 'button' : undefined}
+          tabIndex={onShowEditHistory ? 0 : undefined}
+          style={onShowEditHistory ? { cursor: 'pointer', textDecoration: 'underline dotted' } : undefined}
+          onClick={onShowEditHistory ? (e) => { e.stopPropagation(); onShowEditHistory(message); } : undefined}
+        >
+          {' '}
+          · edited
+        </span>
+      ) : null}
       {isMine && <ReadReceipt status={receiptStatus} />}
     </>
   );
@@ -298,10 +313,16 @@ const storyReplyPayload = useMemo(() => {
       >
         {menuOpen && (
           <>
-            {onReply && (
+                       {onReply && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onReply(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Reply size={16} strokeWidth={2} /></span>
                 <span>Reply</span>
+              </button>
+            )}
+            {isMine && onShowInfo && (
+              <button type="button" role="menuitem" onClick={() => { closeAll(); onShowInfo(message); }}>
+                <span className="message-menu-icon" aria-hidden="true"><Info size={16} strokeWidth={2} /></span>
+                <span>Message info</span>
               </button>
             )}
             {hasTextContent && onCopy && (
@@ -312,6 +333,7 @@ const storyReplyPayload = useMemo(() => {
             )}
             {hasTextContent &&
               onForward &&
+              !message.viewOnce &&
               message.forwardPolicy?.allowForward !== false &&
               !(
                 message.forwardPolicy?.forwardUntil &&
@@ -322,12 +344,19 @@ const storyReplyPayload = useMemo(() => {
                 <span>Forward</span>
               </button>
             )}
-            {onStar && (
-              <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
-                <span className="message-menu-icon" aria-hidden="true"><Star size={16} strokeWidth={2} /></span>
-                <span>{starred ? 'Unstar' : 'Star'}</span>
-              </button>
-            )}
+           {onStar && (
+  <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
+    <span className="message-menu-icon" aria-hidden="true">
+      <Star
+        size={16}
+        strokeWidth={2}
+        fill={starred ? '#FFC107' : 'none'}
+        stroke={starred ? '#FFC107' : 'currentColor'}
+      />
+    </span>
+    <span>{starred ? 'Unstar' : 'Star'}</span>
+  </button>
+)}
             {onPin && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onPin(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pin size={16} strokeWidth={2} /></span>
@@ -441,7 +470,11 @@ const storyReplyPayload = useMemo(() => {
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
-                {starred && <span title="Starred"><Star size={12} /></span>}
+              {starred && (
+  <span title="Starred">
+    <Star size={12} fill="#FFC107" stroke="#FFC107" strokeWidth={0} />
+  </span>
+)}
               </div>
             )}
             {message.kind === 'ai_note' && (
@@ -461,15 +494,22 @@ const storyReplyPayload = useMemo(() => {
                 <span className="message-reply-text">{replyPreview.text}</span>
               </button>
             )}
-            {message.attachment && structured.type !== 'file' && (
+            {(message.viewOnce && message.viewOnceOpenedAt) ||
+            (message.attachment && structured.type !== 'file') ? (
               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
                 resolveSecretKey={keyResolver}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                viewOnce={Boolean(message.viewOnce)}
+                viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
+                viewOnceMediaKind={message.viewOnceMediaKind}
+                onBurnViewOnce={
+                  onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
+                }
               />
-            )}
+            ) : null}
             {callMeta ? (
               <div className="call-message">
                 <div className="call-message-icon"><Phone size={20} /></div>
@@ -494,7 +534,9 @@ const storyReplyPayload = useMemo(() => {
                   </div>
                 </div>
               </div>
-            ) : message.group && message.text != null ? (
+            ) : message.group &&
+              message.text != null &&
+              !(message.viewOnce && message.viewOnceOpenedAt) ? (
               <GroupMessageContent
                 message={message}
                 payload={structured}
@@ -505,6 +547,9 @@ const storyReplyPayload = useMemo(() => {
                 isMine={isMine}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onBurnViewOnce={
+                  onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
+                }
               />
               ) : isStoryReaction ? (
               <button

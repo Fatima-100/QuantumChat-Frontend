@@ -100,6 +100,17 @@ function supportsVideoPip() {
   );
 }
 
+/** Format elapsed call time as M:SS or H:MM:SS. */
+function formatCallDuration(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (hours > 0) return `${hours}:${pad(mins)}:${pad(secs)}`;
+  return `${mins}:${pad(secs)}`;
+}
+
 function injectPipStyles(doc) {
   const style = doc.createElement('style');
   style.textContent = `
@@ -218,7 +229,7 @@ export default function CallOverlay({
   const pipWindowRef = useRef(null);
   const pipVideoRef = useRef(null);
   const [pipActive, setPipActive] = useState(false);
-  const [speakerActive, setSpeakerActive] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const autoPipAttemptedRef = useRef(false);
 
   const supportsSpeaker =
@@ -249,7 +260,8 @@ export default function CallOverlay({
   const name = peerLabel || call?.peerName || 'User';
   const isIncoming = call?.status === 'incoming';
   const isRinging = call?.status === 'ringing';
-  const inMedia = call?.status === 'connecting' || call?.status === 'active';
+  const isActive = call?.status === 'active';
+  const inMedia = call?.status === 'connecting' || isActive;
   const showsRemoteVideo = inMedia && (call?.video || remoteScreen);
   const showsOwnScreenOnly = inMedia && screenSharing && !showsRemoteVideo;
   const showsVideo = showsRemoteVideo || showsOwnScreenOnly;
@@ -259,6 +271,37 @@ export default function CallOverlay({
     typeof navigator !== 'undefined' &&
     Boolean(navigator.mediaDevices?.getDisplayMedia);
   const canUsePip = inMedia && (supportsDocumentPip() || supportsVideoPip() || Boolean(onToggleMinimize));
+
+  // Live call timer once the peer has answered / media is active.
+  useEffect(() => {
+    const canTime =
+      call &&
+      (call.status === 'active' || call.status === 'connecting') &&
+      (call.startedAt || call.status === 'active');
+    if (!canTime) {
+      setElapsedSec(0);
+      return undefined;
+    }
+    const anchor = call.startedAt || Date.now();
+    const tick = () => {
+      setElapsedSec(Math.max(0, Math.floor((Date.now() - anchor) / 1000)));
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [call?.startedAt, call?.status, call]);
+
+  const durationLabel = formatCallDuration(elapsedSec);
+  const showDuration =
+    isActive || (Boolean(call?.startedAt) && call?.status === 'connecting');
+  const activeStatusLabel = (() => {
+    if (pipActive) return 'Picture-in-picture';
+    if (screenSharing) return 'Sharing screen';
+    if (remoteScreen) return `${name} is sharing`;
+    if (showDuration) return durationLabel;
+    if (call?.status === 'connecting') return 'Connecting…';
+    return call?.video ? 'Video call' : 'Voice call';
+  })();
 
   const closeDocumentPip = useCallback(() => {
     const win = pipWindowRef.current;
@@ -313,9 +356,11 @@ export default function CallOverlay({
         ? 'Sharing screen'
         : screenSharing
           ? 'You are sharing'
-          : call?.video
-            ? 'Video call'
-            : 'Voice call';
+          : showDuration
+            ? durationLabel
+            : call?.video
+              ? 'Video call'
+              : 'Voice call';
       meta.append(title, status);
 
       const actions = doc.createElement('div');
@@ -357,8 +402,11 @@ export default function CallOverlay({
       doc.body.appendChild(root);
     },
     [
+      call?.startedAt,
+      call?.status,
       call?.video,
       closeDocumentPip,
+      durationLabel,
       muted,
       name,
       onHangup,
@@ -367,6 +415,7 @@ export default function CallOverlay({
       remoteScreen,
       remoteStream,
       screenSharing,
+      showDuration,
     ],
   );
 
@@ -504,13 +553,7 @@ export default function CallOverlay({
                 ? 'Incoming…'
                 : isRinging
                   ? 'Calling…'
-                  : pipActive
-                    ? 'Picture-in-picture'
-                    : screenSharing
-                      ? 'Sharing screen'
-                      : remoteScreen
-                        ? `${name} is sharing`
-                        : 'In call'}
+                  : activeStatusLabel}
             </div>
           </div>
           <button
@@ -568,11 +611,9 @@ export default function CallOverlay({
                   : 'Incoming voice call'
                 : isRinging
                   ? 'Calling…'
-                  : call.status === 'connecting'
+                  : call.status === 'connecting' && !showDuration
                     ? 'Connecting…'
-                    : call.video
-                      ? 'Video call'
-                      : 'Voice call'}
+                    : activeStatusLabel}
             </p>
           </div>
         )}
