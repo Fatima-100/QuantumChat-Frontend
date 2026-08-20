@@ -462,6 +462,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const keyFileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const selectedRef = useRef(null);
+  const userRef = useRef(user);
   const messagesRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -476,6 +477,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const groupsRef = useRef([]);
   const storiesRailRef = useRef(null);
   selectedRef.current = selected;
+  userRef.current = user;
   messagesRef.current = messages;
   usersRef.current = users;
   groupsRef.current = groups;
@@ -912,6 +914,66 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     }
   }, []);
 
+  /** Instantly reflect an accepted friendship (socket or poll) — no page reload. */
+  const applyAcceptedFriendship = useCallback(
+    (friend, requestId) => {
+      const friendId = String(friend?.id || friend?._id || "");
+      if (!friendId) return;
+
+      const current = userRef.current;
+      if (current) {
+        const friends = Array.from(
+          new Set([...(current.friends || []).map(String), friendId]),
+        );
+        updateSessionUser({ ...current, friends });
+      }
+
+      setMyFriends((prev) => {
+        if (prev.some((f) => String(f.id || f._id) === friendId)) return prev;
+        return [
+          {
+            id: friendId,
+            displayName: friend.displayName,
+            username: friend.username,
+            hasAvatar: friend.hasAvatar,
+            ...friend,
+          },
+          ...prev,
+        ];
+      });
+
+      setOutgoingRequests((prev) =>
+        prev.filter((r) => {
+          if (requestId && String(r.id) === String(requestId)) return false;
+          return String(r.user?.id) !== friendId;
+        }),
+      );
+      setIncomingRequests((prev) =>
+        prev.filter((r) => {
+          if (requestId && String(r.id) === String(requestId)) return false;
+          return String(r.user?.id) !== friendId;
+        }),
+      );
+
+      setContactLookupResult((prev) =>
+        prev && String(prev.id) === friendId
+          ? { ...prev, requestStatus: "friends", requestId: null }
+          : prev,
+      );
+    },
+    [updateSessionUser],
+  );
+
+  const isFriendWith = useCallback(
+    (peerId) => {
+      const id = String(peerId || "");
+      if (!id) return false;
+      if ((user.friends || []).map(String).includes(id)) return true;
+      return myFriends.some((f) => String(f.id || f._id) === id);
+    },
+    [user?.friends, myFriends],
+  );
+
   const handleLookupContact = useCallback(async () => {
     const raw = contactQuery.trim();
     setContactLookupError("");
@@ -1012,14 +1074,91 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
   useEffect(() => {
     if (!user?.id) return undefined;
-    const tick = () => {
+
+    let cancelled = false;
+    let inFlight = false;
+    let primed = false;
+    const knownFriendIds = new Set(
+      (userRef.current?.friends || []).map(String),
+    );
+
+    async function syncFriendState() {
+      if (cancelled || inFlight) return;
       if (document.visibilityState === "hidden") return;
-      if (getSocket()?.connected) return;
-      loadFriendRequests();
+
+      const socketConnected = Boolean(getSocket()?.connected);
+      const hasPending =
+        outgoingRequests.length > 0 || incomingRequests.length > 0;
+      // Keep polling while requests are pending (acceptances must show without
+      // reload). Also poll when Socket.IO is unavailable (e.g. Vercel API).
+      if (socketConnected && !hasPending) return;
+
+      inFlight = true;
+      try {
+        const [reqRes, friendsRes, meRes] = await Promise.all([
+          client.get("/users/friend-requests"),
+          client.get("/users/friends"),
+          client.get("/users/me").catch(() => null),
+        ]);
+        if (cancelled) return;
+
+        setIncomingRequests(reqRes.data?.data?.incoming || []);
+        setOutgoingRequests(reqRes.data?.data?.outgoing || []);
+
+        const friends = friendsRes.data?.data || [];
+        setMyFriends(friends);
+
+        const newlyAccepted = friends.filter((f) => {
+          const id = String(f.id || f._id);
+          return id && !knownFriendIds.has(id);
+        });
+        friends.forEach((f) => {
+          const id = String(f.id || f._id);
+          if (id) knownFriendIds.add(id);
+        });
+
+        if (meRes?.data?.data) {
+          updateSessionUser(meRes.data.data);
+        } else {
+          newlyAccepted.forEach((f) => applyAcceptedFriendship(f));
+        }
+
+        if (primed && newlyAccepted.length === 1 && hasPending) {
+          const name =
+            newlyAccepted[0].displayName ||
+            newlyAccepted[0].username ||
+            "Someone";
+          showToast(`${name} accepted your friend request`, "success");
+        }
+        primed = true;
+      } catch {
+        // non-fatal
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const hasPending =
+      outgoingRequests.length > 0 || incomingRequests.length > 0;
+    const intervalMs = hasPending ? 4000 : 12000;
+    const timer = window.setInterval(syncFriendState, intervalMs);
+    if (hasPending || !getSocket()?.connected) {
+      syncFriendState();
+    }
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
-    const timer = window.setInterval(tick, 12000);
-    return () => window.clearInterval(timer);
-  }, [user?.id, loadFriendRequests]);
+    // Intentionally omit myFriends / user.friends from deps — knownFriendIds
+    // is seeded once per effect run; length of pending queues drives restarts.
+  }, [
+    user?.id,
+    outgoingRequests.length,
+    incomingRequests.length,
+    updateSessionUser,
+    applyAcceptedFriendship,
+    showToast,
+  ]);
 
   useEffect(() => {
     if (filter === "all") {
@@ -1341,7 +1480,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       loadFriendRequests();
       showToast("New friend request", "info");
     }
-    async function handleFriendRequestAccepted() {
+    async function handleFriendRequestAccepted(payload = {}) {
+      const friend = payload?.friend;
+      const requestId = payload?.id || payload?.requestId;
+      if (friend) {
+        applyAcceptedFriendship(friend, requestId);
+        const name = friend.displayName || friend.username || "Someone";
+        showToast(`You're now friends with ${name}`, "success");
+      }
+
       try {
         const { data } = await client.get("/users/me");
         if (data?.data) updateSessionUser(data.data);
@@ -1352,9 +1499,19 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       loadDirectory();
       loadFriendRequests();
       loadMyFriends();
-      loadFriendDiscover();
+      loadFriendDiscover(search);
     }
-    async function handleFriendRemoved() {
+    async function handleFriendRemoved(payload = {}) {
+      const removedBy = payload?.by;
+      if (removedBy && userRef.current) {
+        const nextFriends = (userRef.current.friends || [])
+          .map(String)
+          .filter((id) => id !== String(removedBy));
+        updateSessionUser({ ...userRef.current, friends: nextFriends });
+        setMyFriends((prev) =>
+          prev.filter((f) => String(f.id || f._id) !== String(removedBy)),
+        );
+      }
       try {
         const { data } = await client.get("/users/me");
         if (data?.data) updateSessionUser(data.data);
@@ -1640,6 +1797,13 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     bumpActivity,
     showToast,
     notifSettings,
+    applyAcceptedFriendship,
+    updateSessionUser,
+    loadDirectory,
+    loadFriendRequests,
+    loadMyFriends,
+    loadFriendDiscover,
+    search,
   ]);
 
   // Production (Vercel API) has no Socket.IO — poll REST presence/typing instead.
@@ -2746,9 +2910,15 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
   async function handleAcceptFriendRequest(requestId) {
     try {
+      const pending = incomingRequests.find(
+        (r) => String(r.id) === String(requestId),
+      );
       const { data } = await client.post(
         `/users/friend-requests/${requestId}/accept`,
       );
+      if (pending?.user) {
+        applyAcceptedFriendship(pending.user, requestId);
+      }
       if (data?.data?.me) {
         updateSessionUser(data.data.me);
       } else {
@@ -2760,17 +2930,9 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         }
       }
       showToast("Friend request accepted", "success");
-      setIncomingRequests((prev) =>
-        prev.filter((r) => String(r.id) !== String(requestId)),
-      );
       loadDirectory();
       loadFriendDiscover(search);
       loadMyFriends();
-      setContactLookupResult((prev) =>
-        prev && String(prev.requestId) === String(requestId)
-          ? { ...prev, requestStatus: "friends", requestId: null }
-          : prev,
-      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to accept request",
@@ -5626,9 +5788,7 @@ useEffect(() => {
   !selected.peer?.isSystemUser &&
   (() => {
     const vaultedLocked = !vaultUnlocked && isPeerVaulted(selected.id);
-    const isRealFriend = (user.friends || [])
-      .map(String)
-      .includes(String(selected.id));
+    const isRealFriend = isFriendWith(selected.id);
 
     if (!vaultedLocked && isRealFriend) return null;
 
@@ -6065,9 +6225,7 @@ useEffect(() => {
           archived={archivedKeys
             .map(String)
             .includes(String(conversationKeyForUser(profileUserId)))}
-          isFriend={(user.friends || [])
-            .map(String)
-            .includes(String(profileUserId))}
+          isFriend={isFriendWith(profileUserId)}
           onRemoveFriend={async (peer) => {
             try {
               await client.delete(`/users/friends/${peer.id}`);
