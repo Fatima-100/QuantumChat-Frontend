@@ -230,6 +230,7 @@ export default function CallOverlay({
   const pipVideoRef = useRef(null);
   const [pipActive, setPipActive] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [speakerActive, setSpeakerActive] = useState(false);
   const autoPipAttemptedRef = useRef(false);
 
   const supportsSpeaker =
