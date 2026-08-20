@@ -3889,6 +3889,82 @@ input:focus-visible,
   word-break: normal;
 }
 
+/* Large animated emoji-only messages (WhatsApp-style) */
+.message-bubble.emoji-only {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 2px 4px 18px;
+  min-width: 0;
+}
+
+.message-bubble.emoji-only.mine,
+.message-bubble.emoji-only.theirs {
+  background: transparent !important;
+}
+
+.message-text--emoji-only {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+  white-space: normal;
+}
+
+.message-text--emoji-only.is-single {
+  font-size: 3.2rem;
+}
+
+.message-text--emoji-only.is-few {
+  font-size: 2.4rem;
+}
+
+.message-text--emoji-only.is-many {
+  font-size: 1.75rem;
+}
+
+.message-emoji-anim {
+  display: inline-block;
+  transform-origin: center bottom;
+  animation: qc-emoji-pop 0.55s cubic-bezier(0.34, 1.45, 0.64, 1) both,
+    qc-emoji-bob 2.4s ease-in-out 0.55s infinite;
+}
+
+@keyframes qc-emoji-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) translateY(12px);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.18) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes qc-emoji-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-5px) rotate(-6deg);
+  }
+  60% {
+    transform: translateY(-2px) rotate(5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-emoji-anim {
+    animation: none;
+  }
+}
+
 .message-more-btn {
   opacity: 0;
   align-self: center;

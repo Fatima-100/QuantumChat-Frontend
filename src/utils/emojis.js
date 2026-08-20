@@ -337,3 +337,26 @@ export function pushRecentEmoji(emoji) {
     // ignore quota / private mode
   }
 }
+
+/** Match a full emoji grapheme (incl. ZWJ sequences / skin tones / VS16). */
+const EMOJI_TOKEN_RE =
+  /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*)|(?:\p{Regional_Indicator}{2})/gu;
+
+export function splitEmojis(text) {
+  const t = String(text || '');
+  const matches = t.match(EMOJI_TOKEN_RE);
+  return matches || [];
+}
+
+/** True when the message is only emoji (and optional whitespace), like WhatsApp large emoji. */
+export function isEmojiOnlyText(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const emojis = splitEmojis(t);
+  if (!emojis.length || emojis.length > 12) return false;
+  const stripped = t
+    .replace(EMOJI_TOKEN_RE, '')
+    .replace(/[\uFE0F\u200D\u200B-\u200D\uFEFF\u2060]/g, '')
+    .replace(/\s+/g, '');
+  return stripped.length === 0;
+}
