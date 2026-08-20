@@ -123,11 +123,11 @@ export function buildNotificationText(
 
 /**
  * Shows a real browser Notification popup, if permission is already granted.
- * When the tab is hidden, prefer OS sound (silent:false) because Web Audio is
- * often suspended in background tabs.
+ * Prefer OS sound whenever the user has sound enabled — forcing silent while
+ * the tab is "visible" made alerts easy to miss during side-by-side testing.
  */
 export function showNotificationPopup(
-  { title, body, requireInteraction, icon, tag },
+  { title, body, requireInteraction, icon, tag, silent: silentOverride },
   notifSettings,
   onClick,
 ) {
@@ -135,11 +135,10 @@ export function showNotificationPopup(
   if (Notification.permission !== 'granted') return;
   if (notifSettings?.webNotifications?.enabled === false) return;
 
-  const tabHidden =
-    typeof document !== 'undefined' && document.visibilityState === 'hidden';
   const soundOnWeb = notifSettings?.webNotifications?.soundOnWeb !== false;
   const allowOsSound = soundOnWeb && notifSettings?.soundEnabled !== false;
-  const silent = tabHidden ? !allowOsSound : true;
+  const silent =
+    typeof silentOverride === 'boolean' ? silentOverride : !allowOsSound;
 
   try {
     const n = new Notification(title, {
