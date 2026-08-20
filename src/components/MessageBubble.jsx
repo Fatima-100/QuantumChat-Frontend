@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { COMPOSER_EMOJIS, QUICK_REACTIONS, searchEmojis } from '../utils/emojis.js';
+import { COMPOSER_EMOJIS, QUICK_REACTIONS, isEmojiOnlyText, searchEmojis, splitEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
@@ -182,6 +182,11 @@ const storyReplyPayload = useMemo(() => {
   const isStoryReaction = storyReplyPayload?.type === 'story_reaction';
   const isStructured = Boolean(message.group) && structured.type && structured.type !== 'text';
   const hasTextContent = !isStructured && !isStoryReply && message.text && message.text.length > 0;
+  const emojiOnly = hasTextContent && isEmojiOnlyText(message.text);
+  const emojiTokens = useMemo(
+    () => (emojiOnly ? splitEmojis(message.text) : []),
+    [emojiOnly, message.text],
+  );
   const isDecryptionFail = message.text === null;
 
   const callMeta = useMemo(() => {
@@ -455,7 +460,7 @@ const storyReplyPayload = useMemo(() => {
         transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
-          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}`}>
+          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}`}>
             {senderLabel && !isMine && !grouped && (
               <div className="message-sender-label">
                 {senderLabel}
@@ -590,7 +595,24 @@ const storyReplyPayload = useMemo(() => {
                 <div>{storyReplyPayload.text}</div>
               </div>
             ) : hasTextContent ? (
-              <span className="message-text">{message.text}</span>
+              emojiOnly ? (
+                <span
+                  className={`message-text message-text--emoji-only${emojiTokens.length === 1 ? ' is-single' : emojiTokens.length <= 3 ? ' is-few' : ' is-many'}`}
+                  aria-label={message.text}
+                >
+                  {emojiTokens.map((emoji, i) => (
+                    <span
+                      key={`${emoji}-${i}`}
+                      className="message-emoji-anim"
+                      style={{ animationDelay: `${i * 60}ms` }}
+                    >
+                      {emoji}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="message-text">{message.text}</span>
+              )
             ) : isDecryptionFail ? (
               <em>[Unable to decrypt message]</em>
             ) : null}

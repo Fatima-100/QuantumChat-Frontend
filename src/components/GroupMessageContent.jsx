@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { secretboxOpen } from '../crypto/keys.js';
+import { isEmojiOnlyText, splitEmojis } from '../utils/emojis.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 
 function MentionText({ text }) {
@@ -275,6 +276,27 @@ export default function GroupMessageContent({
 }) {
   if (!payload || payload.type === 'text') {
     const body = payload?.body ?? message?.text ?? '';
+    if (isEmojiOnlyText(body)) {
+      const tokens = splitEmojis(body);
+      const sizeClass =
+        tokens.length === 1 ? ' is-single' : tokens.length <= 3 ? ' is-few' : ' is-many';
+      return (
+        <span
+          className={`message-text message-text--emoji-only${sizeClass}`}
+          aria-label={body}
+        >
+          {tokens.map((emoji, i) => (
+            <span
+              key={`${emoji}-${i}`}
+              className="message-emoji-anim"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              {emoji}
+            </span>
+          ))}
+        </span>
+      );
+    }
     return (
       <div className="message-text">
         <MentionText text={body} />
