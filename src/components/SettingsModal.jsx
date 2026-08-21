@@ -136,6 +136,7 @@ export default function SettingsModal({
     whoCanInviteViaGroupLink: user?.privacy?.whoCanInviteViaGroupLink || 'everyone',
     whoCanCreateGroupsWithMe: user?.privacy?.whoCanCreateGroupsWithMe || 'everyone',
     groupMentions: user?.privacy?.groupMentions || 'everyone',
+    screenshotProtection: user?.privacy?.screenshotProtection === true,
   });
   const [friendsList, setFriendsList] = useState([]);
 
@@ -1323,6 +1324,23 @@ export default function SettingsModal({
                   ]}
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('groupMentions', v)}
+                />
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Screenshot Protection</h3>
+                <p className="settings-section-copy">
+                  Block screenshots and screen recording of chats and profiles on this device
+                  where the platform allows it. On web, QuantumChat blanks the screen and alerts
+                  you when a capture shortcut is detected (browsers cannot fully block OS
+                  screenshots).
+                </p>
+                <ToggleRow
+                  label="Screenshot protection"
+                  hint="Protect chats and profile screens from screenshots / recording"
+                  checked={privacy.screenshotProtection === true}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('screenshotProtection', v)}
                 />
               </div>
             </section>
