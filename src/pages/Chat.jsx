@@ -4010,14 +4010,6 @@ async function handleUnblockUser(peerId) {
     }
   }
 
-  function cancelUpload(uploadId) {
-    setUploads((prev) => {
-      const item = prev.find((u) => u.id === uploadId);
-      item?.controller?.abort();
-      return prev;
-    });
-  }
-
   async function sendAttachmentFiles(filesOrFile) {
     const list = Array.isArray(filesOrFile)
       ? filesOrFile
@@ -5590,38 +5582,6 @@ useEffect(() => {
                     isVisible={true}
                     onFileDrop={sendAttachmentFiles}
                   />
-                )}
-
-                {uploads.length > 0 && (
-                  <div className="upload-progress-panel" aria-live="polite">
-                    {uploads.map((u) => (
-                      <div key={u.id} className="upload-progress-row">
-                        <div className="upload-progress-meta">
-                          <span className="upload-progress-name" title={u.name}>
-                            Encrypting & uploading {u.name}
-                          </span>
-                          <span className="upload-progress-pct">
-                            {u.progress}%
-                          </span>
-                        </div>
-                        <div className="upload-progress-track">
-                          <div
-                            className="upload-progress-fill"
-                            style={{ width: `${u.progress}%` }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          className="upload-progress-cancel"
-                          onClick={() => cancelUpload(u.id)}
-                          aria-label={`Cancel upload of ${u.name}`}
-                        >
-                          <X size={14} strokeWidth={2} />
-                          Cancel
-                        </button>
-                      </div>
-                    ))}
-                  </div>
                 )}
 
                 <AnimatePresence mode="wait">
