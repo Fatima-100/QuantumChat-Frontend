@@ -129,6 +129,13 @@ export default function SettingsModal({
     storyViewers: Array.isArray(user?.privacy?.storyViewers)
       ? user.privacy.storyViewers.map((id) => String(id._id || id))
       : [],
+    profileVisibility: user?.privacy?.profileVisibility || 'everyone',
+    birthdayVisibility: user?.privacy?.birthdayVisibility || 'everyone',
+    whoCanMention: user?.privacy?.whoCanMention || 'everyone',
+    whoCanAddToGroups: user?.privacy?.whoCanAddToGroups || 'everyone',
+    whoCanInviteViaGroupLink: user?.privacy?.whoCanInviteViaGroupLink || 'everyone',
+    whoCanCreateGroupsWithMe: user?.privacy?.whoCanCreateGroupsWithMe || 'everyone',
+    groupMentions: user?.privacy?.groupMentions || 'everyone',
   });
   const [friendsList, setFriendsList] = useState([]);
 
@@ -1066,10 +1073,36 @@ export default function SettingsModal({
           {tab === 'privacy' && (
             <section className="settings-section">
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">Privacy Controls</h3>
+                <h3 className="settings-section-title">Profile &amp; Activity Privacy</h3>
                 <p className="settings-section-copy">
-                  Manage who can view your presence, send direct messages, and discover your account.
+                  Manage who can view your profile info, last seen, online status, and stories.
                 </p>
+
+                <PrivacySelect
+                  label="Who Can See My Profile"
+                  description="Control visibility of bio, phone number, and detailed profile info"
+                  value={privacy.profileVisibility}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'onlyMe', label: 'Only Me' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('profileVisibility', v)}
+                />
+
+                <PrivacySelect
+                  label="Who Can See My Birthday"
+                  description="Control who can view your birthday on your profile"
+                  value={privacy.birthdayVisibility}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'onlyMe', label: 'Only Me' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('birthdayVisibility', v)}
+                />
 
                 <PrivacySelect
                   label="Last Seen"
@@ -1147,19 +1180,6 @@ export default function SettingsModal({
                 )}
 
                 <PrivacySelect
-                  label="Who Can Direct Message You"
-                  description="Control who can send you direct messages"
-                  value={privacy.whoCanMessage}
-                  options={[
-                    { value: 'everyone', label: 'Everyone' },
-                    { value: 'friends', label: 'Friends Only' },
-                    { value: 'friendsOfFriends', label: 'Friends of Friends' },
-                  ]}
-                  disabled={busy}
-                  onChange={(v) => updatePrivacyField('whoCanMessage', v)}
-                />
-
-                <PrivacySelect
                   label="Show My Account To"
                   description="Account discoverability in user search"
                   value={privacy.discoverable}
@@ -1170,6 +1190,7 @@ export default function SettingsModal({
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('discoverable', v)}
                 />
+
                 <PrivacySelect
                   label="Who Can View My Stories"
                   description="Control who can see your posted stories"
@@ -1211,6 +1232,98 @@ export default function SettingsModal({
                     )}
                   </div>
                 )}
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Messaging &amp; Mentions</h3>
+                <p className="settings-section-copy">
+                  Control who can direct message you and tag you in general mentions.
+                </p>
+
+                <PrivacySelect
+                  label="Who Can Direct Message You"
+                  description="Control who can send you direct messages"
+                  value={privacy.whoCanMessage}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'friendsOfFriends', label: 'Friends of Friends' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanMessage', v)}
+                />
+
+                <PrivacySelect
+                  label="Who Can Mention You"
+                  description="General 1:1 and direct mention permissions"
+                  value={privacy.whoCanMention}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanMention', v)}
+                />
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Group Privacy &amp; Permissions</h3>
+                <p className="settings-section-copy">
+                  Manage group invitations, group creation permissions, and group-specific mentions.
+                </p>
+
+                <PrivacySelect
+                  label="Who Can Add Me to Groups"
+                  description="Control who can add you directly to group chats"
+                  value={privacy.whoCanAddToGroups}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanAddToGroups', v)}
+                />
+
+                <PrivacySelect
+                  label="Who Can Invite Me via Group Links"
+                  description="Control whether you can join groups via invite links"
+                  value={privacy.whoCanInviteViaGroupLink}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanInviteViaGroupLink', v)}
+                />
+
+                <PrivacySelect
+                  label="Who Can Create Groups with Me"
+                  description="Control who can select you as an initial member of a new group"
+                  value={privacy.whoCanCreateGroupsWithMe}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'friends', label: 'Friends Only' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('whoCanCreateGroupsWithMe', v)}
+                />
+
+                {/* Note: distinct scope from general mentions (whoCanMention) */}
+                <PrivacySelect
+                  label="Group Mentions"
+                  description="Control who can @-mention you inside group chats specifically"
+                  value={privacy.groupMentions}
+                  options={[
+                    { value: 'everyone', label: 'Everyone' },
+                    { value: 'adminsOnly', label: 'Admins Only' },
+                    { value: 'nobody', label: 'No One' },
+                  ]}
+                  disabled={busy}
+                  onChange={(v) => updatePrivacyField('groupMentions', v)}
+                />
               </div>
             </section>
           )}
