@@ -1,19 +1,19 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import client from '../api/client.js';
-import { generateKeySet, derivePublicKey, KEY_SET_SIZE } from '../crypto/keys.js';
-import {
-  addKeySetToRing,
-  hasKeyring,
-  getKeyringSyncStatus,
-  keyringMatchesPublishedKeys,
-  saveSession,
-  getStoredUser,
-  clearSession,
-  clearKeyring,
-  getToken,
-} from '../crypto/keyStorage.js';
 import { connectSocket, disconnectSocket } from '../api/socket.js';
 import { clearVaultToken } from '../api/vaultToken.js';
+import { derivePublicKey, generateKeySet, KEY_SET_SIZE } from '../crypto/keys.js';
+import {
+  addKeySetToRing,
+  clearKeyring,
+  clearSession,
+  getKeyringSyncStatus,
+  getStoredUser,
+  getToken,
+  hasKeyring,
+  keyringMatchesPublishedKeys,
+  saveSession
+} from '../crypto/keyStorage.js';
 
 const AuthContext = createContext(null);
 
@@ -102,7 +102,7 @@ export function AuthProvider({ children }) {
   }, [user?.id]);
 
   const register = useCallback(
-    async ({ username, email, password }) => {
+    async ({ username, email, password, dateOfBirth, timezone }) => {
       const keySet = generateKeySet();
       const publicKeys = keySet.map((k) => k.publicKey);
       // Validate localStorage works before creating a server account whose keys we must store here.
@@ -114,7 +114,7 @@ export function AuthProvider({ children }) {
         throw new Error('Cannot save keys to localStorage: ' + err.message);
       }
 
-      const { data } = await client.post('/auth/register', { username, email, password, publicKeys });
+      const { data } = await client.post('/auth/register', {username,email,password,publicKeys,dateOfBirth: dateOfBirth || undefined,timezone,});
       const { token, user: newUser } = data.data;
 
       // CRITICAL: persist private keys before anything else that could navigate away.
@@ -135,9 +135,20 @@ export function AuthProvider({ children }) {
     [recomputeKeyringSync]
   );
 
-  // Private keys stay on this device across logins. We only clear another
-  // account's keyring when switching users, so the same account does not
-  // re-prompt for keys.txt every session.
+   // Private keys stay on this device across logins. We only clear another
+    // account's keyring when switching users, so the same account does not
+    // re-prompt for keys.txt every session.
+    // Best-effort — keeps the birthday-notification scheduler accurate if the
+    // person has traveled since their last login. Never blocks or fails login.
+    function refreshTimezoneSilently() {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (timezone) client.patch('/users/me', { timezone }).catch(() => {});
+      } catch {
+        // Intl unsupported or blocked — not worth surfacing to the user.
+      }
+    }
+
   const login = useCallback(async ({ email, password, rememberMe = true }) => {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
     const { data } = await client.post('/auth/login', {
@@ -159,6 +170,7 @@ export function AuthProvider({ children }) {
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
+    refreshTimezoneSilently();
     return loggedInUser;
   }, []);
 
@@ -176,6 +188,7 @@ export function AuthProvider({ children }) {
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
+    refreshTimezoneSilently();
     return loggedInUser;
   }, []);
 
