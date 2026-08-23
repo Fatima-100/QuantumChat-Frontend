@@ -6,10 +6,12 @@ import { useEffect, useRef } from 'react';
  * Applied on the viewer's device when viewing content from someone who enabled
  * screenshot protection — not on the account owner's own device.
  *
- * Browsers cannot fully block OS screenshots. This hook:
- * - Detects common screenshot shortcuts (PrintScreen, etc.) and notifies
- * - Flashes a black privacy overlay so captured frames are blanked when possible
- * - Blurs protected UI while the tab is hidden (helps with some screen shares)
+ * Browsers cannot fully block OS screenshots. This hook only:
+ * - Flashes a privacy overlay on known screenshot shortcuts (PrintScreen / macOS)
+ * - Briefly blurs UI while the tab is actually hidden (visibilitychange)
+ *
+ * It does NOT blur on window focus loss — that fires constantly (DevTools,
+ * OS notifications, clicking outside the browser) and made the app unusable.
  *
  * Mobile apps use FLAG_SECURE / iOS capture APIs for stronger enforcement.
  */
@@ -24,6 +26,8 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
     const root = document.documentElement;
     root.classList.add('qc-screenshot-protection');
     root.dataset.qcProtectScope = scope;
+    // Never leave a stale blur from a previous session / focus race.
+    root.classList.remove('qc-screenshot-blur');
 
     function flashPrivacyOverlay(reason) {
       let overlay = document.getElementById('qc-screenshot-flash');
@@ -45,13 +49,14 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
     function isScreenshotChord(e) {
       const key = e.key || '';
       const code = e.code || '';
+      // Windows / Linux PrintScreen
       if (key === 'PrintScreen' || code === 'PrintScreen') return true;
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+      // macOS: Cmd+Shift+3/4/5 (full / selection / recording)
+      // Do not treat Ctrl+Shift+S as a screenshot — browsers use it for Save.
+      if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey) {
         const k = key.toLowerCase();
-        if (k === 's' || k === '3' || k === '4' || k === '5') return true;
-      }
-      if (e.metaKey && e.shiftKey && (code === 'Digit3' || code === 'Digit4' || code === 'Digit5')) {
-        return true;
+        if (k === '3' || k === '4' || k === '5') return true;
+        if (code === 'Digit3' || code === 'Digit4' || code === 'Digit5') return true;
       }
       return false;
     }
@@ -69,28 +74,23 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
       }
     }
 
-    function onWindowBlur() {
-      root.classList.add('qc-screenshot-blur');
-    }
-
-    function onWindowFocus() {
+    // Safety net: if blur somehow sticks while the tab is visible, clear it.
+    function clearStaleBlur() {
       if (document.visibilityState === 'visible') {
         root.classList.remove('qc-screenshot-blur');
       }
     }
 
     document.addEventListener('keydown', onKeyDown, true);
-    document.addEventListener('keyup', onKeyDown, true);
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('blur', onWindowBlur);
-    window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('focus', clearStaleBlur);
+    document.addEventListener('pointerdown', clearStaleBlur, true);
 
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
-      document.removeEventListener('keyup', onKeyDown, true);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onWindowBlur);
-      window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener('focus', clearStaleBlur);
+      document.removeEventListener('pointerdown', clearStaleBlur, true);
       root.classList.remove('qc-screenshot-protection', 'qc-screenshot-blur');
       delete root.dataset.qcProtectScope;
       if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
