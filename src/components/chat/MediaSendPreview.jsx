@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Eye, Send, X } from 'lucide-react';
 import useFocusTrap from '../../hooks/useFocusTrap.js';
 
@@ -17,18 +17,36 @@ export default function MediaSendPreview({
   sending = false,
 }) {
   const containerRef = useRef(null);
-  const [objectUrl, setObjectUrl] = useState('');
+  const imagePreviewRef = useRef(null);
+  const videoPreviewRef = useRef(null);
 
   useFocusTrap(containerRef, open);
 
   useEffect(() => {
-    if (!open || !file) {
-      setObjectUrl('');
-      return undefined;
+    if (!open || !file) return undefined;
+
+    const objectUrl = URL.createObjectURL(file);
+    let safePreviewUrl = '';
+    try {
+      const parsed = new URL(objectUrl);
+      if (parsed.protocol === 'blob:') safePreviewUrl = parsed.href;
+    } catch {
+      // Leave media sources unset for malformed preview URLs.
     }
-    const url = URL.createObjectURL(file);
-    setObjectUrl(url);
-    return () => URL.revokeObjectURL(url);
+
+    const previewElement = file.type.startsWith('video/')
+      ? videoPreviewRef.current
+      : imagePreviewRef.current;
+
+    if (previewElement) {
+      if (safePreviewUrl) previewElement.src = safePreviewUrl;
+      else previewElement.removeAttribute('src');
+    }
+
+    return () => {
+      if (previewElement) previewElement.removeAttribute('src');
+      URL.revokeObjectURL(objectUrl);
+    };
   }, [open, file]);
 
   if (!open || !file) return null;
@@ -62,14 +80,14 @@ export default function MediaSendPreview({
         <div className="media-send-preview">
           {isVideo ? (
             <video
-              src={objectUrl}
+              ref={videoPreviewRef}
               className="media-send-media"
               controls
               playsInline
               preload="metadata"
             />
           ) : (
-            <img src={objectUrl} alt="" className="media-send-media" />
+            <img ref={imagePreviewRef} alt="" className="media-send-media" />
           )}
         </div>
 
