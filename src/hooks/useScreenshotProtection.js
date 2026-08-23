@@ -3,6 +3,9 @@ import { useEffect, useRef } from 'react';
 /**
  * Best-effort screenshot / screen-capture protection for the web app.
  *
+ * Applied on the viewer's device when viewing content from someone who enabled
+ * screenshot protection — not on the account owner's own device.
+ *
  * Browsers cannot fully block OS screenshots. This hook:
  * - Detects common screenshot shortcuts (PrintScreen, etc.) and notifies
  * - Flashes a black privacy overlay so captured frames are blanked when possible

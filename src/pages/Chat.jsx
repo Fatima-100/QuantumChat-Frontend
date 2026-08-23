@@ -132,6 +132,7 @@ import {
 } from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
+import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
 import {
   conversationKeyForGroup,
   conversationKeyForUser,
@@ -251,20 +252,6 @@ const { isUnlocked: vaultUnlocked, isPeerVaulted, vaultEnabled, addPeer: addVaul
   const location = useLocation();
   const isSettingsRoute = location.pathname.startsWith("/chat/settings");
   const settingsTab = params.tab || "profile";
-
-  const screenshotProtectionOn = user?.privacy?.screenshotProtection === true;
-  useScreenshotProtection(screenshotProtectionOn, {
-    scope: "chat",
-    onAttempt: (reason) => {
-      showToast(
-        reason === "screenshot"
-          ? "Screenshot blocked — chat content is protected"
-          : "Screen capture blocked for privacy",
-        "info",
-        3500,
-      );
-    },
-  });
 
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -2429,6 +2416,31 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     },
     [user?.id, selfPeer, users],
   );
+
+  const screenshotProtectionOn = useMemo(
+    () =>
+      shouldEnforceScreenshotProtection({
+        viewerId: user?.id,
+        selected,
+        profileUserId,
+        users,
+        groups,
+        resolveDmPeer,
+      }),
+    [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
+  );
+  useScreenshotProtection(screenshotProtectionOn, {
+    scope: "chat",
+    onAttempt: (reason) => {
+      showToast(
+        reason === "screenshot"
+          ? "Screenshot blocked — this contact protects their content"
+          : "Screen capture blocked — this contact protects their content",
+        "info",
+        3500,
+      );
+    },
+  });
 
   const conversations = useMemo(() => {
     const q = search.trim().toLowerCase();
