@@ -1447,10 +1447,21 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     function handleViewOnceOpened(raw) {
       const id = String(raw?.id || raw?._id || "");
       if (!id) return;
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-      );
+      // Prefer updating by id if the message is already on screen — more
+      // reliable than conversation matching when from/to/group shapes differ.
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => String(m.id || m._id) === id);
+        if (idx === -1) return prev;
+        const current = prev[idx];
+        const decorated = decorate(raw);
+        const next = [...prev];
+        next[idx] = {
+          ...decorated,
+          // Keep decrypted text if the opened payload stripped envelopes.
+          text: decorated.text ?? current.text,
+        };
+        return next;
+      });
     }
 
     function handleGroupNew(payload = {}) {
@@ -2019,8 +2030,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     };
   }, [selected, vaultUnlocked, isPeerVaulted]);
   // Vercel's serverless API cannot keep a Socket.IO connection alive.
-  // When no socket is connected, sync the open conversation frequently so
-  // both participants see new messages without manually reloading the page.
+  // Sync the open conversation frequently so both participants see new
+  // messages and view-once opens without reloading. Still poll (slower)
+  // when a socket is connected — view-once / receipt updates can be missed
+  // if signaling is on a separate host from the message API.
   useEffect(() => {
     if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
 
@@ -2034,13 +2047,26 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         ? `/groups/${threadId}/messages`
         : `/messages/${threadId}`;
 
+    function messageNeedsMerge(message, next) {
+      if (!next) return false;
+      const attachmentId = (m) =>
+        String(m?.attachment?.id || m?.attachment?._id || m?.attachment || "");
+      return (
+        next.text !== message.text ||
+        String(next.readAt || "") !== String(message.readAt || "") ||
+        String(next.deliveredAt || "") !== String(message.deliveredAt || "") ||
+        String(next.editedAt || "") !== String(message.editedAt || "") ||
+        String(next.viewOnceOpenedAt || "") !==
+          String(message.viewOnceOpenedAt || "") ||
+        String(next.viewOnceOpenedBy || "") !==
+          String(message.viewOnceOpenedBy || "") ||
+        attachmentId(next) !== attachmentId(message) ||
+        (next.reactions || []).length !== (message.reactions || []).length
+      );
+    }
+
     async function syncOpenConversation() {
-      if (
-        cancelled ||
-        inFlight ||
-        document.visibilityState === "hidden" ||
-        getSocket()?.connected
-      ) {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
         return;
       }
 
@@ -2057,11 +2083,14 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
             String(message.id || message._id),
           ),
         );
-        const receivedNewMessage = latest.some(
-          (message) =>
-            !currentIds.has(String(message.id || message._id)) &&
-            String(message.from) !== String(user.id),
-        );
+        const socketLive = Boolean(getSocket()?.connected);
+        const receivedNewMessage =
+          !socketLive &&
+          latest.some(
+            (message) =>
+              !currentIds.has(String(message.id || message._id)) &&
+              String(message.from) !== String(user.id),
+          );
 
         setMessages((current) => {
           const existingIds = new Set(
@@ -2078,18 +2107,14 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
           const merged = current.map((message) => {
             const id = String(message.id || message._id);
             const next = latestById.get(id);
-            if (!next) return message;
-            if (
-              next.text === message.text &&
-              next.readAt === message.readAt &&
-              next.deliveredAt === message.deliveredAt &&
-              next.editedAt === message.editedAt &&
-              (next.reactions || []).length === (message.reactions || []).length
-            ) {
-              return message;
-            }
+            if (!next || !messageNeedsMerge(message, next)) return message;
             changed = true;
-            return next;
+            // Prefer keeping already-decrypted text when the server payload
+            // no longer carries envelopes (e.g. after view-once open).
+            return {
+              ...next,
+              text: next.text ?? message.text,
+            };
           });
           for (const message of latest) {
             const id = String(message.id || message._id);
@@ -2119,12 +2144,14 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     }
 
-    const timer = window.setInterval(syncOpenConversation, 1200);
+    const intervalMs = getSocket()?.connected ? 2500 : 1200;
+    const timer = window.setInterval(syncOpenConversation, intervalMs);
     const syncWhenVisible = () => {
       if (document.visibilityState === "visible") syncOpenConversation();
     };
     window.addEventListener("focus", syncOpenConversation);
     document.addEventListener("visibilitychange", syncWhenVisible);
+    syncOpenConversation();
 
     return () => {
       cancelled = true;
