@@ -1330,14 +1330,15 @@ export default function SettingsModal({
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Screenshot Protection</h3>
                 <p className="settings-section-copy">
-                  Block screenshots and screen recording of chats and profiles on this device
-                  where the platform allows it. On web, QuantumChat blanks the screen and alerts
-                  you when a capture shortcut is detected (browsers cannot fully block OS
-                  screenshots).
+                  When enabled, other people cannot screenshot or screen-record your
+                  chats and profile on their device where the platform supports it.
+                  You can still capture your own screen normally. On web, viewers get
+                  a blank screen and alert when a capture shortcut is detected
+                  (browsers cannot fully block OS screenshots).
                 </p>
                 <ToggleRow
                   label="Screenshot protection"
-                  hint="Protect chats and profile screens from screenshots / recording"
+                  hint="Stop others from screenshotting or recording your chats and profile"
                   checked={privacy.screenshotProtection === true}
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('screenshotProtection', v)}
