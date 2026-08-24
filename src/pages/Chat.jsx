@@ -380,13 +380,9 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       mqCompact.removeEventListener?.("change", syncCompact);
     };
   }, []);
-
-  useEffect(() => {
-    if (!hasLocalKeyring || !user?.id) return undefined;
-    screenTimeCollector.start();
-    return () => screenTimeCollector.stop();
-  }, [hasLocalKeyring, user?.id]);
-
+ // Screen-time tracking is session-level now — see ScreenTimeTracker.jsx,
+  // mounted once above <Routes> in App.jsx so it survives navigation
+  // between /chat, /chat/activity, etc.
   useEffect(() => {
     const cores = navigator.hardwareConcurrency || 4;
     const reduced =
@@ -1399,40 +1395,55 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
     }
 
-  function handleReaction(raw) {
-    const messageId = String(raw?.messageId || raw?.message?.id || raw?.message?._id || "");
-    const eventId = String(raw?.id || raw?._id || messageId || "");
-    if (!eventId) return;
-    const actorId = raw?.from || raw?.userId || raw?.actorId;
-    const actor = resolveActivityActor(actorId);
-    const message = messagesRef.current.find((candidate) => String(candidate.id || candidate._id) === messageId);
-    const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
-    const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
-    const reactedByYou = actor.actorIsCurrentUser;
-    const originalAuthorId = message?.from || message?.senderId;
-    const originalAuthor = resolveActivityActor(originalAuthorId);
-    activityStore.appendEvent({
-      id: eventId,
-      type: "reaction",
-      targetId: messageId || eventId,
-      messageId: messageId || undefined,
-      actorId,
-      actorName: actor.actorLabel,
-      actorIsCurrentUser: actor.actorIsCurrentUser,
-      emoji: raw?.emoji || raw?.reaction,
-      groupId,
-      groupName,
-      preview: message ? decorate(message).text : undefined,
-      originalAuthorLabel: originalAuthor.actorLabel,
-      originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
-      reactedByYou,
-      conversationKey: groupId ? `group:${groupId}` : undefined,
+   function handleReaction(raw) {
+    const messageId = String(raw?.id || raw?._id || raw?.messageId || raw?.message?.id || raw?.message?._id || "");
+    if (!messageId) return;
+
+    // raw is a full-message snapshot, not a delta — diff its decrypted
+    // reactions against what we last rendered for this message to find
+    // out WHO just reacted and with WHAT emoji. raw.from is the message's
+    // original author, never the reactor — do not use it for actorId.
+    const decorated = decorate(raw);
+    const prevMessage = messagesRef.current.find(
+      (candidate) => String(candidate.id || candidate._id) === messageId,
+    );
+    const prevReactions = prevMessage?.reactions || [];
+    const nextReactions = decorated.reactions || [];
+    const changed = nextReactions.find((next) => {
+      const prev = prevReactions.find((p) => String(p.user) === String(next.user));
+      return !prev || prev.emoji !== next.emoji;
     });
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-      );
+
+    if (changed) {
+      const actorId = changed.user;
+      const actor = resolveActivityActor(actorId);
+      const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
+      const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
+      const originalAuthor = resolveActivityActor(decorated.from);
+      activityStore.appendEvent({
+        id: `${messageId}:${actorId}:${changed.emoji || "clear"}:${Date.now()}`,
+        type: "reaction",
+        targetId: messageId,
+        messageId,
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        emoji: changed.emoji,
+        groupId,
+        groupName,
+        preview: decorated.text,
+        originalAuthorLabel: originalAuthor.actorLabel,
+        originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
+        reactedByYou: actor.actorIsCurrentUser,
+        conversationKey: groupId ? `group:${groupId}` : undefined,
+      });
     }
+
+   if (!isCurrentConversation(raw)) return;
+    setMessages((prev) =>
+      prev.map((m) => (String(m.id || m._id) === messageId ? decorated : m)),
+    );
+  }
 
     function handleEdited(raw) {
       const id = String(raw?.id || raw?._id || "");
