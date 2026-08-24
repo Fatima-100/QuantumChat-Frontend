@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Archive, BadgeCheck, Ban, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
+import { Archive, BadgeCheck, Ban, Cake, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import {
@@ -10,8 +10,8 @@ import {
 
 function formatPresence(profile, online) {
   if (!profile) return null;
-  const onlineAllowed = (profile.privacy?.onlineStatus || profile.privacy?.online) !== 'nobody';
-  if (onlineAllowed && online) return { label: 'Online', online: true };
+  // `online` is already privacy-filtered by the presence system.
+  if (online) return { label: 'Online', online: true };
 
   const lastSeenSetting = profile.privacy?.lastSeen || 'everyone';
   if (lastSeenSetting === 'nobody' || !profile.lastLoginAt) {
@@ -321,6 +321,17 @@ export default function UserProfileModal({
                     <span>{presence?.label || 'Hidden'}</span>
                   </span>
                 </li>
+                {profile?.birthday && (
+                  <li className="user-profile-meta-row">
+                    <span className="user-profile-meta-icon" aria-hidden="true">
+                      <Cake size={16} strokeWidth={2} />
+                    </span>
+                    <span className="user-profile-meta-copy">
+                      <strong>Birthday</strong>
+                      <span>{new Date(profile.birthday).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</span>
+                    </span>
+                  </li>
+                )}
                 <li className="user-profile-meta-row">
                   <span className="user-profile-meta-icon" aria-hidden="true">
                     <Lock size={16} strokeWidth={2} />

@@ -458,14 +458,61 @@ export default function useWebRTCCall({
     setMuted(next);
   }, [muted]);
 
-  const toggleCamera = useCallback(() => {
-    const stream = localStreamRef.current;
-    if (!stream) return;
-    const next = !cameraOff;
-    stream.getVideoTracks().forEach((t) => {
-      t.enabled = !next;
-    });
-    setCameraOff(next);
+  const toggleCamera = useCallback(async () => {
+    let stream = localStreamRef.current;
+    const turningOff = !cameraOff;
+
+    if (turningOff) {
+      if (stream) {
+        stream.getVideoTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      }
+      setCameraOff(true);
+      return;
+    }
+
+    // Turning camera ON
+    if (stream && stream.getVideoTracks().some((t) => t.readyState === 'live')) {
+      stream.getVideoTracks().forEach((t) => {
+        t.enabled = true;
+      });
+      setCameraOff(false);
+      return;
+    }
+
+    // No existing live video track — acquire one dynamically
+    try {
+      const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const vTrack = vStream.getVideoTracks()[0];
+      if (!vTrack) return;
+
+      if (!stream) {
+        stream = new MediaStream([vTrack]);
+        localStreamRef.current = stream;
+      } else {
+        stream.addTrack(vTrack);
+      }
+
+      setLocalStream(new MediaStream(stream.getTracks()));
+
+      const pc = pcRef.current;
+      if (pc && pc.signalingState !== 'closed') {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(vTrack);
+        } else {
+          pc.addTrack(vTrack, stream);
+        }
+        await renegotiateRef.current?.({ video: true });
+      }
+
+      setCall((prev) => (prev ? { ...prev, video: true } : prev));
+      setCameraOff(false);
+    } catch (err) {
+      console.warn('[useWebRTCCall] Could not enable camera:', err);
+      throw err;
+    }
   }, [cameraOff]);
 
   useEffect(() => {

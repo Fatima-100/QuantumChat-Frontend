@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getToken } from '../crypto/keyStorage.js';
 import { getApiUrl } from './baseUrl.js';
+import { getVaultToken } from './vaultToken.js';
 
 const client = axios.create({
   baseURL: getApiUrl(),
@@ -11,8 +12,20 @@ client.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  const vaultToken = getVaultToken();
+  if (vaultToken) {
+    config.headers['x-vault-token'] = vaultToken;
+  }
   return config;
 });
+
+export async function viewStory(id) {
+  return client.post(`/stories/${id}/view`);
+}
+export async function getStoryViewers(id) {
+  const { data } = await client.get(`/stories/${id}/viewers`);
+  return data;
+}
 
 export async function updatePrivacySettings(payload) {
   const { data } = await client.patch('/users/me/privacy', payload);

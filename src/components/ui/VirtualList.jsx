@@ -20,6 +20,7 @@ export default function VirtualList({
   const internalRef = useRef(null);
   const parentRef = scrollRef || internalRef;
   const shouldVirtualize = enabled && count >= threshold;
+  const rootClassName = `qc-virtual-list ${className}`.trim();
 
   const virtualizer = useVirtualizer({
     count: shouldVirtualize ? count : 0,
@@ -31,7 +32,7 @@ export default function VirtualList({
 
   if (!shouldVirtualize) {
     return (
-      <div ref={parentRef} className={className} style={{ overflow: 'auto', ...style }}>
+      <div ref={parentRef} className={rootClassName} style={{ overflow: 'auto', ...style }}>
         {Array.from({ length: count }, (_, index) => children({ index, key: getItemKey?.(index) ?? index }))}
       </div>
     );
@@ -40,7 +41,7 @@ export default function VirtualList({
   const items = virtualizer.getVirtualItems();
 
   return (
-    <div ref={parentRef} className={className} style={{ overflow: 'auto', ...style }}>
+    <div ref={parentRef} className={rootClassName} style={{ overflow: 'auto', ...style }}>
       <div
         style={{
           height: virtualizer.getTotalSize(),

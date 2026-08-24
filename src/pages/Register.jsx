@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link, Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
-import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo.jsx';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.jsx';
-import { formatKeyFile, downloadKeyFile } from '../crypto/keyFile.js';
+import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { downloadKeyFile, formatKeyFile } from '../crypto/keyFile.js';
+import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
 
 function getFriendlyRegisterError(serverError, statusCode) {
   const msg = (serverError || '').toLowerCase();
@@ -67,7 +68,16 @@ function getFriendlyRegisterError(serverError, statusCode) {
 export default function Register() {
   const { user, register } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ username: '', email: '', password: '' });
+  const [form, setForm] = useState({
+    username: '',
+    email: '',
+    password: '',
+    dateOfBirth: '',
+    // Pre-selected as a convenience default only — the user can change it
+    // before submitting; nothing is written until they hit Create account.
+    timezone: detectBrowserTimezone(),
+  });
+  const timezoneOptions = useState(getTimezoneList)[0];
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -115,7 +125,8 @@ export default function Register() {
 
     setLoading(true);
     try {
-      const keys = await register(form);
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const keys = await register({ ...form, timezone });
       setKeyBackup(keys);
     } catch (err) {
       const serverMsg = err.response?.data?.error;
@@ -215,6 +226,54 @@ export default function Register() {
 
         {form.password && <PasswordStrengthMeter password={form.password} />}
 
+        <div className="auth-field auth-field-optional">
+          <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          <input
+            id="register-dob"
+            aria-label="Date of birth (optional)"
+            type="date"
+            value={form.dateOfBirth}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
+          />
+        </div>
+        <div className="auth-field-hint">
+          <span>Date of birth is optional — friends get a reminder on your birthday.</span>
+          {form.dateOfBirth && (
+            <button
+              type="button"
+              className="auth-field-skip"
+              onClick={() => setForm({ ...form, dateOfBirth: '' })}
+            >
+              Skip
+            </button>
+          )}
+        </div>
+
+          <div className="auth-field auth-field-optional">
+          <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <select
+            id="register-timezone"
+            aria-label="Timezone"
+            value={form.timezone}
+            onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+          >
+            {timezoneOptions.map((tz) => (
+              <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </div>
+        <div className="auth-field-hint">
+          <span>Timezone — used to time your birthday reminder correctly. Change it anytime in Settings.</span>
+        </div>
         {error && (
           <div className="auth-error" role="alert" aria-live="polite">
             <span>{error.text}</span>

@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   HelpCircle,
   Info,
-  Menu,
   MessageSquare,
   Mic,
   Phone,
@@ -25,6 +24,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
@@ -32,10 +32,12 @@ import CameraCapture from "../components/CameraCapture.jsx";
 import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
 import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
+import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
+import BottomSheet from "../components/ui/BottomSheet.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
@@ -47,6 +49,7 @@ import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
+import MessageInfoModal from "../components/MessageInfoModal.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
@@ -77,7 +80,8 @@ import {
 } from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
-import { getWallpaperBackground, getWallpaperFx } from '../theme/wallpaperBackgrounds.js';
+import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
+import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -94,6 +98,8 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import activityStore from "../utils/activityStore.js";
+import screenTimeCollector from "../utils/screenTimeCollector.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -114,6 +120,7 @@ import {
   getStarredIds,
   togglePinnedMessage,
   toggleStarredMessage,
+    getStarredEntries,
 } from "../utils/messageExtras.js";
 import {
   buildNotificationText,
@@ -123,16 +130,26 @@ import {
   showNotificationPopup,
 } from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
+import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
+import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
 import {
   conversationKeyForGroup,
   conversationKeyForUser,
   getConversationActivity,
+  getUnreadCount,
+  incrementUnreadCount,
   isUnreadConversation,
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
 import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
-
+import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
+import { useVault } from "../context/VaultContext.jsx";
+import { getPeerVaultDecoyStatus } from "../api/vault.js";
+import VaultSetupModal from "../components/VaultSetupModal.jsx";
+import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
+import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
+import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
@@ -159,6 +176,33 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isViewOnceEligibleFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  if (
+    mime.startsWith('audio/') ||
+    /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) ||
+    /^voice-note/i.test(name)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isMediaPreviewFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  return false;
 }
 
 function memberId(m) {
@@ -197,6 +241,10 @@ export default function Chat() {
     updateSessionUser,
   } = useAuth();
   const { showToast } = useToast();
+const { isUnlocked: vaultUnlocked, isPeerVaulted, vaultEnabled, addPeer: addVaultPeer, removePeer: removeVaultPeer, lock: lockVault } = useVault();
+  const [showVaultSetup, setShowVaultSetup] = useState(false);
+  const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [pendingVaultPeerId, setPendingVaultPeerId] = useState(null);
   const { settings: notifSettings } = useNotificationSettings();
   const navigate = useNavigate();
   const params = useParams();
@@ -213,6 +261,7 @@ export default function Chat() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -256,6 +305,10 @@ export default function Chat() {
     getDeletedForMeIds(user?.id),
   );
   const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [showStarredMessages, setShowStarredMessages] = useState(false);
+  const [showChatMedia, setShowChatMedia] = useState(false);
+const [starredScope, setStarredScope] = useState('all'); // 'all' | 'chat'
+const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [pinnedIds, setPinnedIds] = useState([]);
   const [forwardMessage, setForwardMessage] = useState(null);
   const [forwardBusy, setForwardBusy] = useState(false);
@@ -265,6 +318,8 @@ export default function Chat() {
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [mediaPreviewSending, setMediaPreviewSending] = useState(false);
   const [allowForward, setAllowForward] = useState(true);
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
@@ -285,12 +340,21 @@ export default function Chat() {
     getInfoPanelOpen(),
   );
   const [actionSheetMessage, setActionSheetMessage] = useState(null);
+  const [messageInfoData, setMessageInfoData] = useState(null);
+    const [editHistoryMessage, setEditHistoryMessage] = useState(null);
   const [callMinimized, setCallMinimized] = useState(false);
   const [isMobileShell, setIsMobileShell] = useState(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(max-width: 768px)").matches
       : false,
   );
+  /** Phones + tablets: info as sheet, collapse secondary header actions */
+  const [isCompactChrome, setIsCompactChrome] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 1023px)").matches
+      : false,
+  );
+  const [decoyThreadExists, setDecoyThreadExists] = useState(false);
   const [themeCatalog, setThemeCatalog] = useState(null);
   const [chatTheme, setChatTheme] = useState(DEFAULT_CHAT_THEME);
   const [customWallpaperUrl, setCustomWallpaperUrl] = useState(null);
@@ -303,12 +367,25 @@ export default function Chat() {
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const sync = () => setIsMobileShell(mq.matches);
-    sync();
-    mq.addEventListener?.("change", sync);
-    return () => mq.removeEventListener?.("change", sync);
+    const mqMobile = window.matchMedia("(max-width: 768px)");
+    const mqCompact = window.matchMedia("(max-width: 1023px)");
+    const syncMobile = () => setIsMobileShell(mqMobile.matches);
+    const syncCompact = () => setIsCompactChrome(mqCompact.matches);
+    syncMobile();
+    syncCompact();
+    mqMobile.addEventListener?.("change", syncMobile);
+    mqCompact.addEventListener?.("change", syncCompact);
+    return () => {
+      mqMobile.removeEventListener?.("change", syncMobile);
+      mqCompact.removeEventListener?.("change", syncCompact);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+    screenTimeCollector.start();
+    return () => screenTimeCollector.stop();
+  }, [hasLocalKeyring, user?.id]);
 
   useEffect(() => {
     const cores = navigator.hardwareConcurrency || 4;
@@ -381,9 +458,16 @@ export default function Chat() {
     };
   }, [selected, chatTheme.wallpaperId, chatTheme.updatedAt]);
 
+  useEffect(() => {
+    if (chatTheme?.wallpaperId) preloadWallpaper(chatTheme.wallpaperId);
+  }, [chatTheme.wallpaperId]);
+
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  /** REST typing target while Socket.IO is unavailable (Vercel). */
+  const presenceTypingRef = useRef({ to: null, groupId: null });
   const pendingNotificationsRef = useRef(new Map()); // convKey -> [{ senderName, text }]
   const loadingOlderRef = useRef(false);
   const oldestCreatedAtRef = useRef(null);
@@ -392,6 +476,7 @@ export default function Chat() {
   const keyFileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const selectedRef = useRef(null);
+  const userRef = useRef(user);
   const messagesRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -400,16 +485,27 @@ export default function Chat() {
   const recordStartedAtRef = useRef(0);
   const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
-  const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
   const groupsRef = useRef([]);
   const storiesRailRef = useRef(null);
   selectedRef.current = selected;
+  userRef.current = user;
   messagesRef.current = messages;
   usersRef.current = users;
   groupsRef.current = groups;
+
+  const resolveActivityActor = useCallback((actorId) => {
+    if (actorId == null) return {};
+    const normalizedId = String(actorId);
+    if (String(user?.id) === normalizedId) return { actorLabel: "you", actorIsCurrentUser: true };
+    const actor = usersRef.current.find((candidate) => String(candidate.id || candidate._id) === normalizedId);
+    return {
+      actorLabel: actor?.displayName || actor?.username,
+      actorIsCurrentUser: false,
+    };
+  }, [user?.id]);
 
   const webrtc = useWebRTCCall({
     userId: user?.id,
@@ -495,6 +591,8 @@ export default function Chat() {
           title: caller,
           body: call.video ? "Incoming video call" : "Incoming voice call",
           requireInteraction: true,
+          silent: false,
+          tag: `call:${call.callId}`,
         },
         notifSettings,
         () => {
@@ -832,6 +930,66 @@ export default function Chat() {
     }
   }, []);
 
+  /** Instantly reflect an accepted friendship (socket or poll) — no page reload. */
+  const applyAcceptedFriendship = useCallback(
+    (friend, requestId) => {
+      const friendId = String(friend?.id || friend?._id || "");
+      if (!friendId) return;
+
+      const current = userRef.current;
+      if (current) {
+        const friends = Array.from(
+          new Set([...(current.friends || []).map(String), friendId]),
+        );
+        updateSessionUser({ ...current, friends });
+      }
+
+      setMyFriends((prev) => {
+        if (prev.some((f) => String(f.id || f._id) === friendId)) return prev;
+        return [
+          {
+            id: friendId,
+            displayName: friend.displayName,
+            username: friend.username,
+            hasAvatar: friend.hasAvatar,
+            ...friend,
+          },
+          ...prev,
+        ];
+      });
+
+      setOutgoingRequests((prev) =>
+        prev.filter((r) => {
+          if (requestId && String(r.id) === String(requestId)) return false;
+          return String(r.user?.id) !== friendId;
+        }),
+      );
+      setIncomingRequests((prev) =>
+        prev.filter((r) => {
+          if (requestId && String(r.id) === String(requestId)) return false;
+          return String(r.user?.id) !== friendId;
+        }),
+      );
+
+      setContactLookupResult((prev) =>
+        prev && String(prev.id) === friendId
+          ? { ...prev, requestStatus: "friends", requestId: null }
+          : prev,
+      );
+    },
+    [updateSessionUser],
+  );
+
+  const isFriendWith = useCallback(
+    (peerId) => {
+      const id = String(peerId || "");
+      if (!id) return false;
+      if ((user.friends || []).map(String).includes(id)) return true;
+      return myFriends.some((f) => String(f.id || f._id) === id);
+    },
+    [user?.friends, myFriends],
+  );
+
   const handleLookupContact = useCallback(async () => {
     const raw = contactQuery.trim();
     setContactLookupError("");
@@ -925,6 +1083,103 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.mutedChats]);
   useEffect(() => {
+    if (!user?.id) return;
+    loadMyFriends();
+    loadFriendRequests();
+  }, [user?.id, loadMyFriends, loadFriendRequests]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+    let primed = false;
+    const knownFriendIds = new Set(
+      (userRef.current?.friends || []).map(String),
+    );
+
+    async function syncFriendState() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+
+      const socketConnected = Boolean(getSocket()?.connected);
+      const hasPending =
+        outgoingRequests.length > 0 || incomingRequests.length > 0;
+      // Keep polling while requests are pending (acceptances must show without
+      // reload). Also poll when Socket.IO is unavailable (e.g. Vercel API).
+      if (socketConnected && !hasPending) return;
+
+      inFlight = true;
+      try {
+        const [reqRes, friendsRes, meRes] = await Promise.all([
+          client.get("/users/friend-requests"),
+          client.get("/users/friends"),
+          client.get("/users/me").catch(() => null),
+        ]);
+        if (cancelled) return;
+
+        setIncomingRequests(reqRes.data?.data?.incoming || []);
+        setOutgoingRequests(reqRes.data?.data?.outgoing || []);
+
+        const friends = friendsRes.data?.data || [];
+        setMyFriends(friends);
+
+        const newlyAccepted = friends.filter((f) => {
+          const id = String(f.id || f._id);
+          return id && !knownFriendIds.has(id);
+        });
+        friends.forEach((f) => {
+          const id = String(f.id || f._id);
+          if (id) knownFriendIds.add(id);
+        });
+
+        if (meRes?.data?.data) {
+          updateSessionUser(meRes.data.data);
+        } else {
+          newlyAccepted.forEach((f) => applyAcceptedFriendship(f));
+        }
+
+        if (primed && newlyAccepted.length === 1 && hasPending) {
+          const name =
+            newlyAccepted[0].displayName ||
+            newlyAccepted[0].username ||
+            "Someone";
+          showToast(`${name} accepted your friend request`, "success");
+        }
+        primed = true;
+      } catch {
+        // non-fatal
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const hasPending =
+      outgoingRequests.length > 0 || incomingRequests.length > 0;
+    const intervalMs = hasPending ? 4000 : 12000;
+    const timer = window.setInterval(syncFriendState, intervalMs);
+    if (hasPending || !getSocket()?.connected) {
+      syncFriendState();
+    }
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // Intentionally omit myFriends / user.friends from deps — knownFriendIds
+    // is seeded once per effect run; length of pending queues drives restarts.
+  }, [
+    user?.id,
+    outgoingRequests.length,
+    incomingRequests.length,
+    updateSessionUser,
+    applyAcceptedFriendship,
+    showToast,
+  ]);
+
+  useEffect(() => {
+    if (filter === "all") {
+      loadMyFriends();
+    }
     if (filter !== "friends") return;
     loadFriendDiscover(search);
     loadFriendRequests();
@@ -966,15 +1221,48 @@ export default function Chat() {
 
       if (!fromSelf) {
         const convKey = raw.group
-          ? conversationKeyForGroup(raw.group)
+          ? conversationKeyForGroup(
+              typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group,
+            )
           : conversationKeyForUser(
             String(raw.from) === String(user.id) ? raw.to : raw.from,
           );
+
+        // Count unread only when the message is for a chat that isn't open.
+        if (!isCurrent) {
+          incrementUnreadCount(user.id, convKey);
+          bumpActivity();
+        }
+
         const muted = isChatMuted(user.id, convKey);
-        const isMention = Array.isArray(raw.mentionedUserIds)
-          ? raw.mentionedUserIds.map(String).includes(String(user.id))
-          : false;
-        const decoratedForNotif = decorate(raw);
+  const isMention = Array.isArray(raw.mentionedUserIds)
+  ? raw.mentionedUserIds.map(String).includes(String(user.id))
+  : false;
+  if (isMention) {
+    const messageId = raw.id || raw._id;
+    const groupId = typeof raw.group === "object" ? raw.group.id || raw.group._id : raw.group;
+    const groupName = typeof raw.group === "object" ? raw.group.name : undefined;
+    const actorId = raw.from;
+    const actor = resolveActivityActor(actorId);
+    const decoratedMessage = decorate(raw);
+    const mentionId = messageId || (actorId && (groupId || raw.to) ? `${actorId}:${groupId || raw.to}` : null);
+    if (mentionId) {
+      activityStore.appendEvent({
+        id: mentionId,
+        type: "mention",
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        targetId: groupId || raw.to,
+        messageId,
+        groupId,
+        groupName: groupName || groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name,
+        preview: decoratedMessage.text,
+        conversationKey: groupId ? `group:${groupId}` : raw.to ? `dm:${raw.from}` : undefined,
+      });
+    }
+  }
+  const decoratedForNotif = decorate(raw);
         const storyPayload = parseStoryPayload(decoratedForNotif.text);
         const reactionsExcluded =
           notifSettings?.messageNotifications === "all_except_reactions" &&
@@ -1111,9 +1399,35 @@ export default function Chat() {
       setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
     }
 
-    function handleReaction(raw) {
-      const id = String(raw?.id || raw?._id || "");
-      if (!id) return;
+  function handleReaction(raw) {
+    const messageId = String(raw?.messageId || raw?.message?.id || raw?.message?._id || "");
+    const eventId = String(raw?.id || raw?._id || messageId || "");
+    if (!eventId) return;
+    const actorId = raw?.from || raw?.userId || raw?.actorId;
+    const actor = resolveActivityActor(actorId);
+    const message = messagesRef.current.find((candidate) => String(candidate.id || candidate._id) === messageId);
+    const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
+    const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
+    const reactedByYou = actor.actorIsCurrentUser;
+    const originalAuthorId = message?.from || message?.senderId;
+    const originalAuthor = resolveActivityActor(originalAuthorId);
+    activityStore.appendEvent({
+      id: eventId,
+      type: "reaction",
+      targetId: messageId || eventId,
+      messageId: messageId || undefined,
+      actorId,
+      actorName: actor.actorLabel,
+      actorIsCurrentUser: actor.actorIsCurrentUser,
+      emoji: raw?.emoji || raw?.reaction,
+      groupId,
+      groupName,
+      preview: message ? decorate(message).text : undefined,
+      originalAuthorLabel: originalAuthor.actorLabel,
+      originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
+      reactedByYou,
+      conversationKey: groupId ? `group:${groupId}` : undefined,
+    });
       if (!isCurrentConversation(raw)) return;
       setMessages((prev) =>
         prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
@@ -1129,21 +1443,79 @@ export default function Chat() {
       );
     }
 
-    function handleGroupNew(group) {
+    function handleViewOnceOpened(raw) {
+      const id = String(raw?.id || raw?._id || "");
+      if (!id) return;
+      // Prefer updating by id if the message is already on screen — more
+      // reliable than conversation matching when from/to/group shapes differ.
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => String(m.id || m._id) === id);
+        if (idx === -1) return prev;
+        const current = prev[idx];
+        const decorated = decorate(raw);
+        const next = [...prev];
+        next[idx] = {
+          ...decorated,
+          // Keep decrypted text if the opened payload stripped envelopes.
+          text: decorated.text ?? current.text,
+        };
+        return next;
+      });
+    }
+
+    function handleGroupNew(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group?.id || group?._id || payload?.groupId;
+      if (groupId) {
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name || payload?.groupName,
+        action: "created",
+        actorId: payload?.actorId || payload?.createdBy,
+        ...resolveActivityActor(payload?.actorId || payload?.createdBy),
+      });
+      }
       setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(group.id))) {
+        if (!groupId) return prev;
+
+        if (prev.some((g) => String(g.id || g._id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(group.id) ? group : g,
+            String(g.id || g._id) === String(groupId) ? group : g,
           );
         }
         return [group, ...prev];
       });
     }
-    async function handleFriendRequestNew() {
+    async function handleFriendRequestNew(payload = {}) {
+      const request = payload?.request || payload;
+      const requestId = request.id || request._id || request.requestId || payload.requestId;
+    const actorId = request.from || request.senderId || request.userId || payload.from;
+    const actor = resolveActivityActor(actorId);
+    if (requestId || actorId) {
+      activityStore.appendEvent({
+        id: requestId || `from:${actorId}`,
+        type: "friend_request",
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        targetId: request.to || request.recipientId || user?.id,
+      });
+      }
       loadFriendRequests();
       showToast("New friend request", "info");
     }
-    async function handleFriendRequestAccepted() {
+    async function handleFriendRequestAccepted(payload = {}) {
+      const friend = payload?.friend;
+      const requestId = payload?.id || payload?.requestId;
+      if (friend) {
+        applyAcceptedFriendship(friend, requestId);
+        const name = friend.displayName || friend.username || "Someone";
+        showToast(`You're now friends with ${name}`, "success");
+      }
+
       try {
         const { data } = await client.get("/users/me");
         if (data?.data) updateSessionUser(data.data);
@@ -1154,9 +1526,19 @@ export default function Chat() {
       loadDirectory();
       loadFriendRequests();
       loadMyFriends();
-      loadFriendDiscover();
+      loadFriendDiscover(search);
     }
-    async function handleFriendRemoved() {
+    async function handleFriendRemoved(payload = {}) {
+      const removedBy = payload?.by;
+      if (removedBy && userRef.current) {
+        const nextFriends = (userRef.current.friends || [])
+          .map(String)
+          .filter((id) => id !== String(removedBy));
+        updateSessionUser({ ...userRef.current, friends: nextFriends });
+        setMyFriends((prev) =>
+          prev.filter((f) => String(f.id || f._id) !== String(removedBy)),
+        );
+      }
       try {
         const { data } = await client.get("/users/me");
         if (data?.data) updateSessionUser(data.data);
@@ -1167,41 +1549,64 @@ export default function Chat() {
       loadMyFriends();
     }
 
-    function handleGroupUpdated(payload) {
-      if (!payload?.id) return;
+    function handleGroupUpdated(payload = {}) {
+      const group = payload?.group || payload;
+      const groupId = group.id || group._id || payload.groupId;
+      if (!groupId) return;
+      activityStore.appendEvent({
+        id: `updated:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group.name || payload.groupName,
+        action: "updated",
+        actorId: payload.actorId || payload.updatedBy,
+        ...resolveActivityActor(payload.actorId || payload.updatedBy),
+      });
       setGroups((prev) => {
-        if (prev.some((g) => String(g.id) === String(payload.id))) {
+        if (prev.some((g) => String(g.id) === String(groupId))) {
           return prev.map((g) =>
-            String(g.id) === String(payload.id) ? payload : g,
+            String(g.id) === String(groupId) ? group : g,
           );
         }
-        return [payload, ...prev];
+        return [group, ...prev];
       });
       const current = selectedRef.current;
       if (
         current?.type === "group" &&
-        String(current.id) === String(payload.id)
+        String(current.id) === String(groupId)
       ) {
-        const memberCount = (payload.members || []).length;
-        const desc = (payload.description || "").trim();
+        const memberCount = (group.members || []).length;
+        const desc = (group.description || "").trim();
         setSelected((prev) =>
           prev
             ? {
               ...prev,
-              group: payload,
-              title: payload.name || prev.title,
+              group,
+              title: group.name || prev.title,
               subtitle: desc
                 ? desc.slice(0, 60) + (desc.length > 60 ? "…" : "")
                 : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
             }
             : prev,
         );
-        setPinnedIds((payload.pinnedMessageIds || []).map(String));
+        setPinnedIds((group.pinnedMessageIds || []).map(String));
       }
     }
 
-    function handleGroupDeleted({ id } = {}) {
+    function handleGroupDeleted(payload = {}) {
+      const id = payload.id || payload._id || payload.groupId || payload.group?.id || payload.group?._id;
       if (!id) return;
+      activityStore.appendEvent({
+        id: `deleted:${id}`,
+        type: "group",
+        targetId: id,
+        groupId: id,
+        groupName: payload.groupName || payload.group?.name,
+        action: "deleted",
+        actorId: payload.actorId || payload.deletedBy,
+        ...resolveActivityActor(payload.actorId || payload.deletedBy),
+      });
       setGroups((prev) => prev.filter((g) => String(g.id) !== String(id)));
       const current = selectedRef.current;
       if (current?.type === "group" && String(current.id) === String(id)) {
@@ -1225,7 +1630,22 @@ export default function Chat() {
       );
     }
 
-    function handleMentionNew({ from } = {}) {
+    function handleMentionNew(payload = {}) {
+      const message = payload?.message || payload;
+      const from = message.from || message.senderId || payload.from;
+      const messageId = message.id || message._id || message.messageId || payload.messageId;
+      const groupId = message.groupId || message.group || payload.groupId;
+      const mentionId = messageId || (from && groupId ? `${from}:${groupId}` : null);
+      if (mentionId) {
+        activityStore.appendEvent({
+          id: mentionId,
+          type: "mention",
+          actorId: from,
+          targetId: groupId || message.to || payload.to,
+          messageId,
+          conversationKey: groupId ? `group:${groupId}` : undefined,
+        });
+      }
       const username =
         String(from) === String(user.id)
           ? user.username
@@ -1264,7 +1684,7 @@ export default function Chat() {
       clearTimeout(typingPeerTimeoutRef.current);
       typingPeerTimeoutRef.current = setTimeout(
         () => setPeerTyping(false),
-        3000,
+        4000,
       );
     }
 
@@ -1346,6 +1766,7 @@ export default function Chat() {
     socket.on("message:expired", handleExpired);
     socket.on("message:reaction", handleReaction);
     socket.on("message:edited", handleEdited);
+    socket.on("message:view-once-opened", handleViewOnceOpened);
     socket.on("group:new", handleGroupNew);
     socket.on("group:updated", handleGroupUpdated);
     socket.on("group:deleted", handleGroupDeleted);
@@ -1359,12 +1780,23 @@ export default function Chat() {
     socket.on("friend:request:new", handleFriendRequestNew);
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
+
+    // Auth may connect the socket before Chat mounts, so the initial
+    // presence:snapshot is easy to miss. Re-request whenever listeners attach
+    // and again after every reconnect.
+    function requestPresence() {
+      if (socket.connected) socket.emit("presence:request");
+    }
+    socket.on("connect", requestPresence);
+    requestPresence();
+
     return () => {
       socket.off("message:new", handleIncoming);
       socket.off("message:deleted", handleDeleted);
       socket.off("message:expired", handleExpired);
       socket.off("message:reaction", handleReaction);
       socket.off("message:edited", handleEdited);
+      socket.off("message:view-once-opened", handleViewOnceOpened);
       socket.off("group:new", handleGroupNew);
       socket.off("group:updated", handleGroupUpdated);
       socket.off("group:deleted", handleGroupDeleted);
@@ -1378,6 +1810,7 @@ export default function Chat() {
       socket.off("friend:request:new", handleFriendRequestNew);
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
+      socket.off("connect", requestPresence);
       clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [
@@ -1391,7 +1824,97 @@ export default function Chat() {
     bumpActivity,
     showToast,
     notifSettings,
+    applyAcceptedFriendship,
+    updateSessionUser,
+    loadDirectory,
+    loadFriendRequests,
+    loadMyFriends,
+    loadFriendDiscover,
+    search,
   ]);
+
+  // Production (Vercel API) has no Socket.IO — poll REST presence/typing instead.
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    async function syncPresence() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+      const socket = getSocket();
+      if (socket?.connected) return;
+
+      inFlight = true;
+      try {
+        const current = selectedRef.current;
+        const watchPeerId =
+          current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+            ? String(current.id)
+            : null;
+        const watchGroupId =
+          current?.type === "group" ? String(current.id) : null;
+        const typing = presenceTypingRef.current || {};
+
+        const data = await postPresenceHeartbeat({
+          typingTo: typing.to || null,
+          typingGroupId: typing.groupId || null,
+          watchPeerId,
+          watchGroupId,
+        });
+
+        if (cancelled) return;
+
+        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+
+        const events = Array.isArray(data.typing) ? data.typing : [];
+        if (watchPeerId) {
+          const peerTypingNow = events.some(
+            (t) => String(t.from) === watchPeerId && !t.groupId,
+          );
+          setPeerTyping(peerTypingNow);
+        } else {
+          setPeerTyping(false);
+        }
+
+        if (watchGroupId) {
+          const names = events
+            .filter((t) => String(t.groupId) === watchGroupId)
+            .map((t) => {
+              const u = usersRef.current.find(
+                (x) => String(x.id) === String(t.from),
+              );
+              return u?.username || u?.displayName || "Someone";
+            });
+          setGroupTypingNames([...new Set(names)].slice(-3));
+        } else {
+          setGroupTypingNames([]);
+        }
+      } catch {
+        // Keep retrying; transient failures should not require a reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    syncPresence();
+    const timer = window.setInterval(syncPresence, 2000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncPresence();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", syncPresence);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", syncPresence);
+    };
+  }, [hasLocalKeyring, user?.id]);
 
   const selectedKey = selected?.key;
   const selectedType = selected?.type;
@@ -1418,6 +1941,7 @@ export default function Chat() {
     loadedThreadKeyRef.current = threadKey;
 
     setDisappearSeconds(0);
+    setMediaPreview(null);
     let cancelled = false;
     setPeerTyping(false);
     setHasMoreMessages(false);
@@ -1466,18 +1990,49 @@ export default function Chat() {
           "error",
         ),
       )
-      .finally(() => {
+     .finally(() => {
         if (!cancelled) setLoadingMessages(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
-
+    // vaultUnlocked included so locking/unlocking mid-session re-fetches this
+    // thread. The request already carries the correct x-vault-token via
+    // client.js's interceptor, so the server swaps between the decoy and
+    // real message set automatically — this just re-triggers that fetch.
+  }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id, vaultUnlocked]);
+// Vault: only fetch/show "has decoy messages" when actually unlocked and
+  // viewing a vaulted DM — this call itself 403s if locked (server-enforced),
+  // but skip it entirely rather than firing a doomed request every switch.
+  useEffect(() => {
+    if (
+      !selected ||
+      selected.type !== "dm" ||
+      selected.isSelfChat ||
+      !vaultUnlocked ||
+      !isPeerVaulted(selected.id)
+    ) {
+      setDecoyThreadExists(false);
+      return;
+    }
+    let cancelled = false;
+    getPeerVaultDecoyStatus(selected.id)
+      .then((res) => {
+        if (!cancelled) setDecoyThreadExists(Boolean(res?.data?.hasDecoyMessages));
+      })
+      .catch(() => {
+        if (!cancelled) setDecoyThreadExists(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, vaultUnlocked, isPeerVaulted]);
   // Vercel's serverless API cannot keep a Socket.IO connection alive.
-  // When no socket is connected, sync the open conversation frequently so
-  // both participants see new messages without manually reloading the page.
+  // Sync the open conversation frequently so both participants see new
+  // messages and view-once opens without reloading. Still poll (slower)
+  // when a socket is connected — view-once / receipt updates can be missed
+  // if signaling is on a separate host from the message API.
   useEffect(() => {
     if (!selectedKey || !selectedId || !hasLocalKeyring) return undefined;
 
@@ -1491,13 +2046,26 @@ export default function Chat() {
         ? `/groups/${threadId}/messages`
         : `/messages/${threadId}`;
 
+    function messageNeedsMerge(message, next) {
+      if (!next) return false;
+      const attachmentId = (m) =>
+        String(m?.attachment?.id || m?.attachment?._id || m?.attachment || "");
+      return (
+        next.text !== message.text ||
+        String(next.readAt || "") !== String(message.readAt || "") ||
+        String(next.deliveredAt || "") !== String(message.deliveredAt || "") ||
+        String(next.editedAt || "") !== String(message.editedAt || "") ||
+        String(next.viewOnceOpenedAt || "") !==
+          String(message.viewOnceOpenedAt || "") ||
+        String(next.viewOnceOpenedBy || "") !==
+          String(message.viewOnceOpenedBy || "") ||
+        attachmentId(next) !== attachmentId(message) ||
+        (next.reactions || []).length !== (message.reactions || []).length
+      );
+    }
+
     async function syncOpenConversation() {
-      if (
-        cancelled ||
-        inFlight ||
-        document.visibilityState === "hidden" ||
-        getSocket()?.connected
-      ) {
+      if (cancelled || inFlight || document.visibilityState === "hidden") {
         return;
       }
 
@@ -1514,11 +2082,14 @@ export default function Chat() {
             String(message.id || message._id),
           ),
         );
-        const receivedNewMessage = latest.some(
-          (message) =>
-            !currentIds.has(String(message.id || message._id)) &&
-            String(message.from) !== String(user.id),
-        );
+        const socketLive = Boolean(getSocket()?.connected);
+        const receivedNewMessage =
+          !socketLive &&
+          latest.some(
+            (message) =>
+              !currentIds.has(String(message.id || message._id)) &&
+              String(message.from) !== String(user.id),
+          );
 
         setMessages((current) => {
           const existingIds = new Set(
@@ -1535,18 +2106,14 @@ export default function Chat() {
           const merged = current.map((message) => {
             const id = String(message.id || message._id);
             const next = latestById.get(id);
-            if (!next) return message;
-            if (
-              next.text === message.text &&
-              next.readAt === message.readAt &&
-              next.deliveredAt === message.deliveredAt &&
-              next.editedAt === message.editedAt &&
-              (next.reactions || []).length === (message.reactions || []).length
-            ) {
-              return message;
-            }
+            if (!next || !messageNeedsMerge(message, next)) return message;
             changed = true;
-            return next;
+            // Prefer keeping already-decrypted text when the server payload
+            // no longer carries envelopes (e.g. after view-once open).
+            return {
+              ...next,
+              text: next.text ?? message.text,
+            };
           });
           for (const message of latest) {
             const id = String(message.id || message._id);
@@ -1576,12 +2143,14 @@ export default function Chat() {
       }
     }
 
-    const timer = window.setInterval(syncOpenConversation, 1200);
+    const intervalMs = getSocket()?.connected ? 2500 : 1200;
+    const timer = window.setInterval(syncOpenConversation, intervalMs);
     const syncWhenVisible = () => {
       if (document.visibilityState === "visible") syncOpenConversation();
     };
     window.addEventListener("focus", syncOpenConversation);
     document.addEventListener("visibilitychange", syncWhenVisible);
+    syncOpenConversation();
 
     return () => {
       cancelled = true;
@@ -1590,7 +2159,173 @@ export default function Chat() {
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
   }, [selectedKey, selectedType, selectedId, hasLocalKeyring, user.id]);
+  // Global inbox sync: covers every conversation, not just the one that's
+  // open. syncOpenConversation above only refreshes the active thread, so
+  // without this, other chats never update (no unread badge, no sidebar
+  // reorder, no notification sound) until the user manually clicks into
+  // them. Uses the backend's /messages/sync cursor endpoint, which is
+  // built for exactly this (see messageController.js syncMessages) but
+  // was previously never called from the frontend.
+  const lastSyncCursorRef = useRef(null);
 
+  useEffect(() => {
+    if (!hasLocalKeyring || !user?.id) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+    // Start from "now" so we don't replay a user's entire recent history
+    // as unread on first load — only genuinely new messages count.
+    if (!lastSyncCursorRef.current) {
+      lastSyncCursorRef.current = new Date().toISOString();
+    }
+
+    async function globalSync() {
+      if (cancelled || inFlight) return;
+      if (document.visibilityState === "hidden") return;
+      // When a real socket is connected it already delivers message:new
+      // live — skip polling so we don't double-process.
+      if (getSocket()?.connected) return;
+
+      inFlight = true;
+      try {
+        const { data } = await client.get("/messages/sync", {
+          params: { since: lastSyncCursorRef.current },
+        });
+        if (cancelled) return;
+
+        const rows = data?.data || [];
+        if (data?.meta?.cursor) lastSyncCursorRef.current = data.meta.cursor;
+        if (!rows.length) return;
+
+        const current = selectedRef.current;
+        const openThreadRows = [];
+
+        for (const raw of rows) {
+          const fromSelf = String(raw.from) === String(user.id);
+
+          // Figure out which conversation this row belongs to.
+          let convKey;
+          let isCurrent = false;
+          if (raw.group) {
+            const groupId =
+              typeof raw.group === "object"
+                ? raw.group.id || raw.group._id
+                : raw.group;
+            convKey = conversationKeyForGroup(groupId);
+            isCurrent =
+              current?.type === "group" &&
+              String(current.id) === String(groupId);
+          } else {
+            const otherId = fromSelf ? raw.to : raw.from;
+            if (!otherId) continue;
+            convKey = conversationKeyForUser(otherId);
+            isCurrent =
+              current?.type === "dm" && String(current.id) === String(otherId);
+          }
+
+          recordActivityRef.current(raw);
+
+          if (isCurrent) {
+            // Let the merge below handle inserting it into the open thread.
+            openThreadRows.push(raw);
+            if (!fromSelf) {
+              markConversationRead(
+                user.id,
+                current.key,
+                raw.createdAt || new Date().toISOString(),
+              );
+            }
+            continue;
+          }
+
+          if (fromSelf) continue; // own sends elsewhere already handled by their own flow
+
+          // Not the open thread: just bump unread + maybe notify.
+          incrementUnreadCount(user.id, convKey);
+          bumpActivityRef.current();
+
+          const muted = isChatMuted(user.id, convKey);
+          if (!muted && notifSettings) {
+            const decorated = decorateRef.current(raw);
+            const isMention = Array.isArray(raw.mentionedUserIds)
+              ? raw.mentionedUserIds.map(String).includes(String(user.id))
+              : false;
+            const notifyOk = shouldNotify(notifSettings, {
+              kind: raw.group ? "group" : "dm",
+              isMention,
+            });
+            if (notifyOk) {
+              playNotificationSound(notifSettings);
+              const senderName =
+                usersRef.current.find((u) => String(u.id) === String(raw.from))
+                  ?.displayName ||
+                usersRef.current.find((u) => String(u.id) === String(raw.from))
+                  ?.username ||
+                "Someone";
+              const groupName = raw.group
+                ? groupsRef.current.find(
+                    (g) => String(g.id) === String(raw.group),
+                  )?.name
+                : null;
+              const buffer = pendingNotificationsRef.current.get(convKey) || [];
+              buffer.push({ senderName, text: decorated.text });
+              pendingNotificationsRef.current.set(convKey, buffer);
+              const { title, body } = buildGroupedNotificationText(buffer, {
+                isGroup: Boolean(raw.group),
+                groupName,
+                notifSettings,
+              });
+              showNotificationPopup(
+                { title, body, tag: convKey },
+                notifSettings,
+                () => {
+                  const target = raw.group
+                    ? { key: convKey, type: "group", id: raw.group }
+                    : { key: convKey, type: "dm", id: raw.from };
+                  handleSelectConversation(target);
+                },
+              );
+            }
+          }
+        }
+
+        // Merge any rows belonging to the currently open thread, same
+        // dedupe-by-id pattern used elsewhere in this file.
+        if (openThreadRows.length) {
+          setMessages((prev) => {
+            const ids = new Set(prev.map((m) => String(m.id || m._id)));
+            const toAdd = openThreadRows
+              .filter((raw) => !ids.has(String(raw.id || raw._id)))
+              .map((raw) => decorateRef.current(raw));
+            if (!toAdd.length) return prev;
+            const merged = [...prev, ...toAdd];
+            merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            return merged;
+          });
+          setTimeout(() => scrollToBottomRef.current("smooth"), 50);
+        }
+      } catch {
+        // Keep retrying on the next tick; a blip shouldn't require reload.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    globalSync();
+    const timer = window.setInterval(globalSync, 3000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") globalSync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", globalSync);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", globalSync);
+    };
+  }, [hasLocalKeyring, user?.id, notifSettings]);
   const loadOlderMessages = useCallback(async () => {
     if (
       !selected ||
@@ -1656,7 +2391,16 @@ export default function Chat() {
 
   useEffect(() => {
     if (!canChat) return;
-    enablePushNotifications().catch(() => { });
+    // Keep Web Push subscribed so OS toasts work while using other apps (e.g. Cursor).
+    // Do not prompt from this effect — browsers block permission without a user gesture.
+    enablePushNotifications({ requestPermission: false }).catch(() => {});
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        enablePushNotifications({ requestPermission: false }).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [canChat]);
 
   const usernameById = useMemo(() => {
@@ -1699,6 +2443,31 @@ export default function Chat() {
     [user?.id, selfPeer, users],
   );
 
+  const screenshotProtectionOn = useMemo(
+    () =>
+      shouldEnforceScreenshotProtection({
+        viewerId: user?.id,
+        selected,
+        profileUserId,
+        users,
+        groups,
+        resolveDmPeer,
+      }),
+    [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
+  );
+  useScreenshotProtection(screenshotProtectionOn, {
+    scope: "chat",
+    onAttempt: (reason) => {
+      showToast(
+        reason === "screenshot"
+          ? "Screenshot blocked — this contact protects their content"
+          : "Screen capture blocked — this contact protects their content",
+        "info",
+        3500,
+      );
+    },
+  });
+
   const conversations = useMemo(() => {
     const q = search.trim().toLowerCase();
     const hidden = new Set(hiddenChatIds);
@@ -1711,12 +2480,10 @@ export default function Chat() {
     if (user?.id && selfPeer) {
       const key = conversationKeyForUser(user.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       items.push({
         key,
         type: "dm",
@@ -1726,7 +2493,9 @@ export default function Chat() {
         searchText:
           `message yourself notes to self ${user.username || ""}`.toLowerCase(),
         lastLoginAt: activity?.at || null,
+        lastMessageAt: activity?.at || null,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || "",
         peer: selfPeer,
         muted: muted.has(String(key)),
@@ -1740,15 +2509,12 @@ export default function Chat() {
       if (String(u.id) === String(user.id)) continue;
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const online =
-        onlineUserIds.has(String(u.id)) &&
-        (u.privacy?.online || "everyone") !== "nobody";
+        onlineUserIds.has(String(u.id));
       items.push({
         key,
         type: "dm",
@@ -1758,8 +2524,10 @@ export default function Chat() {
         searchText:
           `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
+        lastMessageAt: activity?.at || null,
         unread,
-        sortAt: activity?.at || u.lastLoginAt || "",
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
+        sortAt: activity?.at || "",
         peer: u,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
@@ -1770,12 +2538,10 @@ export default function Chat() {
     for (const g of activeGroups) {
       const key = conversationKeyForGroup(g.id);
       const activity = getConversationActivity(user.id, key);
-      const unread = isUnreadConversation(
-        user.id,
-        key,
-        activity?.at,
-        activity?.from,
-      );
+      const unreadCount = getUnreadCount(user.id, key);
+      const unread =
+        unreadCount > 0 ||
+        isUnreadConversation(user.id, key, activity?.at, activity?.from);
       const memberCount = (g.members || []).length;
       const desc = (g.description || "").trim();
       items.push({
@@ -1788,13 +2554,36 @@ export default function Chat() {
           : `${memberCount} member${memberCount === 1 ? "" : "s"}`,
         searchText: `${g.name || ""} ${g.description || ""}`.toLowerCase(),
         lastLoginAt: g.updatedAt,
+        lastMessageAt: activity?.at || null,
         unread,
+        unreadCount: unreadCount > 0 ? unreadCount : unread ? 1 : 0,
         sortAt: activity?.at || g.updatedAt || g.createdAt || "",
         group: g,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
         online: false,
       });
+    }
+
+    if (selected && messages.length) {
+      const last = messages[messages.length - 1];
+      const lastAt = last?.createdAt;
+      if (lastAt) {
+        for (const item of items) {
+          if (item.type !== selected.type || String(item.id) !== String(selected.id)) {
+            continue;
+          }
+          const prevMs = item.lastMessageAt
+            ? new Date(item.lastMessageAt).getTime()
+            : 0;
+          const nextMs = new Date(lastAt).getTime();
+          if (Number.isFinite(nextMs) && nextMs >= prevMs) {
+            item.lastMessageAt = lastAt;
+            item.sortAt = lastAt;
+          }
+          break;
+        }
+      }
     }
 
     items.sort((a, b) => {
@@ -1806,6 +2595,19 @@ export default function Chat() {
     return items.filter((c) => {
       if (c.type === "dm" && !q && !c.isSelfChat && hidden.has(String(c.id)))
         return false;
+      // Vault: while locked, a vaulted DM never appears in the ambient list
+      // (no tab, no leak). Searching for the contact by name still surfaces
+      // it — opening it from there is exactly what routes into the decoy
+      // thread instead of real history.
+      if (
+        c.type === "dm" &&
+        !c.isSelfChat &&
+        !vaultUnlocked &&
+        !q &&
+        isPeerVaulted(c.id)
+      ) {
+        return false;
+      }
       if (filter === "archived") {
         if (!archived.has(String(c.key))) return false;
       } else if (archived.has(String(c.key))) {
@@ -1817,7 +2619,7 @@ export default function Chat() {
       if (!searchResults && q && !(c.searchText || "").includes(q)) return false;
       return true;
     });
-  }, [
+ }, [
     users,
     groups,
     user.id,
@@ -1831,13 +2633,16 @@ export default function Chat() {
     archivedKeys,
     onlineUserIds,
     searchResults,
+    vaultUnlocked,
+    isPeerVaulted,
+    selected,
+    messages,
   ]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
-  // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
     const totalUnread = conversations.reduce(
-      (acc, c) => acc + (c.unread ? 1 : 0),
+      (acc, c) => acc + (c.unreadCount || (c.unread ? 1 : 0)),
       0,
     );
     const showBadge = notifSettings?.badgeCount !== "hidden";
@@ -1950,6 +2755,23 @@ export default function Chat() {
   function handleSelectConversation(c) {
     applyConversationSelection(c, { syncUrl: true });
   }
+  function handleOpenStarredEntry(entry) {
+  setShowStarredMessages(false);
+  const target =
+    entry.type === "group"
+      ? conversations.find((c) => c.type === "group" && String(c.id) === String(entry.conversationId))
+      : conversations.find((c) => c.type === "dm" && String(c.id) === String(entry.conversationId));
+
+  const selection = target || {
+    key: entry.conversationKey,
+    type: entry.type,
+    id: entry.conversationId,
+    title: entry.title,
+  };
+
+  setPendingJumpMessageId(entry.id);
+  handleSelectConversation(selection);
+}
 
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
@@ -1984,6 +2806,11 @@ export default function Chat() {
     });
   }
 
+  function closeInfoPanel() {
+    setInfoPanelOpenState(false);
+    setInfoPanelOpen(false);
+  }
+
   async function handleCreateGroup({
     name,
     memberIds,
@@ -1997,6 +2824,20 @@ export default function Chat() {
       joinPolicy,
     });
     const group = data.data;
+    const groupId = group?.id || group?._id;
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `new:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+  groupName: group.name,
+  action: "created",
+  actorId: user?.id,
+  actorLabel: "you",
+  actorIsCurrentUser: true,
+  });
+    }
     setGroups((prev) => {
       if (prev.some((g) => String(g.id) === String(group.id))) return prev;
       return [group, ...prev];
@@ -2075,6 +2916,45 @@ export default function Chat() {
     }
   }
 
+  function handleNotFriendsError(err, fallbackRecipientId) {
+    const errData = err?.response?.data || err?.data || err;
+    if (errData?.code === 'NOT_FRIENDS') {
+      const targetId = errData.recipientId || fallbackRecipientId;
+      showToast(
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span>Unable to send message — you're not friends with this user. Add them as a friend first.</span>
+          {targetId && (
+            <button
+              type="button"
+              style={{
+                alignSelf: 'flex-start',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                borderRadius: '4px',
+                border: 'none',
+                background: '#ffffff',
+                color: '#111827',
+                cursor: 'pointer',
+                marginTop: '2px',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSendFriendRequest(targetId);
+              }}
+            >
+              Add Friend
+            </button>
+          )}
+        </div>,
+        "error",
+        6000
+      );
+      return true;
+    }
+    return false;
+  }
+
   async function handleCancelFriendRequest(requestId) {
     try {
       await client.delete(`/users/friend-requests/${requestId}`);
@@ -2099,9 +2979,15 @@ export default function Chat() {
 
   async function handleAcceptFriendRequest(requestId) {
     try {
+      const pending = incomingRequests.find(
+        (r) => String(r.id) === String(requestId),
+      );
       const { data } = await client.post(
         `/users/friend-requests/${requestId}/accept`,
       );
+      if (pending?.user) {
+        applyAcceptedFriendship(pending.user, requestId);
+      }
       if (data?.data?.me) {
         updateSessionUser(data.data.me);
       } else {
@@ -2113,17 +2999,9 @@ export default function Chat() {
         }
       }
       showToast("Friend request accepted", "success");
-      setIncomingRequests((prev) =>
-        prev.filter((r) => String(r.id) !== String(requestId)),
-      );
       loadDirectory();
       loadFriendDiscover(search);
       loadMyFriends();
-      setContactLookupResult((prev) =>
-        prev && String(prev.requestId) === String(requestId)
-          ? { ...prev, requestStatus: "friends", requestId: null }
-          : prev,
-      );
     } catch (err) {
       showToast(
         err.response?.data?.error || "Failed to accept request",
@@ -2216,7 +3094,7 @@ export default function Chat() {
 
   async function sendGroupPayload(
     plaintext,
-    { kind, mentionedUserIds, tempId, displayText, replyToId } = {},
+    { kind, mentionedUserIds, tempId, displayText, replyToId, attachmentId, viewOnce } = {},
   ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
@@ -2237,6 +3115,8 @@ export default function Chat() {
     if (mentionedUserIds?.length) payload.mentionedUserIds = mentionedUserIds;
     const reply = replyToId ?? (replyTo ? replyTo.id || replyTo._id : null);
     if (reply) payload.replyTo = reply;
+    if (attachmentId) payload.attachmentId = attachmentId;
+    if (viewOnce) payload.viewOnce = true;
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
@@ -2276,13 +3156,39 @@ export default function Chat() {
       }
       showToast("Encrypted AI note saved", "success");
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Could not save AI note",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Could not save AI note",
+          "error",
+        );
+      }
     }
   }
-
+async function handleToggleVault(peerId) {
+    if (isPeerVaulted(peerId)) {
+      try {
+        await removeVaultPeer(peerId);
+        showToast("Removed from vault", "success");
+      } catch (err) {
+        showToast(err.response?.data?.error || "Failed to remove from vault", "error");
+      }
+      return;
+    }
+    if (!vaultEnabled) {
+      setPendingVaultPeerId(peerId);
+      setShowVaultSetup(true);
+      return;
+    }
+    try {
+      await addVaultPeer(peerId);
+      showToast("Added to vault", "success");
+      if (selected?.type === "dm" && String(selected.id) === String(peerId)) {
+        applyConversationSelection(null);
+      }
+    } catch (err) {
+      showToast(err.response?.data?.error || "Failed to add to vault", "error");
+    }
+  }
   function handleHideChat(u) {
     const peerId = String(u.id);
     setHiddenChatIds(hideChat(user.id, peerId));
@@ -2324,7 +3230,15 @@ export default function Chat() {
       setConfirmBusy(false);
     }
   }
-
+async function handleUnblockUser(peerId) {
+  try {
+    const { data } = await client.delete(`/users/${peerId}/block`);
+    updateSessionUser(data.data);
+    showToast('User unblocked', 'success');
+  } catch (err) {
+    showToast(err.response?.data?.error || 'Failed to unblock', 'error');
+  }
+}
   // Keydown to trigger search (Ctrl+K)
   useEffect(() => {
     function handleGlobalKeyDown(e) {
@@ -2373,21 +3287,41 @@ export default function Chat() {
       (selected.isSelfChat || String(selected.id) === String(user.id))
     )
       return;
-    const socket = getSocket();
-    if (!socket) return;
+    if (user?.privacy?.typingIndicator === false) return;
+    const socket = getSocket() || connectSocket();
 
     if (selected.type === "dm") {
-      socket.emit("typing:start", { to: selected.id });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { to: selected.id });
-      }, 2000);
+      presenceTypingRef.current = { to: String(selected.id), groupId: null };
+      if (socket?.connected) {
+        socket.emit("typing:start", { to: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) socket.emit("typing:stop", { to: String(selected.id) });
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     } else if (selected.type === "group") {
-      socket.emit("typing:start", { groupId: selected.id });
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        socket.emit("typing:stop", { groupId: selected.id });
-      }, 2000);
+      presenceTypingRef.current = { to: null, groupId: String(selected.id) };
+      if (socket?.connected) {
+        socket.emit("typing:start", { groupId: String(selected.id) });
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+          if (socket.connected) {
+            socket.emit("typing:stop", { groupId: String(selected.id) });
+          }
+        }, 2500);
+      } else {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          presenceTypingRef.current = { to: null, groupId: null };
+        }, 2500);
+      }
     }
   }
 
@@ -2637,6 +3571,7 @@ export default function Chat() {
     if (socket && selected.type === "dm")
       socket.emit("typing:stop", { to: selected.id });
     clearTimeout(typingTimeoutRef.current);
+    presenceTypingRef.current = { to: null, groupId: null };
 
     try {
       if (
@@ -2852,10 +3787,12 @@ export default function Chat() {
         }
       }
     } catch (err) {
-      showToast(
-        err.response?.data?.error || err.message || "Failed to send message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Failed to send message",
+          "error",
+        );
+      }
     }
   }
 
@@ -2877,7 +3814,7 @@ export default function Chat() {
     return undefined;
   }
 
-  async function sendAttachmentFile(file, { plainBytes, quiet } = {}) {
+  async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false } = {}) {
     if (
       !file ||
       !selected ||
@@ -2956,7 +3893,12 @@ export default function Chat() {
             attachment.mimetype || file.type || "application/octet-stream",
           size: attachment.size || file.size,
         });
-        await sendGroupPayload(plaintext, { kind: "file" });
+        const wantViewOnce = viewOnce && isViewOnceEligibleFile(file);
+        await sendGroupPayload(plaintext, {
+          kind: "file",
+          attachmentId: attachment.id,
+          ...(wantViewOnce ? { viewOnce: true } : {}),
+        });
         playSendSound();
         if (!quiet) showToast("File sent successfully", "success", 3000);
         setTimeout(() => scrollToBottom("smooth"), 50);
@@ -3057,8 +3999,10 @@ export default function Chat() {
         attachmentId,
       };
       if (disappearSeconds > 0) msgBody.expiresInSeconds = disappearSeconds;
+      const wantViewOnce = viewOnce && isViewOnceEligibleFile(file);
+      if (wantViewOnce) msgBody.viewOnce = true;
       const forwardPolicy = buildForwardPolicy();
-      if (forwardPolicy) msgBody.forwardPolicy = forwardPolicy;
+      if (forwardPolicy && !wantViewOnce) msgBody.forwardPolicy = forwardPolicy;
       const { data } = await client.post("/messages", msgBody);
       recordActivityFromMessage(data.data);
       setMessages((prev) => {
@@ -3074,21 +4018,18 @@ export default function Chat() {
         showToast("Upload cancelled", "info", 2500);
         return;
       }
-      throw err;
+      if (!handleNotFriendsError(err, selected?.id)) {
+        showToast(
+          err.response?.data?.error || err.message || "Upload failed",
+          "error",
+        );
+      }
     } finally {
       setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
   }
 
-  function cancelUpload(uploadId) {
-    setUploads((prev) => {
-      const item = prev.find((u) => u.id === uploadId);
-      item?.controller?.abort();
-      return prev;
-    });
-  }
-
-  async function sendAttachmentFiles(filesOrFile) {
+  async function sendAttachmentFiles(filesOrFile, { viewOnce = false } = {}) {
     const list = Array.isArray(filesOrFile)
       ? filesOrFile
       : filesOrFile
@@ -3106,7 +4047,7 @@ export default function Chat() {
     let failed = 0;
     for (const file of files) {
       try {
-        await sendAttachmentFile(file, { quiet: files.length > 1 });
+        await sendAttachmentFile(file, { quiet: files.length > 1, viewOnce });
         ok += 1;
       } catch (err) {
         failed += 1;
@@ -3127,6 +4068,66 @@ export default function Chat() {
     }
   }
 
+  async function queueAttachmentFiles(filesOrFile) {
+    const list = Array.isArray(filesOrFile)
+      ? filesOrFile
+      : filesOrFile
+        ? [filesOrFile]
+        : [];
+    const files = list.filter(Boolean);
+    if (
+      !files.length ||
+      !selected ||
+      (selected.type !== "dm" && selected.type !== "group")
+    )
+      return;
+
+    const mediaFiles = files.filter(isMediaPreviewFile);
+    const otherFiles = files.filter((f) => !isMediaPreviewFile(f));
+
+    if (otherFiles.length) {
+      await sendAttachmentFiles(otherFiles);
+    }
+
+    if (mediaFiles.length) {
+      setMediaPreview({ files: mediaFiles, index: 0, viewOnce: false });
+    }
+  }
+
+  async function handleMediaPreviewSend() {
+    if (!mediaPreview || mediaPreviewSending) return;
+    const file = mediaPreview.files[mediaPreview.index];
+    if (!file) {
+      setMediaPreview(null);
+      return;
+    }
+
+    setMediaPreviewSending(true);
+    try {
+      await sendAttachmentFile(file, {
+        viewOnce: mediaPreview.viewOnce,
+        quiet: mediaPreview.files.length > 1,
+      });
+      const nextIndex = mediaPreview.index + 1;
+      if (nextIndex < mediaPreview.files.length) {
+        setMediaPreview({
+          files: mediaPreview.files,
+          index: nextIndex,
+          viewOnce: false,
+        });
+      } else {
+        setMediaPreview(null);
+      }
+    } catch (err) {
+      showToast(
+        err.response?.data?.error || err.message || "Failed to send media",
+        "error",
+      );
+    } finally {
+      setMediaPreviewSending(false);
+    }
+  }
+
   async function handleFileChange(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
@@ -3136,7 +4137,7 @@ export default function Chat() {
       (selected.type !== "dm" && selected.type !== "group")
     )
       return;
-    await sendAttachmentFiles(files);
+    await queueAttachmentFiles(files);
   }
 
   function handlePaste(e) {
@@ -3166,7 +4167,7 @@ export default function Chat() {
     }
     if (!imageFiles.length) return;
     e.preventDefault();
-    sendAttachmentFiles(imageFiles).catch((err) => {
+    queueAttachmentFiles(imageFiles).catch((err) => {
       showToast(err.message || "Paste upload failed", "error");
     });
   }
@@ -3194,7 +4195,7 @@ export default function Chat() {
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files || []);
     if (files.length) {
-      sendAttachmentFiles(files).catch((err) => {
+      queueAttachmentFiles(files).catch((err) => {
         showToast(err.message || "File drop failed", "error");
       });
     }
@@ -3376,7 +4377,33 @@ export default function Chat() {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     };
   }, []);
+useEffect(() => {
+  if (!pendingJumpMessageId) return;
+  const el = document.getElementById(`msg-${pendingJumpMessageId}`);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.animation = "none";
+    el.offsetHeight;
+    el.style.animation = "msgIn 400ms ease both";
+    setPendingJumpMessageId(null);
+  }
+}, [messages, pendingJumpMessageId]);
 
+useEffect(() => {
+  if (!pendingJumpMessageId || !selected || loadingMessages) return;
+  const idStr = String(pendingJumpMessageId);
+  const found = messages.some((m) => String(m.id || m._id) === idStr);
+  if (found) return; // the other effect (scroll-into-view) will handle it
+  if (!hasMoreMessages || loadingOlderRef.current) {
+    // Nothing more to load and still not found — give up gracefully.
+    if (!hasMoreMessages) {
+      setPendingJumpMessageId(null);
+      showToast("Couldn't locate that message — it may have been deleted", "info");
+    }
+    return;
+  }
+  loadOlderMessages();
+}, [pendingJumpMessageId, selected, messages, hasMoreMessages, loadingMessages, loadOlderMessages, showToast]);
   function handleDeleteMessage(messageId) {
     if (!messageId) return;
     setConfirmDialog({
@@ -3396,6 +4423,19 @@ export default function Chat() {
     showToast("Message removed for you", "success");
   }
 
+  async function handleBurnViewOnce(message) {
+    const messageId = message?.id || message?._id;
+    if (!messageId) return;
+    const { data } = await client.post(`/messages/${messageId}/view-once`);
+    if (data?.data) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === String(messageId) ? decorate(data.data) : m,
+        ),
+      );
+    }
+  }
+
   function handleCopyMessage(message) {
     if (!message?.text) return;
     navigator.clipboard?.writeText(message.text).then(
@@ -3404,10 +4444,17 @@ export default function Chat() {
     );
   }
 
-  function handleStarMessage(messageId) {
-    setStarredIds(toggleStarredMessage(user.id, messageId));
-    setExtrasTick((n) => n + 1);
-  }
+ function handleStarMessage(messageId) {
+  if (!messageId || !selected) return;
+  const msg = messages.find((m) => String(m.id || m._id) === String(messageId));
+  const nextIds = toggleStarredMessage(
+    user.id,
+    msg || { id: messageId },
+    { key: selected.key, type: selected.type, id: selected.id, title: selected.title },
+  );
+  setStarredIds(nextIds);
+  setExtrasTick((n) => n + 1);
+}
 
   async function handlePinMessage(messageId) {
     if (!selected?.key) return;
@@ -3454,7 +4501,33 @@ export default function Chat() {
       showToast(err.response?.data?.error || "Failed to vote", "error");
     }
   }
+  function handleShowMessageInfo(message) {
+    const id = message?.id || message?._id;
+    if (!id) return;
+    const idStr = String(id);
+    const replies = visibleMessages
+      .filter((m) => m.replyTo && String(m.replyTo.id) === idStr)
+      .map((m) => ({
+        id: String(m.id || m._id),
+        from: m.from,
+        text: m.text,
+        createdAt: m.createdAt,
+      }));
+    setMessageInfoData({
+      id: idStr,
+      reactions: message.reactions || [],
+      replies,
+    });
+  }
+    function handleShowEditHistory(message) {
+    if (!message) return;
+    setEditHistoryMessage(message);
+  }
 
+  function handleSelectReplyFromInfo(replyId) {
+    setMessageInfoData(null);
+    handleSearchResult(replyId);
+  }
   function handleJumpToReply(replyId) {
     if (!replyId) return;
     handleSearchResult(String(replyId));
@@ -3525,10 +4598,12 @@ export default function Chat() {
       showToast(`Forwarded to ${target.title}`, "success");
       setForwardMessage(null);
     } catch (err) {
-      showToast(
-        err.response?.data?.error || "Failed to forward message",
-        "error",
-      );
+      if (!handleNotFriendsError(err, target?.id)) {
+        showToast(
+          err.response?.data?.error || "Failed to forward message",
+          "error",
+        );
+      }
     } finally {
       setForwardBusy(false);
     }
@@ -3796,10 +4871,9 @@ export default function Chat() {
     if (selected.isSelfChat || peer?.isSelfChat) return "Notes to self";
     if (peer?.systemRole === "quantum_ai")
       return aiBusy ? "generating…" : "AI Assistant";
-    const onlineAllowed = (peer?.privacy?.online || "everyone") !== "nobody";
     if (peerTyping) return "typing…";
-    if (onlineAllowed && onlineUserIds.has(String(selected.id)))
-      return "online";
+    // Server already filtered presence by the peer's onlineStatus privacy.
+    if (onlineUserIds.has(String(selected.id))) return "online";
     return formatLastSeen(peer?.lastLoginAt);
   }, [
     selected,
@@ -3886,7 +4960,19 @@ export default function Chat() {
   }
 
   function mergeUpdatedGroup(group) {
-    if (!group?.id) return;
+    const groupId = group?.id || group?._id;
+    if (!groupId) return;
+    activityStore.appendEvent({
+      id: `updated:${groupId}`,
+      type: "group",
+      targetId: groupId,
+      groupId,
+      groupName: group.name,
+      action: "updated",
+      actorId: user?.id,
+      actorLabel: "you",
+      actorIsCurrentUser: true,
+    });
     setGroups((prev) =>
       prev.map((g) => (String(g.id) === String(group.id) ? group : g)),
     );
@@ -3912,6 +4998,20 @@ export default function Chat() {
   }
 
   function handleLeftOrDeletedGroup(groupId) {
+    const group = groupsRef.current.find((g) => String(g.id || g._id) === String(groupId));
+    if (groupId) {
+      activityStore.appendEvent({
+        id: `deleted:${groupId}`,
+        type: "group",
+        targetId: groupId,
+        groupId,
+        groupName: group?.name,
+        action: "deleted",
+        actorId: user?.id,
+        actorLabel: "you",
+        actorIsCurrentUser: true,
+      });
+    }
     setGroups((prev) => prev.filter((g) => String(g.id) !== String(groupId)));
     if (selected?.type === "group" && String(selected.id) === String(groupId)) {
       applyConversationSelection(null);
@@ -3925,8 +5025,8 @@ export default function Chat() {
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
     const peer = resolveDmPeer(selected);
-    if ((peer?.privacy?.online || "everyone") === "nobody") return false;
     if (onlineUserIds.has(String(selected.id))) return true;
+    // Fallback only when socket presence hasn't arrived yet.
     return isRecentlyActive(peer?.lastLoginAt);
   }, [selected, resolveDmPeer, onlineUserIds, user.id]);
 
@@ -3985,7 +5085,7 @@ export default function Chat() {
   return (
     <ChatShell
       threadOpen={Boolean(selected)}
-      infoOpen={infoPanelOpen && Boolean(selected)}
+      infoOpen={infoPanelOpen && Boolean(selected) && !isCompactChrome}
       aiOpen={aiPanelOpen}
     >
       <ConversationPane
@@ -3993,12 +5093,26 @@ export default function Chat() {
         canChat={canChat}
         sidebarOpen={sidebarOpen}
         onCloseSidebar={() => setSidebarOpen(false)}
-        onSettings={() => {
+       onSettings={() => {
           setShowSettings(true);
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
         onMarkAllRead={handleMarkAllRead}
+        vaultEnabled={vaultEnabled}
+        vaultUnlocked={vaultUnlocked}
+        onOpenVault={() => {
+          if (!vaultEnabled) {
+            setShowVaultSetup(true);
+            return;
+          }
+          if (vaultUnlocked) {
+            lockVault();
+            showToast("Vault locked", "info");
+            return;
+          }
+          setShowVaultUnlock(true);
+        }}
         storiesRailRef={storiesRailRef}
         users={users}
         onStoriesError={setError}
@@ -4026,9 +5140,10 @@ export default function Chat() {
             // It will resync from server data on next login/session refresh.
           });
         }}
-        onArchive={(c) => {
+       onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
         }}
+        onToggleVault={(c) => handleToggleVault(c.id)}
         loadingUsers={loadingUsers}
         hasMoreContacts={!searchResults && (usersHasMore || groupsHasMore)}
         onLoadMoreContacts={loadMoreContacts}
@@ -4066,6 +5181,11 @@ export default function Chat() {
             online: onlineUserIds.has(String(friend.id)),
           });
         }}
+        onlineUserIds={onlineUserIds}
+       onOpenStarred={() => {
+  setStarredScope('all');
+  setShowStarredMessages(true);
+}}
       />
 
       <main
@@ -4238,13 +5358,6 @@ export default function Chat() {
                 >
                   <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
                 </button>
-                <button
-                  className="mobile-menu-btn"
-                  onClick={() => setSidebarOpen(true)}
-                  aria-label="Open conversation sidebar"
-                >
-                  <Menu size={20} strokeWidth={2} aria-hidden="true" />
-                </button>
                 {selected ? (
                   <div
                     className={`chat-header-peer${selected.type === "group" ||
@@ -4353,16 +5466,7 @@ export default function Chat() {
                   selected?.peer?.systemRole !== "quantum_ai" && (
                     <>
 
-                      {selected && themeCatalog && (
-                        <button
-                          type="button"
-                          className="theme-open-button"
-                          onClick={() => setThemeModalOpen(true)}
-                          title="Chat theme"
-                        >
-                          🎨
-                        </button>
-                      )}
+                     
                       <button
                         className="icon-btn"
                         type="button"
@@ -4416,7 +5520,7 @@ export default function Chat() {
                   </button>
                 )}
                 <button
-                  className={`icon-btn accent${aiPanelOpen ? " active" : ""}`}
+                  className={`icon-btn accent chat-header-action-secondary${aiPanelOpen ? " active" : ""}`}
                   type="button"
                   onClick={() => setAiPanelOpen((open) => !open)}
                   title="Open QuantumAI"
@@ -4427,7 +5531,7 @@ export default function Chat() {
                 </button>
                 {selected?.type === "group" && (
                   <button
-                    className="icon-btn"
+                    className="icon-btn chat-header-action-secondary"
                     onClick={() => setShowGroupSettings(true)}
                     title="Group settings"
                     aria-label="Group settings"
@@ -4437,18 +5541,7 @@ export default function Chat() {
                 )}
                 {selected && (
                   <button
-                    className={`icon-btn${searchOpen ? " active" : ""}`}
-                    onClick={() => setSearchOpen(!searchOpen)}
-                    title="Search messages (Ctrl+K)"
-                    aria-label="Search messages"
-                    aria-pressed={searchOpen}
-                  >
-                    <Search size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                )}
-                {selected && (
-                  <button
-                    className={`icon-btn${infoPanelOpen ? " active" : ""}`}
+                    className={`icon-btn chat-header-action-secondary${infoPanelOpen ? " active" : ""}`}
                     onClick={toggleInfoPanel}
                     title="Chat details"
                     aria-label="Chat details"
@@ -4456,6 +5549,67 @@ export default function Chat() {
                   >
                     <Info size={18} strokeWidth={2} aria-hidden="true" />
                   </button>
+                )}
+                {selected && (
+                  <ChatOptionsMenu
+                    isGroup={selected.type === "group"}
+                    isBlocked={(user.blockedUsers || [])
+                      .map(String)
+                      .includes(String(selected.id))}
+                    isMuted={mutedKeys
+                      .map(String)
+                      .includes(String(selected.key))}
+                    isVaulted={
+                      selected.type === "dm" &&
+                      !selected.isSelfChat &&
+                      isPeerVaulted(selected.id)
+                    }
+                    compactExtras={isCompactChrome}
+                    onOpenAi={() => setAiPanelOpen((open) => !open)}
+                    onOpenInfo={toggleInfoPanel}
+                    onOpenGroupSettings={
+                      selected.type === "group"
+                        ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onToggleVault={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => handleToggleVault(selected.id)
+                        : undefined
+                    }
+                    onToggleBlock={() => {
+                      const isBlocked = (user.blockedUsers || [])
+                        .map(String)
+                        .includes(String(selected.id));
+                      if (isBlocked) handleUnblockUser(selected.id);
+                      else handleBlockUser(resolveDmPeer(selected));
+                    }}
+                    onToggleMute={() => {
+                      const wasMuted = mutedKeys
+                        .map(String)
+                        .includes(String(selected.key));
+                      setMutedKeys(toggleMuteChat(user.id, selected.key));
+                      const payload =
+                        selected.type === "group"
+                          ? { groupId: selected.id }
+                          : { peerId: selected.id };
+                      const request = wasMuted
+                        ? unmuteChat(payload)
+                        : muteChat({ ...payload, duration: "always" });
+                      request.catch(() => {});
+                    }}
+                    onSearch={() => setSearchOpen(true)}
+                    onWallpaper={
+                      selected.type === "dm" && !selected.isSelfChat
+                        ? () => setThemeModalOpen(true)
+                        : undefined
+                    }
+                    onStarred={() => {
+                      setStarredScope("chat");
+                      setShowStarredMessages(true);
+                    }}
+                    onMedia={() => setShowChatMedia(true)}
+                  />
                 )}
               </div>
             </header>
@@ -4505,40 +5659,8 @@ export default function Chat() {
                 {isDragging && (
                   <DragDropOverlay
                     isVisible={true}
-                    onFileDrop={sendAttachmentFiles}
+                    onFileDrop={queueAttachmentFiles}
                   />
-                )}
-
-                {uploads.length > 0 && (
-                  <div className="upload-progress-panel" aria-live="polite">
-                    {uploads.map((u) => (
-                      <div key={u.id} className="upload-progress-row">
-                        <div className="upload-progress-meta">
-                          <span className="upload-progress-name" title={u.name}>
-                            Encrypting & uploading {u.name}
-                          </span>
-                          <span className="upload-progress-pct">
-                            {u.progress}%
-                          </span>
-                        </div>
-                        <div className="upload-progress-track">
-                          <div
-                            className="upload-progress-fill"
-                            style={{ width: `${u.progress}%` }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          className="upload-progress-cancel"
-                          onClick={() => cancelUpload(u.id)}
-                          aria-label={`Cancel upload of ${u.name}`}
-                        >
-                          <X size={14} strokeWidth={2} />
-                          Cancel
-                        </button>
-                      </div>
-                    ))}
-                  </div>
                 )}
 
                 <AnimatePresence mode="wait">
@@ -4676,8 +5798,11 @@ export default function Chat() {
                                 isGroupChat ? handleVotePoll : undefined
                               }
                               onJumpToReply={handleJumpToReply}
-                              onImagePreview={handleImagePreview}
+                                                            onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
+                              onBurnViewOnce={handleBurnViewOnce}
+                              onShowInfo={handleShowMessageInfo}
+                              onShowEditHistory={handleShowEditHistory}
                               onOpenStory={(storyId) =>
                                 storiesRailRef.current?.openStoryById(storyId)
                               }
@@ -4704,7 +5829,7 @@ export default function Chat() {
                   </motion.div>
                 </AnimatePresence>
 
-                {hasUnread && (
+               {hasUnread && (
                   <button
                     className="scroll-bottom-pill"
                     onClick={() => scrollToBottom("smooth")}
@@ -4714,6 +5839,69 @@ export default function Chat() {
                     <ArrowDown size={16} strokeWidth={2.5} aria-hidden="true" />
                   </button>
                 )}
+
+               {selected?.type === "dm" &&
+  !selected.isSelfChat &&
+  String(selected.id) !== String(user.id) &&
+  !selected.peer?.isSystemUser &&
+  (() => {
+    const vaultedLocked = !vaultUnlocked && isPeerVaulted(selected.id);
+    const isRealFriend = isFriendWith(selected.id);
+
+    if (!vaultedLocked && isRealFriend) return null;
+
+    if (vaultedLocked) {
+      // Decoy view: always "not friends", regardless of the
+      // real relationship. Does NOT call the real
+      // friend-request API — clicking it must not mutate
+      // actual friend state while impersonating the locked
+      // decoy thread.
+      return (
+        <div className="composer-context" style={{ margin: "0 16px 8px" }}>
+          <div className="composer-context-copy">
+            <strong>Not friends yet</strong>
+            <span>Add {title} as a friend</span>
+          </div>
+          <button
+            type="button"
+            className="friend-action-btn add"
+            onClick={() => showToast("Friend request sent", "success")}
+          >
+            Add Friend
+          </button>
+        </div>
+      );
+    }
+
+    const pending = outgoingRequests.find(
+      (r) => String(r.user.id) === String(selected.id)
+    );
+    return (
+      <div className="composer-context" style={{ margin: "0 16px 8px" }}>
+        <div className="composer-context-copy">
+          <strong>Not friends yet</strong>
+          <span>Add {title} as a friend</span>
+        </div>
+        {pending ? (
+          <button
+            type="button"
+            className="friend-action-btn cancel"
+            onClick={() => handleCancelFriendRequest(pending.id)}
+          >
+            Cancel request
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="friend-action-btn add"
+            onClick={() => handleSendFriendRequest(selected.id)}
+          >
+            Add Friend
+          </button>
+        )}
+      </div>
+    );
+  })()}
 
                 {recording ? (
                   <div className="composer composer-recording">
@@ -4945,6 +6133,7 @@ export default function Chat() {
         <ChatThemeModal
           peerId={selected.id}
           theme={chatTheme}
+          catalog={themeCatalog}
           onApplied={(updated) => setChatTheme(updated)}
           onClose={() => setThemeModalOpen(false)}
         />
@@ -5016,6 +6205,7 @@ export default function Chat() {
         onToggleMinimize={(next) =>
           setCallMinimized((v) => (typeof next === "boolean" ? next : !v))
         }
+        onOpenAddParticipant={() => setShowAddParticipantModal(true)}
       />
 
       <MeetingOverlay
@@ -5040,7 +6230,42 @@ export default function Chat() {
         onEndForAll={meetingCall.endMeetingForAll}
         onToggleMute={meetingCall.toggleMute}
         onToggleCamera={meetingCall.toggleCamera}
+        onOpenAddParticipant={() => setShowAddParticipantModal(true)}
       />
+
+      {showAddParticipantModal && (
+        <AddParticipantModal
+          users={users}
+          currentParticipantIds={
+            meetingCall.meeting
+              ? [user?.id, ...Array.from(meetingCall.participants.keys())]
+              : webrtc.call
+              ? [user?.id, webrtc.call.peerId]
+              : [user?.id]
+          }
+          onClose={() => setShowAddParticipantModal(false)}
+          onAddParticipant={async (targetUser) => {
+            try {
+              if (meetingCall.meeting) {
+                await meetingCall.inviteParticipant(targetUser);
+                showToast(`Invited ${targetUser.displayName || targetUser.username} to call`, "success");
+              } else if (webrtc.call) {
+                const originalPeerId = webrtc.call.peerId;
+                const originalPeerUser = users.find((u) => String(u.id) === String(originalPeerId));
+                await meetingCall.startMeeting({
+                  video: Boolean(webrtc.call.video),
+                });
+                await meetingCall.inviteParticipant({ id: originalPeerId, publicKeys: originalPeerUser?.publicKeys || [] });
+                await meetingCall.inviteParticipant(targetUser);
+                webrtc.hangup();
+                showToast(`Created group meeting & invited ${targetUser.displayName || targetUser.username}`, "success");
+              }
+            } catch (err) {
+              showToast("Could not invite participant", "error");
+            }
+          }}
+        />
+      )}
 
       {showCreateGroup && (
         <CreateGroupModal
@@ -5071,18 +6296,12 @@ export default function Chat() {
             users.find((u) => String(u.id) === String(profileUserId)) ||
             null
           }
-          online={
-            onlineUserIds.has(String(profileUserId)) &&
-            (users.find((u) => String(u.id) === String(profileUserId))?.privacy
-              ?.online || "everyone") !== "nobody"
-          }
+          online={onlineUserIds.has(String(profileUserId))}
           muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
           archived={archivedKeys
             .map(String)
             .includes(String(conversationKeyForUser(profileUserId)))}
-          isFriend={(user.friends || [])
-            .map(String)
-            .includes(String(profileUserId))}
+          isFriend={isFriendWith(profileUserId)}
           onRemoveFriend={async (peer) => {
             try {
               await client.delete(`/users/friends/${peer.id}`);
@@ -5158,7 +6377,17 @@ export default function Chat() {
           }}
         />
       )}
-
+      {showChatMedia && (
+  <ChatMediaModal
+    messages={visibleMessages}
+    imageSrcMap={imageSrcMapRef.current}
+    onImageClick={(id) => {
+      setShowChatMedia(false);
+      handleImagePreview(id);
+    }}
+    onClose={() => setShowChatMedia(false)}
+  />
+)}
       {pollDraft && (
         <div
           className="create-group-overlay"
@@ -5349,7 +6578,7 @@ export default function Chat() {
         />
       )}
 
-      {forwardMessage && (
+     {forwardMessage && (
         <ForwardModal
           conversations={conversations}
           busy={forwardBusy}
@@ -5357,7 +6586,82 @@ export default function Chat() {
           onForward={handleForwardToConversation}
         />
       )}
-
+      {showVaultSetup && (
+        <VaultSetupModal
+          onClose={() => {
+            setShowVaultSetup(false);
+            setPendingVaultPeerId(null);
+          }}
+          onCreated={async () => {
+            setShowVaultSetup(false);
+            if (pendingVaultPeerId) {
+              try {
+                await addVaultPeer(pendingVaultPeerId);
+                showToast("Added to vault", "success");
+                if (
+                  selected?.type === "dm" &&
+                  String(selected.id) === String(pendingVaultPeerId)
+                ) {
+                  applyConversationSelection(null);
+                }
+              } catch (err) {
+                showToast(
+                  err.response?.data?.error || "Failed to add to vault",
+                  "error",
+                );
+              }
+            }
+            setPendingVaultPeerId(null);
+          }}
+        />
+      )}
+      {showVaultUnlock && (
+        <VaultUnlockModal
+          onClose={() => setShowVaultUnlock(false)}
+          onUnlocked={() => {
+            setShowVaultUnlock(false);
+            showToast("Vault unlocked", "success");
+          }}
+        />
+      )}
+      {showStarredMessages && (
+  <StarredMessagesModal
+    entries={
+      starredScope === 'chat' && selected
+        ? getStarredEntries(user.id).filter((e) => e.conversationKey === selected.key)
+        : getStarredEntries(user.id)
+    }
+    usernameById={usernameById}
+    currentUserId={user.id}
+    onSelect={handleOpenStarredEntry}
+    onUnstar={(id) => {
+      const nextIds = toggleStarredMessage(user.id, { id }, null);
+      setStarredIds(nextIds);
+      setExtrasTick((n) => n + 1);
+    }}
+    onClose={() => {
+      setShowStarredMessages(false);
+      setStarredScope('all');
+    }}
+  />
+)}
+      {messageInfoData && (
+        <MessageInfoModal
+          data={messageInfoData}
+          usernameById={usernameById}
+          currentUserId={user.id}
+          onSelectReply={handleSelectReplyFromInfo}
+          onClose={() => setMessageInfoData(null)}
+        />
+      )}
+            {editHistoryMessage && (
+        <EditHistoryModal
+          message={editHistoryMessage}
+          currentUserId={user.id}
+          resolveSecretKey={resolveMySecretKey}
+          onClose={() => setEditHistoryMessage(null)}
+        />
+      )}
       {logoutConfirmOpen && (
         <ConfirmDialog
           open={logoutConfirmOpen}
@@ -5375,7 +6679,7 @@ export default function Chat() {
         open={cameraOpen}
         onClose={() => setCameraOpen(false)}
         onCapture={(file) => {
-          sendAttachmentFiles(file).catch((err) => {
+          queueAttachmentFiles(file).catch((err) => {
             showToast(err.message || "Camera upload failed", "error");
           });
         }}
@@ -5389,6 +6693,22 @@ export default function Chat() {
           setGallery((g) => (g ? { ...g, index: next } : g))
         }
         onClose={() => setGallery(null)}
+      />
+
+      <MediaSendPreview
+        open={Boolean(mediaPreview?.files?.length)}
+        file={mediaPreview?.files?.[mediaPreview.index]}
+        index={mediaPreview?.index ?? 0}
+        total={mediaPreview?.files?.length ?? 1}
+        viewOnce={Boolean(mediaPreview?.viewOnce)}
+        onToggleViewOnce={() =>
+          setMediaPreview((prev) =>
+            prev ? { ...prev, viewOnce: !prev.viewOnce } : prev,
+          )
+        }
+        onSend={handleMediaPreviewSend}
+        onClose={() => !mediaPreviewSending && setMediaPreview(null)}
+        sending={mediaPreviewSending}
       />
 
       <ComposerPlusSheet
@@ -5456,7 +6776,11 @@ export default function Chat() {
           !String(actionSheetMessage.text).trim().startsWith('{"__qc') &&
           String(actionSheetMessage.from) === String(user.id),
         )}
-        canForward={actionSheetMessage?.allowForward !== false}
+        canForward={
+          !actionSheetMessage?.viewOnce &&
+          actionSheetMessage?.forwardPolicy?.allowForward !== false &&
+          actionSheetMessage?.allowForward !== false
+        }
         onReply={(msg) => {
           setEditingMessage(null);
           setReplyTo(msg);
@@ -5478,19 +6802,74 @@ export default function Chat() {
         }
         onStar={(msg) => handleStarMessage(msg?.id || msg?._id || msg)}
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
+        onShowInfo={handleShowMessageInfo}
       />
 
-      <InfoPanel
-        open={infoPanelOpen && Boolean(selected) && !isMobileShell}
-        onClose={() => {
-          setInfoPanelOpenState(false);
-          setInfoPanelOpen(false);
-        }}
-        selected={selected}
-        users={users}
-        onOpenProfile={setProfileUserId}
-        onOpenGroupSettings={() => setShowGroupSettings(true)}
-      />
+      {!isCompactChrome && (
+        <InfoPanel
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          selected={selected}
+          users={users}
+          onOpenProfile={setProfileUserId}
+          onOpenGroupSettings={() => setShowGroupSettings(true)}
+        >
+          {selected?.type === "dm" &&
+            !selected.isSelfChat &&
+            vaultUnlocked &&
+            isPeerVaulted(selected.id) &&
+            decoyThreadExists && (
+              <p
+                className="qc-info-note"
+                style={{ color: "var(--warning-text)" }}
+              >
+                This chat has messages that were sent without your vault
+                password entered (decoy thread). They&apos;re kept separate
+                from this real conversation and never mix with it.
+              </p>
+            )}
+        </InfoPanel>
+      )}
+
+      {isCompactChrome && (
+        <BottomSheet
+          open={infoPanelOpen && Boolean(selected)}
+          onClose={closeInfoPanel}
+          title="Chat details"
+          className="qc-info-sheet"
+        >
+          <InfoPanel
+            embedded
+            open={infoPanelOpen && Boolean(selected)}
+            onClose={closeInfoPanel}
+            selected={selected}
+            users={users}
+            onOpenProfile={(id) => {
+              closeInfoPanel();
+              setProfileUserId(id);
+            }}
+            onOpenGroupSettings={() => {
+              closeInfoPanel();
+              setShowGroupSettings(true);
+            }}
+          >
+            {selected?.type === "dm" &&
+              !selected.isSelfChat &&
+              vaultUnlocked &&
+              isPeerVaulted(selected.id) &&
+              decoyThreadExists && (
+                <p
+                  className="qc-info-note"
+                  style={{ color: "var(--warning-text)" }}
+                >
+                  This chat has messages that were sent without your vault
+                  password entered (decoy thread). They&apos;re kept separate
+                  from this real conversation and never mix with it.
+                </p>
+              )}
+          </InfoPanel>
+        </BottomSheet>
+      )}
     </ChatShell>
   );
 }
