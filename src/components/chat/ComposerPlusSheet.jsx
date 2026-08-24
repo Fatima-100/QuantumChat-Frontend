@@ -2,7 +2,7 @@ import { Paperclip, Camera, BarChart2, Calendar, Megaphone, Clock, Forward, Smil
 import BottomSheet from '../ui/BottomSheet.jsx';
 
 /**
- * Nested composer actions — attach / camera / group tools / disappear.
+ * Nested composer actions — attach / camera / group tools / disappear / forwarding.
  */
 export default function ComposerPlusSheet({
   open,

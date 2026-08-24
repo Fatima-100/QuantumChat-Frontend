@@ -1,18 +1,19 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import client from '../api/client.js';
-import { generateKeySet, derivePublicKey, KEY_SET_SIZE } from '../crypto/keys.js';
+import { connectSocket, disconnectSocket } from '../api/socket.js';
+import { clearVaultToken } from '../api/vaultToken.js';
+import { derivePublicKey, generateKeySet, KEY_SET_SIZE } from '../crypto/keys.js';
 import {
   addKeySetToRing,
-  hasKeyring,
-  getKeyringSyncStatus,
-  keyringMatchesPublishedKeys,
-  saveSession,
-  getStoredUser,
-  clearSession,
   clearKeyring,
+  clearSession,
+  getKeyringSyncStatus,
+  getStoredUser,
   getToken,
+  hasKeyring,
+  keyringMatchesPublishedKeys,
+  saveSession
 } from '../crypto/keyStorage.js';
-import { connectSocket, disconnectSocket } from '../api/socket.js';
 
 const AuthContext = createContext(null);
 
@@ -20,6 +21,17 @@ function clearOtherAccountKeyring(loggedInUserId) {
   const previous = getStoredUser();
   if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
     clearKeyring(previous.id);
+  }
+}
+
+// Vault unlock is per-session, in-memory only, and never tied to a
+// particular account by the server (the token just says "this JWT-holder's
+// vault is unlocked"). If we log in as a different user in the same tab
+// without a page reload, the old token must not silently carry over.
+function lockVaultOnAccountSwitch(loggedInUserId) {
+  const previous = getStoredUser();
+  if (!previous?.id || String(previous.id) !== String(loggedInUserId)) {
+    clearVaultToken();
   }
 }
 
@@ -90,7 +102,7 @@ export function AuthProvider({ children }) {
   }, [user?.id]);
 
   const register = useCallback(
-    async ({ username, email, password }) => {
+    async ({ username, email, password, dateOfBirth, timezone }) => {
       const keySet = generateKeySet();
       const publicKeys = keySet.map((k) => k.publicKey);
       // Validate localStorage works before creating a server account whose keys we must store here.
@@ -102,7 +114,7 @@ export function AuthProvider({ children }) {
         throw new Error('Cannot save keys to localStorage: ' + err.message);
       }
 
-      const { data } = await client.post('/auth/register', { username, email, password, publicKeys });
+      const { data } = await client.post('/auth/register', {username,email,password,publicKeys,dateOfBirth: dateOfBirth || undefined,timezone,});
       const { token, user: newUser } = data.data;
 
       // CRITICAL: persist private keys before anything else that could navigate away.
@@ -123,9 +135,20 @@ export function AuthProvider({ children }) {
     [recomputeKeyringSync]
   );
 
-  // Private keys stay on this device across logins. We only clear another
-  // account's keyring when switching users, so the same account does not
-  // re-prompt for keys.txt every session.
+   // Private keys stay on this device across logins. We only clear another
+    // account's keyring when switching users, so the same account does not
+    // re-prompt for keys.txt every session.
+    // Best-effort — keeps the birthday-notification scheduler accurate if the
+    // person has traveled since their last login. Never blocks or fails login.
+    function refreshTimezoneSilently() {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (timezone) client.patch('/users/me', { timezone }).catch(() => {});
+      } catch {
+        // Intl unsupported or blocked — not worth surfacing to the user.
+      }
+    }
+
   const login = useCallback(async ({ email, password, rememberMe = true }) => {
     const deviceLabel = String(navigator.userAgent || '').slice(0, 120);
     const { data } = await client.post('/auth/login', {
@@ -141,11 +164,13 @@ export function AuthProvider({ children }) {
         rememberMe: data.data.rememberMe !== false,
       };
     }
-    const { token, user: loggedInUser, sessionId } = data.data;
+   const { token, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
+    lockVaultOnAccountSwitch(loggedInUser.id);
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
+    refreshTimezoneSilently();
     return loggedInUser;
   }, []);
 
@@ -159,9 +184,11 @@ export function AuthProvider({ children }) {
     });
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
+    lockVaultOnAccountSwitch(loggedInUser.id);
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
+    refreshTimezoneSilently();
     return loggedInUser;
   }, []);
 
@@ -206,13 +233,13 @@ export function AuthProvider({ children }) {
   // Clears the auth session only. Encryption keys stay in localStorage so the
   // next login on this browser can chat without re-importing keys.txt; we
   // still reset the in-memory sync banner state since there's no user to show it for.
-  const logout = useCallback(() => {
+const logout = useCallback(() => {
     clearSession();
+    clearVaultToken();
     disconnectSocket();
     setUser(null);
     setKeyringSync(null);
   }, []);
-
   const updateSessionUser = useCallback(
     (nextUser) => {
       if (!nextUser) return;

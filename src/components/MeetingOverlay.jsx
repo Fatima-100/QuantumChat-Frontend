@@ -1,4 +1,5 @@
-import { Mic, MicOff, Phone, PhoneOff, Users, Video, VideoOff } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Mic, MicOff, Phone, PhoneOff, UserPlus, Users, Video, VideoOff, Volume2, VolumeX } from 'lucide-react';
 import VideoTile from './VideoTile.jsx';
 
 export default function MeetingOverlay({
@@ -14,7 +15,35 @@ export default function MeetingOverlay({
   onEndForAll,
   onToggleMute,
   onToggleCamera,
+  onOpenAddParticipant,
 }) {
+  const [speakerActive, setSpeakerActive] = useState(false);
+
+  const supportsSpeaker =
+    typeof HTMLMediaElement !== 'undefined' &&
+    typeof HTMLMediaElement.prototype.setSinkId === 'function';
+
+  const toggleSpeaker = useCallback(async () => {
+    if (!supportsSpeaker) return;
+    try {
+      const devices = await navigator.mediaDevices?.enumerateDevices?.();
+      const audioOutputs = (devices || []).filter((d) => d.kind === 'audiooutput');
+      const targetDevice = speakerActive
+        ? ''
+        : (audioOutputs.find((d) => d.deviceId !== 'default' && d.deviceId !== '')?.deviceId || '');
+
+      const mediaElements = document.querySelectorAll('audio, video');
+      for (const el of mediaElements) {
+        if (typeof el.setSinkId === 'function') {
+          await el.setSinkId(targetDevice).catch(() => {});
+        }
+      }
+      setSpeakerActive(!speakerActive);
+    } catch {
+      /* ignore sink errors */
+    }
+  }, [speakerActive, supportsSpeaker]);
+
   if (!meeting) return null;
 
   const isIncoming = meeting.status === 'incoming';
@@ -73,17 +102,39 @@ export default function MeetingOverlay({
                 className={`call-ctrl${muted ? ' active' : ''}`}
                 onClick={onToggleMute}
                 aria-label={muted ? 'Unmute' : 'Mute'}
+                title={muted ? 'Unmute' : 'Mute'}
               >
                 {muted ? <MicOff size={20} /> : <Mic size={20} />}
               </button>
-              {meeting.video ? (
+              <button
+                type="button"
+                className={`call-ctrl${cameraOff ? ' active' : ''}`}
+                onClick={onToggleCamera}
+                aria-label={cameraOff ? 'Camera on' : 'Camera off'}
+                title={cameraOff ? 'Camera on' : 'Camera off'}
+              >
+                {cameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+              </button>
+              {supportsSpeaker ? (
                 <button
                   type="button"
-                  className={`call-ctrl${cameraOff ? ' active' : ''}`}
-                  onClick={onToggleCamera}
-                  aria-label={cameraOff ? 'Camera on' : 'Camera off'}
+                  className={`call-ctrl${speakerActive ? ' active' : ''}`}
+                  onClick={toggleSpeaker}
+                  aria-label={speakerActive ? 'Earpiece' : 'Speaker'}
+                  title={speakerActive ? 'Earpiece' : 'Speaker'}
                 >
-                  {cameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+                  {speakerActive ? <Volume2 size={20} /> : <VolumeX size={20} />}
+                </button>
+              ) : null}
+              {typeof onOpenAddParticipant === 'function' ? (
+                <button
+                  type="button"
+                  className="call-ctrl"
+                  onClick={onOpenAddParticipant}
+                  aria-label="Add participant"
+                  title="Add participant"
+                >
+                  <UserPlus size={20} />
                 </button>
               ) : null}
               <button type="button" className="call-ctrl hangup" onClick={onLeave} aria-label="Leave meeting">

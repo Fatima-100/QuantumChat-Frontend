@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCheck, LogOut, MoreVertical, Settings } from 'lucide-react';
-
-export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
+import { CheckCheck, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
+import { Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+export default function SidebarMenu({
+  onSettings,
+  onLogout,
+  onMarkAllRead,
+  onOpenStarred,
+  vaultEnabled,
+  vaultUnlocked,
+  onOpenVault,
+}) {
+  const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -24,6 +34,7 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+  
 
   return (
     <div className="sidebar-menu" ref={rootRef}>
@@ -67,7 +78,49 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
 
             <div className="sidebar-menu-divider" />
 
-            
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpenStarred?.();
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                <Star size={16} aria-hidden="true" />
+                <span>Starred messages</span>
+              </span>
+            </button>
+
+           <div className="sidebar-menu-divider" />
+
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpenVault?.();
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                {vaultEnabled && vaultUnlocked ? (
+                  <Unlock size={16} aria-hidden="true" />
+                ) : (
+                  <Lock size={16} aria-hidden="true" />
+                )}
+                <span>
+                  {!vaultEnabled
+                    ? 'Set up vault'
+                    : vaultUnlocked
+                      ? 'Lock vault'
+                      : 'Unlock vault'}
+                </span>
+              </span>
+            </button>
+
+            <div className="sidebar-menu-divider" />
             <button
               type="button"
               className="sidebar-menu-item"
@@ -80,6 +133,21 @@ export default function SidebarMenu({ onSettings, onLogout, onMarkAllRead }) {
               <span className="sidebar-menu-item-left">
                 <Settings size={16} aria-hidden="true" />
                 <span>Settings</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="sidebar-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate('/chat/activity');
+              }}
+            >
+              <span className="sidebar-menu-item-left">
+                <Clock size={16} aria-hidden="true" />
+                <span>Activity</span>
               </span>
             </button>
 

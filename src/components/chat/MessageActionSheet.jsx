@@ -1,6 +1,7 @@
 import {
   Copy,
   Forward,
+  Info,
   Pencil,
   Pin,
   Reply,
@@ -25,8 +26,9 @@ export default function MessageActionSheet({
   onForward,
   onEdit,
   onDelete,
-  onStar,
+   onStar,
   onPin,
+  onShowInfo,
   starred = false,
   pinned = false,
   canEdit = false,
@@ -62,9 +64,14 @@ export default function MessageActionSheet({
         </button>
       </div>
       <div className="qc-msg-actions-list" role="menu">
-        <button type="button" role="menuitem" onClick={() => run(onReply)}>
+               <button type="button" role="menuitem" onClick={() => run(onReply)}>
           <Reply size={18} /> Reply
         </button>
+        {isMine && onShowInfo ? (
+          <button type="button" role="menuitem" onClick={() => run(onShowInfo)}>
+            <Info size={18} /> Message info
+          </button>
+        ) : null}
         <button type="button" role="menuitem" onClick={() => run(onCopy)}>
           <Copy size={18} /> Copy
         </button>
@@ -79,7 +86,12 @@ export default function MessageActionSheet({
           </button>
         ) : null}
         <button type="button" role="menuitem" onClick={() => run(onStar)}>
-          <Star size={18} /> {starred ? 'Unstar' : 'Star'}
+          <Star
+            size={18}
+            fill={starred ? '#FFC107' : 'none'}
+            stroke={starred ? '#FFC107' : 'currentColor'}
+          />{' '}
+          {starred ? 'Unstar' : 'Star'}
         </button>
         <button type="button" role="menuitem" onClick={() => run(onPin)}>
           <Pin size={18} /> {pinned ? 'Unpin' : 'Pin'}

@@ -319,6 +319,34 @@ export default function useMeetingCall({ userId, resolveGroupMembers, onEnd } = 
     endMeetingLocal();
   }, [broadcast, endMeetingLocal]);
 
+  const inviteParticipant = useCallback(
+    async (targetUser) => {
+      const targetId = memberIdOf(targetUser);
+      const m = meetingRef.current;
+      if (!m || !targetId) return;
+
+      const existingMember = membersRef.current.find((member) => memberIdOf(member) === targetId);
+      if (!existingMember) {
+        membersRef.current = [
+          ...membersRef.current,
+          {
+            id: targetId,
+            publicKeys: targetUser?.publicKeys || [],
+          },
+        ];
+      }
+
+      await sendTo('meeting:invite', targetId, {
+        type: 'invite',
+        callId: m.meetingId,
+        groupId: m.groupId || '',
+        groupName: m.groupName || 'Group Call',
+        video: Boolean(m.video),
+      });
+    },
+    [sendTo]
+  );
+
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -329,15 +357,72 @@ export default function useMeetingCall({ userId, resolveGroupMembers, onEnd } = 
     setMuted(next);
   }, [muted]);
 
-  const toggleCamera = useCallback(() => {
-    const stream = localStreamRef.current;
-    if (!stream) return;
-    const next = !cameraOff;
-    stream.getVideoTracks().forEach((t) => {
-      t.enabled = !next;
-    });
-    setCameraOff(next);
-  }, [cameraOff]);
+  const toggleCamera = useCallback(async () => {
+    let stream = localStreamRef.current;
+    const turningOff = !cameraOff;
+
+    if (turningOff) {
+      if (stream) {
+        stream.getVideoTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      }
+      setCameraOff(true);
+      return;
+    }
+
+    // Turning camera ON
+    if (stream && stream.getVideoTracks().some((t) => t.readyState === 'live')) {
+      stream.getVideoTracks().forEach((t) => {
+        t.enabled = true;
+      });
+      setCameraOff(false);
+      return;
+    }
+
+    // No live video track — acquire dynamically via getUserMedia
+    try {
+      const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const vTrack = vStream.getVideoTracks()[0];
+      if (!vTrack) return;
+
+      if (!stream) {
+        stream = new MediaStream([vTrack]);
+        localStreamRef.current = stream;
+      } else {
+        stream.addTrack(vTrack);
+      }
+
+      setLocalStream(new MediaStream(stream.getTracks()));
+
+      for (const [peerId, pc] of pcMapRef.current.entries()) {
+        if (pc.signalingState === 'closed') continue;
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(vTrack).catch(() => {});
+        } else {
+          pc.addTrack(vTrack, stream);
+        }
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await sendTo('meeting:offer', peerId, {
+            type: 'offer',
+            callId: meetingRef.current?.meetingId,
+            sdp: offer,
+          });
+        } catch {
+          /* ignore re-offer errors */
+        }
+      }
+
+      setMeeting((prev) => (prev ? { ...prev, video: true } : prev));
+      setCameraOff(false);
+    } catch (err) {
+      console.warn('[useMeetingCall] Could not enable camera:', err);
+      throw err;
+    }
+  }, [cameraOff, sendTo]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -502,5 +587,6 @@ export default function useMeetingCall({ userId, resolveGroupMembers, onEnd } = 
     endMeetingForAll,
     toggleMute,
     toggleCamera,
+    inviteParticipant,
   };
 }
