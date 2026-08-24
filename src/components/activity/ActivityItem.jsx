@@ -1,10 +1,18 @@
 import { formatDistanceToNow } from 'date-fns';
+import { UserPlus, Users, AtSign, SmilePlus, Bell } from 'lucide-react';
+
+const ICONS = {
+  friend_request: UserPlus,
+  group: Users,
+  mention: AtSign,
+  reaction: SmilePlus,
+};
 
 export default function ActivityItem({ item = {}, onOpen = () => {} }) {
   const when = item.at ? formatDistanceToNow(new Date(item.at), { addSuffix: true }) : '';
   let title = '';
   const actor = item.actorIsCurrentUser ? 'You' : (item.actorLabel || item.actorName || 'Someone');
-  const originalAuthor = item.originalAuthorIsCurrentUser ? 'your' : (item.originalAuthorLabel ? `${item.originalAuthorLabel}'s` : 'the');
+  const originalAuthor = item.originalAuthorIsCurrentUser ? 'your' : (item.originalAuthorLabel ? `${item.originalAuthorLabel}'s` : 'a');
   switch (item.type) {
     case 'friend_request':
       title = item.actorLabel || item.actorIsCurrentUser ? `${actor} sent you a friend request` : 'New friend request';
@@ -26,12 +34,29 @@ export default function ActivityItem({ item = {}, onOpen = () => {} }) {
       title = item.type || 'Activity';
   }
 
+  const Icon = ICONS[item.type] || Bell;
+  const iconClass = ICONS[item.type] ? `type-${item.type}` : 'type-default';
+
   return (
-    <div className="activity-item" onClick={onOpen} role="button" tabIndex={0}>
+    <div
+      className="activity-item"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <span className={`activity-item-icon ${iconClass}`} aria-hidden="true">
+        <Icon size={18} strokeWidth={2} />
+      </span>
       <div className="activity-item-main">
         <div className="activity-item-title">{title}</div>
         {item.preview ? <div className="activity-item-preview muted">{item.preview}</div> : null}
-        <div className="activity-item-meta muted">{when}</div>
+        <div className="activity-item-meta">{when}</div>
       </div>
     </div>
   );
