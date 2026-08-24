@@ -112,6 +112,7 @@ export default function SettingsModal({
   const [username, setUsername] = useState(user?.username || '');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [bio, setBio] = useState(user?.bio || '');
+  const [statusText, setStatusText] = useState(user?.statusText || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
@@ -336,6 +337,7 @@ export default function SettingsModal({
         username: username.trim(),
         displayName: displayName.trim(),
         bio: bio.trim(),
+        statusText: statusText.trim(),
         phone: phone.trim(),
       });
       onUserUpdated?.(data.data);
@@ -968,6 +970,38 @@ export default function SettingsModal({
                 <label className="settings-field">
                   <span>Bio</span>
                   <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder="A short line about you" />
+                </label>
+                <label className="settings-field">
+                  <span>Status</span>
+                  <input
+                    value={statusText}
+                    onChange={(e) => setStatusText(e.target.value)}
+                    maxLength={100}
+                    placeholder="e.g. Busy studying, In a meeting"
+                  />
+                  <p className="settings-section-copy">
+                    A short custom status shown on your profile. It is separate from your online/offline status.
+                    {statusText.trim() ? (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          onClick={() => setStatusText('')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            font: 'inherit',
+                            color: 'inherit',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Clear status
+                        </button>
+                      </>
+                    ) : null}
+                  </p>
                 </label>
                 <label className="settings-field">
                   <span>Phone</span>

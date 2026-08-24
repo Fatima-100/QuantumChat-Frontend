@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Ban,
+  Eraser,
   Image as ImageIcon,
   Info,
   Lock,
@@ -38,6 +39,7 @@ export default function ChatOptionsMenu({
   onToggleBlock,
   onToggleMute,
   onToggleVault,
+  onClearChat,
   onSearch,
   onWallpaper,
   onStarred,
@@ -137,6 +139,11 @@ export default function ChatOptionsMenu({
               <button type="button" role="menuitem" onClick={() => run(onToggleVault)}>
                 {isVaulted ? <Unlock size={15} /> : <Lock size={15} />}{' '}
                 {isVaulted ? 'Remove from vault' : 'Add to vault'}
+              </button>
+            )}
+            {onClearChat && (
+              <button type="button" role="menuitem" className="danger" onClick={() => run(onClearChat)}>
+                <Eraser size={15} /> Clear chat
               </button>
             )}
             {!isGroup && onToggleBlock && (

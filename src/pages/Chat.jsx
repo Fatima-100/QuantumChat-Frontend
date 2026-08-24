@@ -1761,6 +1761,52 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
+    function handleChatCleared(payload = {}) {
+      // Multi-device sync: another of this user's sessions cleared a chat. If
+      // we're viewing that same conversation, empty it here too. The backend
+      // already filters cleared messages out of fetch/sync, so nothing stale
+      // reappears on a later refresh.
+      const current = selectedRef.current;
+      if (!current) return;
+      const matchesGroup =
+        payload.groupId &&
+        current.type === "group" &&
+        String(current.id) === String(payload.groupId);
+      const matchesDm =
+        payload.peerId &&
+        current.type === "dm" &&
+        String(current.id) === String(payload.peerId);
+      if (matchesGroup || matchesDm) {
+        setMessages([]);
+      }
+    }
+
+    function handleUserStatus(payload = {}) {
+      const { userId: statusUserId } = payload;
+      if (!statusUserId) return;
+      const nextStatus = payload.statusText || "";
+      // Reflect the new custom status in the contact list...
+      setUsers((prev) =>
+        prev.map((u) =>
+          String(u.id) === String(statusUserId) ? { ...u, statusText: nextStatus } : u,
+        ),
+      );
+      // ...the currently-open DM (so the header/peer view updates live)...
+      setSelected((prev) =>
+        prev && prev.type === "dm" && String(prev.id) === String(statusUserId)
+          ? {
+            ...prev,
+            statusText: nextStatus,
+            peer: prev.peer ? { ...prev.peer, statusText: nextStatus } : prev.peer,
+          }
+          : prev,
+      );
+      // ...and our own session (when this is our own status echoed back to us).
+      if (String(statusUserId) === String(user.id)) {
+        updateSessionUser({ ...userRef.current, statusText: nextStatus });
+      }
+    }
+
     socket.on("message:new", handleIncoming);
     socket.on("message:deleted", handleDeleted);
     socket.on("message:expired", handleExpired);
@@ -1780,6 +1826,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("friend:request:new", handleFriendRequestNew);
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
+    socket.on("chat:cleared", handleChatCleared);
+    socket.on("user:status", handleUserStatus);
 
     // Auth may connect the socket before Chat mounts, so the initial
     // presence:snapshot is easy to miss. Re-request whenever listeners attach
@@ -1810,6 +1858,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       socket.off("friend:request:new", handleFriendRequestNew);
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
+      socket.off("chat:cleared", handleChatCleared);
+      socket.off("user:status", handleUserStatus);
       socket.off("connect", requestPresence);
       clearTimeout(typingPeerTimeoutRef.current);
     };
@@ -3230,6 +3280,50 @@ async function handleToggleVault(peerId) {
       setConfirmBusy(false);
     }
   }
+
+  function handleClearChat() {
+    if (!selected) return;
+    setConfirmDialog({
+      type: "clear-chat",
+      selectionType: selected.type,
+      selectionId: selected.id,
+      title: "Clear this chat?",
+      message:
+        "Previous messages will be removed from this chat for you and can’t be easily undone. The conversation stays in your list, and you can still send and receive new messages.",
+      confirmLabel: "Clear chat",
+      danger: true,
+    });
+  }
+
+  async function executeClearChat(dialog) {
+    const type = dialog?.selectionType;
+    const id = dialog?.selectionId;
+    if (!type || !id) {
+      setConfirmDialog(null);
+      return;
+    }
+    try {
+      setConfirmBusy(true);
+      const payload = type === "group" ? { groupId: id } : { peerId: id };
+      const { data } = await client.post("/users/me/clear-chat", payload);
+      // Server confirmed — persist the updated watermarks to the session, then
+      // (and only then) empty the visible thread. No optimistic clear: if the
+      // request had failed, the existing messages stay intact. Guard on the
+      // still-open conversation so a fast switch doesn't blank a different chat.
+      if (data?.data) updateSessionUser(data.data);
+      const current = selectedRef.current;
+      if (current && current.type === type && String(current.id) === String(id)) {
+        setMessages([]);
+      }
+      showToast("Chat cleared", "success");
+      setConfirmDialog(null);
+    } catch (err) {
+      showToast(err.response?.data?.error || "Failed to clear chat", "error");
+      setConfirmDialog(null);
+    } finally {
+      setConfirmBusy(false);
+    }
+  }
 async function handleUnblockUser(peerId) {
   try {
     const { data } = await client.delete(`/users/${peerId}/block`);
@@ -4643,6 +4737,10 @@ useEffect(() => {
       await executeDeleteMessage(confirmDialog.messageId);
       return;
     }
+    if (confirmDialog.type === "clear-chat") {
+      await executeClearChat(confirmDialog);
+      return;
+    }
     if (confirmDialog.type === "regenerate-keys") {
       await handleGenerateKeys();
     }
@@ -4873,8 +4971,14 @@ useEffect(() => {
       return aiBusy ? "generating…" : "AI Assistant";
     if (peerTyping) return "typing…";
     // Server already filtered presence by the peer's onlineStatus privacy.
-    if (onlineUserIds.has(String(selected.id))) return "online";
-    return formatLastSeen(peer?.lastLoginAt);
+    const presenceLabel = onlineUserIds.has(String(selected.id))
+      ? "online"
+      : formatLastSeen(peer?.lastLoginAt);
+    const customStatus = (peer?.statusText || "").trim();
+    if (customStatus) {
+      return presenceLabel ? `${presenceLabel} · ${customStatus}` : customStatus;
+    }
+    return presenceLabel;
   }, [
     selected,
     groups,
@@ -5598,6 +5702,7 @@ useEffect(() => {
                         : muteChat({ ...payload, duration: "always" });
                       request.catch(() => {});
                     }}
+                    onClearChat={handleClearChat}
                     onSearch={() => setSearchOpen(true)}
                     onWallpaper={
                       selected.type === "dm" && !selected.isSelfChat
