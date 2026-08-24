@@ -20,7 +20,6 @@ import {
   Video,
   X,
 } from "lucide-react";
-import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
@@ -2864,10 +2863,8 @@ export default function Chat() {
   // /attachments/init hands back the pendingUploadId this targets), which
   // forwards the bytes to Cloudinary.
   async function putCiphertext(
-    target,
     blob,
     filename,
-    mimeType,
     { pendingUploadId, slot, signal, onProgress },
   ) {
     const formData = new FormData();
@@ -2925,10 +2922,8 @@ export default function Chat() {
         const { pendingUploadId, recipient } = initRes.data.data;
 
         const recipientDirectUploadId = await putCiphertext(
-          recipient,
           cipherBlob,
           file.name,
-          mimeType,
           {
             pendingUploadId,
             slot: "recipient",
