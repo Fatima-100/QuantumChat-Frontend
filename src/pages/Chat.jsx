@@ -2919,7 +2919,7 @@ export default function Chat() {
           },
           { signal: controller.signal },
         );
-        const { pendingUploadId, recipient } = initRes.data.data;
+        const { pendingUploadId } = initRes.data.data;
 
         const recipientDirectUploadId = await putCiphertext(
           cipherBlob,
@@ -2998,7 +2998,7 @@ export default function Chat() {
         },
         { signal: controller.signal },
       );
-      const { pendingUploadId, recipient, sender } = initRes.data.data;
+      const { pendingUploadId, sender } = initRes.data.data;
 
       let recipientLoaded = 0;
       let senderLoaded = 0;
@@ -3015,10 +3015,8 @@ export default function Chat() {
       };
 
       const recipientDirectUploadId = await putCiphertext(
-        recipient,
         recipientBlob,
         file.name,
-        mimeType,
         {
           pendingUploadId,
           slot: "recipient",
@@ -3030,7 +3028,7 @@ export default function Chat() {
         },
       );
       const senderDirectUploadId = sender
-        ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
+        ? await putCiphertext(senderBlob, file.name, {
             pendingUploadId,
             slot: "sender",
             signal: controller.signal,
