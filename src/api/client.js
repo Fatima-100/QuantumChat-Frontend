@@ -49,4 +49,8 @@ export async function unmuteChat(payload) {
   const { data } = await client.post('/users/me/unmute', payload);
   return data;
 }
+export async function clearChat(payload) {
+  const { data } = await client.post('/users/me/clear-chat', payload);
+  return data;
+}
 export default client;

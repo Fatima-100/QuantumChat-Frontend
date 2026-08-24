@@ -10733,6 +10733,16 @@ button.message-reply-preview:hover {
   letter-spacing: -0.01em;
 }
 
+.user-profile-status-text {
+  margin: 4px 0 0;
+  max-width: 100%;
+  font-size: 0.88rem;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .user-profile-chip {
   display: inline-flex;
   align-items: center;

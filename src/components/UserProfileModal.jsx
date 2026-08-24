@@ -112,6 +112,7 @@ export default function UserProfileModal({
   const displayName = profile?.displayName?.trim() || profile?.username || 'User';
   const username = profile?.username || '';
   const bio = (profile?.bio || '').trim();
+  const statusText = (profile?.statusText || '').trim();
   const presence = formatPresence(profile, online);
   const keyRotated = formatKeyRotated(profile?.keyRotatedAt);
   const isAi = profile?.systemRole === 'quantum_ai' || profile?.isSystemUser;
@@ -169,6 +170,7 @@ export default function UserProfileModal({
                 QuantumAI
               </span>
             ) : null}
+            {statusText ? <p className="user-profile-status-text">{statusText}</p> : null}
           </div>
 
           {presence && !loading && (
