@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
-import { connectSocket, disconnectSocket } from '../api/socket.js';
+import { connectSocket, disconnectSocket , getSocket} from '../api/socket.js';
 import { clearVaultToken } from '../api/vaultToken.js';
 import { derivePublicKey, generateKeySet, KEY_SET_SIZE } from '../crypto/keys.js';
 import {
@@ -17,6 +17,8 @@ import {
 
 const AuthContext = createContext(null);
 
+
+import activityStore from '../utils/activityStore.js';
 function clearOtherAccountKeyring(loggedInUserId) {
   const previous = getStoredUser();
   if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
@@ -100,6 +102,56 @@ export function AuthProvider({ children }) {
     // Only re-run when the signed-in user identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+  // Activity feed polling fallback. Socket.IO can't run on serverless
+// deployments (Vercel), so the socket-based activity listeners in
+// Chat.jsx never fire there. This polls a small derived-events endpoint
+// instead — but only when no live socket is already covering it, so
+// local dev (where sockets work) is untouched.
+const activityCursorRef = useRef(null);
+
+useEffect(() => {
+  if (!user?.id || !getToken()) return undefined;
+
+  let cancelled = false;
+  let inFlight = false;
+
+  async function pollActivity() {
+    if (cancelled || inFlight) return;
+    if (document.visibilityState === 'hidden') return;
+    if (getSocket()?.connected) return; // real-time socket already covers this
+
+    inFlight = true;
+    try {
+      const { data } = await client.get('/activity/sync', {
+        params: activityCursorRef.current ? { since: activityCursorRef.current } : undefined,
+      });
+      if (cancelled) return;
+      if (data?.meta?.cursor) activityCursorRef.current = data.meta.cursor;
+      for (const event of data?.data || []) {
+        activityStore.appendEvent(event);
+      }
+    } catch {
+      // Transient network errors are fine — just retry on the next tick.
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  // Start from "now" so first login doesn't replay a user's entire recent
+  // history as fresh activity — only genuinely new events count.
+  activityCursorRef.current = new Date().toISOString();
+  const timer = window.setInterval(pollActivity, 4000);
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') pollActivity();
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
+  return () => {
+    cancelled = true;
+    window.clearInterval(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}, [user?.id]);
 
   const register = useCallback(
     async ({ username, email, password, dateOfBirth, timezone }) => {
