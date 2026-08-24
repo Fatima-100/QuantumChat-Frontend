@@ -19,7 +19,6 @@ import {
   Video,
   X,
 } from "lucide-react";
-import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
@@ -3797,29 +3796,14 @@ async function handleUnblockUser(peerId) {
     }
   }
 
-  // Uploads one already-encrypted blob to the target handed back by
-  // POST /attachments/init: either straight to Google Drive's resumable
-  // session URL (bypasses our server and its request-size limits), or
-  // through our own proxy endpoint for local/dev storage. Returns the
-  // Drive file id when applicable (undefined for the proxy path, since the
-  // server already knows its own storage key).
+  // Uploads one already-encrypted blob to our proxy endpoint (POST
+  // /attachments/init hands back the pendingUploadId this targets), which
+  // forwards the bytes to Cloudinary.
   async function putCiphertext(
-    target,
     blob,
     filename,
-    mimeType,
     { pendingUploadId, slot, signal, onProgress },
   ) {
-    if (target.mode === "direct") {
-      // Plain axios, not the `client` instance — this must NOT carry our
-      // app's Authorization header to a third-party host.
-      const res = await axios.put(target.uploadUrl, blob, {
-        headers: { "Content-Type": mimeType },
-        signal,
-        onUploadProgress: onProgress,
-      });
-      return res.data?.id;
-    }
     const formData = new FormData();
     formData.append("file", blob, filename);
     await client.put(
@@ -3874,11 +3858,9 @@ async function handleUnblockUser(peerId) {
         );
         const { pendingUploadId, recipient } = initRes.data.data;
 
-        const recipientDriveFileId = await putCiphertext(
-          recipient,
+        const recipientDirectUploadId = await putCiphertext(
           cipherBlob,
           file.name,
-          mimeType,
           {
             pendingUploadId,
             slot: "recipient",
@@ -3898,7 +3880,7 @@ async function handleUnblockUser(peerId) {
 
         const finalizeRes = await client.post(
           "/attachments/finalize",
-          { pendingUploadId, recipientDriveFileId },
+          { pendingUploadId, recipientDirectUploadId },
           { signal: controller.signal },
         );
         const attachment = finalizeRes.data.data;
@@ -3974,7 +3956,7 @@ async function handleUnblockUser(peerId) {
         );
       };
 
-      const recipientDriveFileId = await putCiphertext(
+      const recipientDirectUploadId = await putCiphertext(
         recipient,
         recipientBlob,
         file.name,
@@ -3989,7 +3971,7 @@ async function handleUnblockUser(peerId) {
           },
         },
       );
-      const senderDriveFileId = sender
+      const senderDirectUploadId = sender
         ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
             pendingUploadId,
             slot: "sender",
@@ -4003,7 +3985,7 @@ async function handleUnblockUser(peerId) {
 
       const finalizeRes = await client.post(
         "/attachments/finalize",
-        { pendingUploadId, recipientDriveFileId, senderDriveFileId },
+        { pendingUploadId, recipientDirectUploadId, senderDirectUploadId },
         { signal: controller.signal },
       );
       const attachmentId = finalizeRes.data.data.id;
