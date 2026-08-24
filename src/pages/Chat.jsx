@@ -2860,12 +2860,9 @@ export default function Chat() {
     }
   }
 
-  // Uploads one already-encrypted blob to the target handed back by
-  // POST /attachments/init: either straight to Google Drive's resumable
-  // session URL (bypasses our server and its request-size limits), or
-  // through our own proxy endpoint for local/dev storage. Returns the
-  // Drive file id when applicable (undefined for the proxy path, since the
-  // server already knows its own storage key).
+  // Uploads one already-encrypted blob to our proxy endpoint (POST
+  // /attachments/init hands back the pendingUploadId this targets), which
+  // forwards the bytes to Cloudinary.
   async function putCiphertext(
     target,
     blob,
@@ -2873,16 +2870,6 @@ export default function Chat() {
     mimeType,
     { pendingUploadId, slot, signal, onProgress },
   ) {
-    if (target.mode === "direct") {
-      // Plain axios, not the `client` instance — this must NOT carry our
-      // app's Authorization header to a third-party host.
-      const res = await axios.put(target.uploadUrl, blob, {
-        headers: { "Content-Type": mimeType },
-        signal,
-        onUploadProgress: onProgress,
-      });
-      return res.data?.id;
-    }
     const formData = new FormData();
     formData.append("file", blob, filename);
     await client.put(
@@ -2937,7 +2924,7 @@ export default function Chat() {
         );
         const { pendingUploadId, recipient } = initRes.data.data;
 
-        const recipientDriveFileId = await putCiphertext(
+        const recipientDirectUploadId = await putCiphertext(
           recipient,
           cipherBlob,
           file.name,
@@ -2961,7 +2948,7 @@ export default function Chat() {
 
         const finalizeRes = await client.post(
           "/attachments/finalize",
-          { pendingUploadId, recipientDriveFileId },
+          { pendingUploadId, recipientDirectUploadId },
           { signal: controller.signal },
         );
         const attachment = finalizeRes.data.data;
@@ -3032,7 +3019,7 @@ export default function Chat() {
         );
       };
 
-      const recipientDriveFileId = await putCiphertext(
+      const recipientDirectUploadId = await putCiphertext(
         recipient,
         recipientBlob,
         file.name,
@@ -3047,7 +3034,7 @@ export default function Chat() {
           },
         },
       );
-      const senderDriveFileId = sender
+      const senderDirectUploadId = sender
         ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
             pendingUploadId,
             slot: "sender",
@@ -3061,7 +3048,7 @@ export default function Chat() {
 
       const finalizeRes = await client.post(
         "/attachments/finalize",
-        { pendingUploadId, recipientDriveFileId, senderDriveFileId },
+        { pendingUploadId, recipientDirectUploadId, senderDirectUploadId },
         { signal: controller.signal },
       );
       const attachmentId = finalizeRes.data.data.id;
