@@ -14523,3 +14523,186 @@ html.qc-screenshot-protection .user-profile-modal {
   color: var(--text-secondary);
   text-align: center;
 }
+
+/* ==========================================================================
+   Internationalization (i18n), Multi-Script Fonts & RTL System
+   ========================================================================== */
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-arabic: 'Noto Sans Arabic', 'Segoe UI', Tahoma, -apple-system, sans-serif;
+  --font-urdu: 'Noto Nastaliq Urdu', 'Urdu Typesetting', 'Jameel Noori Nastaleeq', 'Noto Sans Arabic', serif;
+  --font-hindi: 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-cjk: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+/* Scoped document fonts by language attribute */
+[data-lang="ur"], [lang="ur"] {
+  font-family: var(--font-urdu), var(--font-sans);
+}
+
+[data-lang="ar"], [lang="ar"], [data-lang="fa"], [lang="fa"] {
+  font-family: var(--font-arabic), var(--font-sans);
+}
+
+[data-lang="hi"], [lang="hi"] {
+  font-family: var(--font-hindi), var(--font-sans);
+}
+
+[data-lang="zh"], [lang="zh"] {
+  font-family: var(--font-cjk), var(--font-sans);
+}
+
+/* Global RTL Support */
+[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+[dir="ltr"] {
+  direction: ltr;
+  text-align: left;
+}
+
+/* RTL layout adjustments */
+[dir="rtl"] .sidebar-menu-dropdown {
+  left: auto;
+  right: 0;
+}
+
+[dir="rtl"] .settings-nav {
+  border-right: none;
+  border-left: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+}
+
+[dir="rtl"] .settings-close-btn {
+  right: auto;
+  left: 1.25rem;
+}
+
+[dir="rtl"] .settings-row-left {
+  text-align: right;
+}
+
+[dir="rtl"] .composer-form {
+  direction: rtl;
+}
+
+[dir="rtl"] .composer textarea {
+  direction: inherit;
+  text-align: right;
+}
+
+[dir="rtl"] .message-bubble.mine {
+  border-radius: 16px 16px 16px 6px;
+}
+
+[dir="rtl"] .message-bubble.theirs {
+  border-radius: 14px 14px 5px 14px;
+}
+
+/* Per-Message Script Directionality (independent of app language) */
+.message-text {
+  unicode-bidi: plaintext;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.message-text[dir="rtl"],
+.message-text.is-rtl {
+  direction: rtl;
+  text-align: right;
+  font-family: var(--font-urdu), var(--font-arabic), var(--font-sans);
+  line-height: 1.65;
+}
+
+.message-text[dir="ltr"],
+.message-text.is-ltr {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Isolated timestamp and read receipts: Always formatted LTR */
+.message-time,
+.message-time-spacer,
+.read-receipt,
+.message-expiry-badge {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Language selector UI cards in SettingsModal */
+.settings-lang-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.settings-lang-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background: var(--bg-surface, #1e293b);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #f1f5f9);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  position: relative;
+  text-align: left;
+}
+
+[dir="rtl"] .settings-lang-card {
+  text-align: right;
+  align-items: flex-start;
+}
+
+.settings-lang-card:hover {
+  background: var(--bg-elevated, #334155);
+  border-color: var(--accent, #3b82f6);
+  transform: translateY(-1px);
+}
+
+.settings-lang-card.active {
+  background: var(--bg-elevated, #334155);
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 1.5px var(--accent, #3b82f6);
+}
+
+.settings-lang-native {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+  margin-bottom: 0.15rem;
+}
+
+.settings-lang-english {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.settings-lang-check {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[dir="rtl"] .settings-lang-check {
+  right: auto;
+  left: 0.6rem;
+}
+

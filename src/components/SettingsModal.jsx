@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
 import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
 import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
+import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n/index.js';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
@@ -96,6 +98,7 @@ export default function SettingsModal({
   initialTab = 'profile',
   className = '',
 }) {
+  const { t, i18n } = useTranslation();
   const { theme, appIcon, setAppIcon } = useTheme();
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const { settings: notifSettings, updateSettings: updateNotifSettings } = useNotificationSettings();
@@ -103,11 +106,23 @@ export default function SettingsModal({
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const [tab, setTab] = useState(initialTab);
+  const [activeLang, setActiveLang] = useState(() => user?.preferredLanguage || i18n.language || 'en');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [notifPermission, setNotifPermission] = useState(() => getNotificationPermission());
+
+  async function handleLanguageChange(langCode) {
+    setActiveLang(langCode);
+    setAppLanguage(langCode);
+    try {
+      await client.patch('/users/me/language', { language: langCode });
+      onUserUpdated?.({ ...user, preferredLanguage: langCode });
+    } catch (err) {
+      console.warn('Failed to persist preferred language to backend:', err);
+    }
+  }
 
   const [username, setUsername] = useState(user?.username || '');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
@@ -849,16 +864,23 @@ export default function SettingsModal({
       >
         <div className="settings-modal-header">
           <div className="settings-modal-heading">
-            <h2 id="settings-title">Settings</h2>
-            <p>Profile, privacy, security, and data</p>
+            <h2 id="settings-title">{t('settings.title', 'Settings')}</h2>
+            <p>{t('settings.privacy.subtitle', 'Profile, privacy, security, and data')}</p>
           </div>
-          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="Close settings">
+          <button ref={closeRef} type="button" className="settings-close settings-close-btn" onClick={onClose} aria-label={t('common.close', 'Close')}>
             ✕
           </button>
         </div>
 
-        <nav className="settings-tabs" aria-label="Settings sections">
-          {TABS.map(([id, label]) => (
+        <nav className="settings-tabs settings-nav" aria-label="Settings sections">
+          {[
+            ['profile', t('settings.tabs.profile', 'Profile')],
+            ['privacy', t('settings.tabs.privacy', 'Privacy')],
+            ['notifications', t('settings.tabs.notifications', 'Notifications')],
+            ['security', t('settings.tabs.security', 'Security')],
+            ['blocked', t('settings.tabs.blocked', 'Blocked')],
+            ['data', t('settings.tabs.data', 'Data')],
+          ].map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -900,7 +922,7 @@ export default function SettingsModal({
                     className="settings-avatar-edit"
                     disabled={avatarBusy}
                     onClick={() => avatarInputRef.current?.click()}
-                    aria-label="Change profile photo"
+                    aria-label={t('settings.profile.changeAvatar', 'Change photo')}
                   >
                     {avatarBusy ? '…' : '✎'}
                   </button>
@@ -917,7 +939,7 @@ export default function SettingsModal({
                   <span className="settings-account-email">{user?.email}</span>
                   <div className="settings-status-row">
                     {user?.emailVerified ? (
-                      <span className="settings-badge settings-badge-ok">Verified</span>
+                      <span className="settings-badge settings-badge-ok">{t('settings.profile.emailVerified', 'Verified')}</span>
                     ) : (
                       <span className="settings-badge settings-badge-warn">Unverified email</span>
                     )}
@@ -929,11 +951,11 @@ export default function SettingsModal({
                       disabled={avatarBusy}
                       onClick={() => avatarInputRef.current?.click()}
                     >
-                      {avatarBusy ? 'Uploading…' : 'Change photo'}
+                      {avatarBusy ? t('common.loading', 'Uploading…') : t('settings.profile.changeAvatar', 'Change photo')}
                     </button>
                     {user?.hasAvatar && (
                       <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
-                        Remove
+                        {t('settings.profile.removeAvatar', 'Remove')}
                       </button>
                     )}
                   </div>
@@ -947,19 +969,47 @@ export default function SettingsModal({
                     <p>Verify to unlock full account recovery and security alerts.</p>
                   </div>
                   <button type="button" className="settings-btn text" disabled={busy} onClick={resendVerification}>
-                    Resend link
+                    {t('settings.profile.resendVerifyEmail', 'Resend link')}
                   </button>
                 </div>
               )}
 
+              {/* Language Selector Fieldset */}
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">About you</h3>
+                <h3 className="settings-section-title">{t('settings.language.title', 'Language & Region')}</h3>
+                <p className="settings-section-copy">{t('settings.language.subtitle', 'Choose your interface language')}</p>
+                <div className="settings-lang-grid" role="radiogroup" aria-label={t('settings.language.selectLanguage', 'Interface Language')}>
+                  {SUPPORTED_LANGUAGES.map((lang) => {
+                    const isActive = (activeLang || i18n.language || 'en') === lang.code;
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        role="radio"
+                        aria-checked={isActive}
+                        className={`settings-lang-card ${isActive ? 'active' : ''}`}
+                        onClick={() => handleLanguageChange(lang.code)}
+                      >
+                        <span className="settings-lang-native">{lang.nativeName}</span>
+                        <span className="settings-lang-english">{lang.name}</span>
+                        {isActive && <span className="settings-lang-check">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="settings-section-copy" style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
+                  {t('settings.language.languageHint', 'Changes apply immediately across the entire app.')}
+                </p>
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">{t('settings.profile.aboutYou', 'About you')}</h3>
                 <label className="settings-field">
-                  <span>Username</span>
+                  <span>{t('settings.profile.username', 'Username')}</span>
                   <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} autoComplete="username" />
                 </label>
                 <label className="settings-field">
-                  <span>Display name</span>
+                  <span>{t('settings.profile.displayName', 'Display name')}</span>
                   <input
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
@@ -968,19 +1018,19 @@ export default function SettingsModal({
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Bio</span>
-                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder="A short line about you" />
+                  <span>{t('settings.profile.bio', 'Bio')}</span>
+                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder={t('settings.profile.bioPlaceholder', 'A short line about you')} />
                 </label>
                 <label className="settings-field">
-                  <span>Status</span>
+                  <span>{t('settings.profile.status', 'Status')}</span>
                   <input
                     value={statusText}
                     onChange={(e) => setStatusText(e.target.value)}
                     maxLength={100}
-                    placeholder="e.g. Busy studying, In a meeting"
+                    placeholder={t('settings.profile.statusPlaceholder', 'e.g. Busy studying, In a meeting')}
                   />
                   <p className="settings-section-copy">
-                    A short custom status shown on your profile. It is separate from your online/offline status.
+                    {t('settings.profile.statusHint', 'A custom status shown on your profile. Separate from your online state.')}
                     {statusText.trim() ? (
                       <>
                         {' '}
@@ -997,14 +1047,14 @@ export default function SettingsModal({
                             cursor: 'pointer',
                           }}
                         >
-                          Clear status
+                          {t('settings.profile.clearStatus', 'Clear status')}
                         </button>
                       </>
                     ) : null}
                   </p>
                 </label>
                 <label className="settings-field">
-                  <span>Phone</span>
+                  <span>{t('settings.profile.phone', 'Phone')}</span>
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -1013,25 +1063,25 @@ export default function SettingsModal({
                     inputMode="tel"
                   />
                   <p className="settings-section-copy">
-                    Friends can find you by this number. It is never shown on your public profile.
+                    {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
                   </p>
                 </label>
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
-                  {busy ? 'Saving…' : 'Save profile'}
+                  {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
                 </button>
               </div>
 
               <div className="settings-fieldset settings-appearance">
-                <h3 className="settings-section-title">Appearance</h3>
+                <h3 className="settings-section-title">{t('settings.appearance.title', 'Appearance')}</h3>
                 <p className="settings-section-copy">
-                  Current look: <strong>{THEME_LABELS[theme] || theme}</strong>
+                  {t('settings.appearance.currentLook', 'Current look')}: <strong>{THEME_LABELS[theme] || theme}</strong>
                 </p>
 
                 <div className="settings-skin-card settings-skin-card--mode">
                   <header className="settings-skin-card-head">
                     <div>
-                      <h4 className="settings-skin-card-title">Display mode</h4>
-                      <p className="settings-skin-card-hint">Everyday light, dark, or eyecare</p>
+                      <h4 className="settings-skin-card-title">{t('settings.appearance.displayMode', 'Display mode')}</h4>
+                      <p className="settings-skin-card-hint">{t('settings.appearance.modeHint', 'Everyday light, dark, or eyecare')}</p>
                     </div>
                   </header>
                   <div className="settings-skin-card-body settings-skin-card-body--mode">
@@ -1043,11 +1093,11 @@ export default function SettingsModal({
                   <div className="settings-skin-card settings-skin-card--themes">
                     <header className="settings-skin-card-head">
                       <div>
-                        <h4 className="settings-skin-card-title">Dreamy themes</h4>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.dreamyThemes', 'Dreamy themes')}</h4>
                         <p className="settings-skin-card-hint">
                           {FUN_THEMES.includes(theme)
                             ? `${THEME_LABELS[theme] || theme} is active`
-                            : 'Pick a decorative skin'}
+                            : t('settings.appearance.pickDecorativeSkin', 'Pick a decorative skin')}
                         </p>
                       </div>
                       <span className="settings-skin-badge" aria-hidden="true">FX</span>
@@ -1060,8 +1110,8 @@ export default function SettingsModal({
                   <div className="settings-skin-card settings-skin-card--icons">
                     <header className="settings-skin-card-head">
                       <div>
-                        <h4 className="settings-skin-card-title">App icon</h4>
-                        <p className="settings-skin-card-hint">Browser tab &amp; shortcut color</p>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.appIcon', 'App icon')}</h4>
+                        <p className="settings-skin-card-hint">{t('settings.appearance.appIconHint', 'Browser tab & shortcut color')}</p>
                       </div>
                       <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
                     </header>
@@ -1094,12 +1144,12 @@ export default function SettingsModal({
               </div>
 
               <div className="settings-fieldset settings-fieldset-danger">
-                <h3 className="settings-section-title">Session</h3>
+                <h3 className="settings-section-title">{t('settings.session.title', 'Session')}</h3>
                 <p className="settings-section-copy">
-                  Sign out on this browser. Your encryption keys stay on this device for the next login.
+                  {t('settings.session.logoutDesc', 'Sign out on this browser. Your encryption keys stay on this device for the next login.')}
                 </p>
                 <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
-                  Log out
+                  {t('settings.session.logoutButton', 'Log out')}
                 </button>
               </div>
             </section>

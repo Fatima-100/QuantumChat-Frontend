@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo.jsx';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { downloadKeyFile, formatKeyFile } from '../crypto/keyFile.js';
+import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n/index.js';
 import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
 
 function getFriendlyRegisterError(serverError, statusCode) {
@@ -66,6 +68,7 @@ function getFriendlyRegisterError(serverError, statusCode) {
 }
 
 export default function Register() {
+  const { t, i18n } = useTranslation();
   const { user, register } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
@@ -73,9 +76,8 @@ export default function Register() {
     email: '',
     password: '',
     dateOfBirth: '',
-    // Pre-selected as a convenience default only — the user can change it
-    // before submitting; nothing is written until they hit Create account.
     timezone: detectBrowserTimezone(),
+    preferredLanguage: i18n.language || 'en',
   });
   const timezoneOptions = useState(getTimezoneList)[0];
   const [error, setError] = useState(null);
@@ -90,9 +92,9 @@ export default function Register() {
 
   // Dynamic page title
   useEffect(() => {
-    document.title = 'Create account — QuantumChat';
+    document.title = `${t('auth.registerTitle', 'Create your account')} — QuantumChat`;
     return () => { document.title = 'QuantumChat'; };
-  }, []);
+  }, [t]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -148,11 +150,11 @@ export default function Register() {
             <BrandLogo size={48} />
           </div>
           <div className="auth-brand-name">QuantumChat</div>
-          <h1>Create your account</h1>
+          <h1>{t('auth.registerTitle', 'Create your account')}</h1>
         </div>
 
         <p className="auth-subtitle">
-          An end-to-end X25519 keypair is generated directly on your device. Your private key stays in your local browser cache and is never sent to our servers.
+          {t('auth.registerSubtitle', 'An end-to-end X25519 keypair is generated directly on your device. Your private key stays in your local browser cache and is never sent to our servers.')}
         </p>
 
         <div className="auth-field">
@@ -162,8 +164,8 @@ export default function Register() {
           </svg>
           <input
             id="register-username"
-            aria-label="Username"
-            placeholder="Username"
+            aria-label={t('auth.username', 'Username')}
+            placeholder={t('auth.username', 'Username')}
             value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })}
             required
@@ -179,9 +181,9 @@ export default function Register() {
           </svg>
           <input
             id="register-email"
-            aria-label="Email address"
+            aria-label={t('auth.email', 'Email address')}
             type="email"
-            placeholder="Email address"
+            placeholder={t('auth.email', 'Email address')}
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             required
@@ -195,9 +197,9 @@ export default function Register() {
           </svg>
           <input
             id="register-password"
-            aria-label="Password"
+            aria-label={t('auth.password', 'Password')}
             type={showPassword ? 'text' : 'password'}
-            placeholder="Password"
+            placeholder={t('auth.password', 'Password')}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             required
@@ -228,6 +230,30 @@ export default function Register() {
 
         <div className="auth-field auth-field-optional">
           <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+          <select
+            id="register-language"
+            aria-label={t('auth.preferredLanguage', 'Preferred Language')}
+            value={form.preferredLanguage}
+            onChange={(e) => {
+              const newLang = e.target.value;
+              setForm({ ...form, preferredLanguage: newLang });
+              setAppLanguage(newLang);
+            }}
+          >
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.nativeName} ({lang.name})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="auth-field auth-field-optional">
+          <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
             <line x1="16" y1="2" x2="16" y2="6" />
             <line x1="8" y1="2" x2="8" y2="6" />
@@ -235,7 +261,7 @@ export default function Register() {
           </svg>
           <input
             id="register-dob"
-            aria-label="Date of birth (optional)"
+            aria-label={t('auth.dateOfBirth', 'Date of birth (optional)')}
             type="date"
             value={form.dateOfBirth}
             max={new Date().toISOString().slice(0, 10)}
@@ -255,14 +281,14 @@ export default function Register() {
           )}
         </div>
 
-          <div className="auth-field auth-field-optional">
+        <div className="auth-field auth-field-optional">
           <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
           <select
             id="register-timezone"
-            aria-label="Timezone"
+            aria-label={t('auth.timezone', 'Timezone')}
             value={form.timezone}
             onChange={(e) => setForm({ ...form, timezone: e.target.value })}
           >
@@ -286,11 +312,11 @@ export default function Register() {
         )}
 
         <button type="submit" disabled={loading}>
-          {loading ? 'Creating account...' : 'Create account'}
+          {loading ? t('common.saving', 'Creating account...') : t('auth.createAccount', 'Create account')}
         </button>
 
         <p>
-          Already have an account? <Link to="/login">Log in</Link>
+          {t('auth.haveAccount', 'Already have an account?')} <Link to="/login">{t('auth.signIn', 'Log in')}</Link>
         </p>
       </form>
 
