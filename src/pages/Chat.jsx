@@ -4062,12 +4062,9 @@ async function handleUnblockUser(peerId) {
           prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
         );
       };
-
       const recipientDirectUploadId = await putCiphertext(
-        recipient,
         recipientBlob,
         file.name,
-        mimeType,
         {
           pendingUploadId,
           slot: "recipient",
@@ -4079,7 +4076,7 @@ async function handleUnblockUser(peerId) {
         },
       );
       const senderDirectUploadId = sender
-        ? await putCiphertext(sender, senderBlob, file.name, mimeType, {
+        ? await putCiphertext(senderBlob, file.name, {
             pendingUploadId,
             slot: "sender",
             signal: controller.signal,

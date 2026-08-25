@@ -14524,6 +14524,31 @@ html.qc-screenshot-protection .user-profile-modal {
   text-align: center;
 }
 
+
+/* Save-to-Photos + Download FAB pair (AttachmentBubble.jsx) */
+.attachment-media-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.attachment-media:hover .attachment-media-actions,
+.attachment-media-actions:focus-within {
+  opacity: 1;
+}
+
+/* Two buttons now share the wrapper's positioning — reset each
+   individual button back to a normal flex child instead of the
+   single-button absolute positioning defined above. */
+.attachment-media-actions .attachment-download-fab {
+  position: static;
+  opacity: 1;
+}
+
 /* ==========================================================================
    Internationalization (i18n), Multi-Script Fonts & RTL System
    ========================================================================== */
@@ -14705,4 +14730,5 @@ html.qc-screenshot-protection .user-profile-modal {
   right: auto;
   left: 0.6rem;
 }
+
 
