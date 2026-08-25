@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
@@ -230,6 +231,7 @@ function isSameDay(d1, d2) {
 }
 
 export default function Chat() {
+  const { t } = useTranslation();
   const {
     user,
     logout,
@@ -6191,26 +6193,27 @@ useEffect(() => {
                       />
                       <textarea
                         ref={textareaRef}
+                        dir="auto"
                         placeholder={
                           sendingVoice
-                            ? "Sending voice note…"
+                            ? t('chat.sendingVoice', 'Sending voice note…')
                             : uploads.length
-                              ? "Uploading encrypted file…"
+                              ? t('chat.placeholderUploading', 'Uploading encrypted file…')
                               : pendingAnnouncement
-                                ? "Write an announcement…"
+                                ? t('chat.placeholderAnnouncement', 'Write an announcement…')
                                 : isGroupChat
-                                  ? "Type an encrypted group message… @mention"
+                                  ? t('chat.placeholderGroup', 'Type an encrypted group message… @mention')
                                   : selected?.isSelfChat ||
                                     String(selected?.id) === String(user.id)
-                                    ? "Write a note to yourself…"
-                                    : "Type an encrypted message…"
+                                    ? t('chat.placeholderSelf', 'Write a note to yourself…')
+                                    : t('chat.placeholderDirect', 'Type an encrypted message…')
                         }
                         value={draft}
                         onChange={handleDraftChange}
                         onInput={handleTextareaInput}
                         onKeyDown={handleTextareaKeyDown}
                         onPaste={handlePaste}
-                        aria-label="Type message body"
+                        aria-label={t('chat.placeholderDirect', 'Type message body')}
                         disabled={sendingVoice}
                         rows={1}
                       />

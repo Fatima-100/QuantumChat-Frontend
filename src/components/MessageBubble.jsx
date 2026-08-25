@@ -21,6 +21,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { COMPOSER_EMOJIS, QUICK_REACTIONS, isEmojiOnlyText, searchEmojis, splitEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
+import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
 
@@ -599,6 +600,7 @@ const storyReplyPayload = useMemo(() => {
                 <span
                   className={`message-text message-text--emoji-only${emojiTokens.length === 1 ? ' is-single' : emojiTokens.length <= 3 ? ' is-few' : ' is-many'}`}
                   aria-label={message.text}
+                  dir={detectTextDirection(message.text)}
                 >
                   {emojiTokens.map((emoji, i) => (
                     <span
@@ -611,10 +613,15 @@ const storyReplyPayload = useMemo(() => {
                   ))}
                 </span>
               ) : (
-                <span className="message-text">{message.text}</span>
+                <span
+                  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+                  dir={detectTextDirection(message.text)}
+                >
+                  {message.text}
+                </span>
               )
             ) : isDecryptionFail ? (
-              <em>[Unable to decrypt message]</em>
+              <em dir="auto">[Unable to decrypt message]</em>
             ) : null}
             <span className="message-time-spacer" aria-hidden="true">{timeMeta}</span>
             <span className={`message-time ${isStoryReaction ? 'story-reaction-time' : ''}`} title={fullTime}>

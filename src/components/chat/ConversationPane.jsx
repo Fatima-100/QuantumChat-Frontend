@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import BrandLogo from '../BrandLogo.jsx';
 import ConversationList from '../ConversationList.jsx';
 import NotificationPermissionBanner from '../NotificationPermissionBanner.jsx';
@@ -59,6 +60,8 @@ export default function ConversationPane({
   onlineUserIds,  
   onOpenStarred,
 }) {
+  const { t } = useTranslation();
+
   return (
     <>
       <div
@@ -74,7 +77,7 @@ export default function ConversationPane({
             </div>
             <div className="sidebar-user-info">
               <div className="sidebar-username">{user.username}</div>
-              <div className="sidebar-lastseen sidebar-status-online">online</div>
+              <div className="sidebar-lastseen sidebar-status-online">{t('common.online', 'online')}</div>
             </div>
           </div>
           <div className="sidebar-header-actions">
@@ -101,10 +104,10 @@ export default function ConversationPane({
             />
             <div className="sidebar-search">
               <input
-                placeholder="Search conversations…"
+                placeholder={t('nav.searchChats', 'Search conversations…')}
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
-                aria-label="Search conversations"
+                aria-label={t('nav.searchChats', 'Search conversations')}
               />
             </div>
           </>

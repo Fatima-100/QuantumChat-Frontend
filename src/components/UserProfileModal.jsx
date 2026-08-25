@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, BadgeCheck, Ban, Cake, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import {
@@ -7,34 +8,6 @@ import {
   readStoredAiBg,
   writeStoredAiBg,
 } from '../utils/aiPanelBg.js';
-
-function formatPresence(profile, online) {
-  if (!profile) return null;
-  // `online` is already privacy-filtered by the presence system.
-  if (online) return { label: 'Online', online: true };
-
-  const lastSeenSetting = profile.privacy?.lastSeen || 'everyone';
-  if (lastSeenSetting === 'nobody' || !profile.lastLoginAt) {
-    return { label: 'Last seen hidden', online: false };
-  }
-  return {
-    label: `Last seen ${new Date(profile.lastLoginAt).toLocaleString()}`,
-    online: false,
-  };
-}
-
-function formatKeyRotated(iso) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return null;
-  }
-}
 
 export default function UserProfileModal({
   userId,
@@ -52,6 +25,7 @@ export default function UserProfileModal({
   onClose,
   onLoaded,
 }) {
+  const { t } = useTranslation();
   const closeRef = useRef(null);
   const [profile, setProfile] = useState(seed);
   const [loading, setLoading] = useState(true);
@@ -102,6 +76,36 @@ export default function UserProfileModal({
       cancelled = true;
     };
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps -- seed/onLoaded are open-time props
+
+  function formatPresence(p, onl) {
+    if (!p) return null;
+    if (onl) return { label: t('profile.online', 'Online'), online: true };
+
+    const lastSeenSetting = p.privacy?.lastSeen || 'everyone';
+    if (lastSeenSetting === 'nobody' || !p.lastLoginAt) {
+      return { label: t('profile.lastSeenHidden', 'Last seen hidden'), online: false };
+    }
+    return {
+      label: t('profile.lastSeenAt', {
+        time: new Date(p.lastLoginAt).toLocaleString(),
+        defaultValue: `Last seen ${new Date(p.lastLoginAt).toLocaleString()}`
+      }),
+      online: false,
+    };
+  }
+
+  function formatKeyRotated(iso) {
+    if (!iso) return null;
+    try {
+      return new Date(iso).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return null;
+    }
+  }
 
   function selectAiBg(id) {
     setAiBg(id);

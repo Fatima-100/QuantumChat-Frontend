@@ -14,11 +14,10 @@ import {
   keyringMatchesPublishedKeys,
   saveSession
 } from '../crypto/keyStorage.js';
+import { setAppLanguage } from '../i18n/index.js';
+import activityStore from '../utils/activityStore.js';
 
 const AuthContext = createContext(null);
-
-
-import activityStore from '../utils/activityStore.js';
 function clearOtherAccountKeyring(loggedInUserId) {
   const previous = getStoredUser();
   if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
@@ -78,8 +77,11 @@ export function AuthProvider({ children }) {
     return null;
   }, [recomputeKeyringSync]);
 
-  // Restore socket + refresh session token when the app loads with a saved login.
+  // Restore socket + refresh session token and sync language when the app loads with a saved login.
   useEffect(() => {
+    if (user?.preferredLanguage) {
+      setAppLanguage(user.preferredLanguage);
+    }
     if (!user?.id || !getToken()) {
       setKeyringSync(null);
       return undefined;
@@ -154,7 +156,7 @@ useEffect(() => {
 }, [user?.id]);
 
   const register = useCallback(
-    async ({ username, email, password, dateOfBirth, timezone }) => {
+    async ({ username, email, password, dateOfBirth, timezone, preferredLanguage }) => {
       const keySet = generateKeySet();
       const publicKeys = keySet.map((k) => k.publicKey);
       // Validate localStorage works before creating a server account whose keys we must store here.
@@ -166,7 +168,15 @@ useEffect(() => {
         throw new Error('Cannot save keys to localStorage: ' + err.message);
       }
 
-      const { data } = await client.post('/auth/register', {username,email,password,publicKeys,dateOfBirth: dateOfBirth || undefined,timezone,});
+      const { data } = await client.post('/auth/register', {
+        username,
+        email,
+        password,
+        publicKeys,
+        dateOfBirth: dateOfBirth || undefined,
+        timezone,
+        preferredLanguage: preferredLanguage || undefined,
+      });
       const { token, user: newUser } = data.data;
 
       // CRITICAL: persist private keys before anything else that could navigate away.
@@ -176,6 +186,10 @@ useEffect(() => {
         throw new Error(
           'Account was created but encryption keys could not be saved on this device. Log in and use "Generate new keys" to resync.'
         );
+      }
+
+      if (newUser.preferredLanguage) {
+        setAppLanguage(newUser.preferredLanguage);
       }
 
       saveSession(token, newUser);
@@ -216,9 +230,12 @@ useEffect(() => {
         rememberMe: data.data.rememberMe !== false,
       };
     }
-   const { token, user: loggedInUser, sessionId } = data.data;
+    const { token, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
     lockVaultOnAccountSwitch(loggedInUser.id);
+    if (loggedInUser.preferredLanguage) {
+      setAppLanguage(loggedInUser.preferredLanguage);
+    }
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -237,6 +254,9 @@ useEffect(() => {
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
     lockVaultOnAccountSwitch(loggedInUser.id);
+    if (loggedInUser.preferredLanguage) {
+      setAppLanguage(loggedInUser.preferredLanguage);
+    }
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -295,6 +315,9 @@ const logout = useCallback(() => {
   const updateSessionUser = useCallback(
     (nextUser) => {
       if (!nextUser) return;
+      if (nextUser.preferredLanguage) {
+        setAppLanguage(nextUser.preferredLanguage);
+      }
       saveSession(getToken(), nextUser);
       setUser(nextUser);
       recomputeKeyringSync(nextUser);
