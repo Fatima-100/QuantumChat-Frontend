@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { unsealBytes } from '../crypto/keys.js';
 import { attachmentIdOf, normalizeAttachment, pickAttachmentEnvelope } from '../crypto/voiceCache.js';
+import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
 
 function FileIcon({ className }) {
   return (
@@ -31,6 +32,26 @@ function DownloadIcon({ className }) {
       <line x1="12" y1="15" x2="12" y2="3" />
     </svg>
   );
+}
+
+function SaveIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7" />
+      <polyline points="16 6 12 2 8 6" />
+      <line x1="12" y1="2" x2="12" y2="15" />
+    </svg>
+  );
+}
+
+// The Network Information API (navigator.connection) is Chrome/Android-only —
+// iOS Safari and Firefox don't expose it. When unsupported, default to
+// allowing auto-download rather than silently blocking it forever on
+// browsers that can't report connection type.
+function isOnWifi() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!conn || !conn.type) return true;
+  return conn.type === 'wifi' || conn.type === 'ethernet';
 }
 
 function kindOf(attachment) {
@@ -190,9 +211,18 @@ export default function AttachmentBubble({
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
   const opened = pickAttachmentEnvelope(attachment, keyResolver);
   const isViewOncePending = viewOnce && !viewOnceOpened;
+  const { settings: notifSettings } = useNotificationSettings();
+  const media = notifSettings?.mediaSettings || {};
+  const wifiOk = media.wifiOnly === false ? true : isOnWifi();
+  const imageAutoOk = media.autoDownloadImages !== false && wifiOk;
+  const videoAutoOk = media.autoDownloadVideos === true && wifiOk;
   const autoPreview =
     !isViewOncePending &&
-    (kind === 'audio' || kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'text');
+    (kind === 'audio' ||
+      kind === 'pdf' ||
+      kind === 'text' ||
+      (kind === 'image' && imageAutoOk) ||
+      (kind === 'video' && videoAutoOk));
 
   async function burn() {
     if (burnedRef.current || !onBurnViewOnce) return;
@@ -341,6 +371,33 @@ export default function AttachmentBubble({
     handleManualOpen();
   }
 
+  // True "save to Photos/Camera Roll" requires the native share sheet — no
+  // browser API can write directly into the device gallery silently. This
+  // is a one-tap flow: share sheet opens, user picks "Save Image"/"Save
+  // Video". Falls back to a normal file download where Web Share (or
+  // sharing files specifically) isn't supported, e.g. most desktop browsers.
+  async function handleSaveToPhotos() {
+    const url = objectUrl;
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = kind === 'video' ? 'mp4' : 'jpg';
+      const file = new File([blob], attachment.filename || `quantumchat-media.${ext}`, {
+        type: blob.type,
+      });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+      triggerDownload(url, attachment.filename);
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        triggerDownload(url, attachment.filename);
+      }
+    }
+  }
+
   if (!attachment && !viewOnceOpened) return null;
 
   if (viewOnce && viewOnceOpened) {
@@ -477,9 +534,14 @@ export default function AttachmentBubble({
           aria-label="Open image gallery"
         />
         {!viewOnce && (
-          <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download image">
-            <DownloadIcon className="file-icon" />
-          </button>
+          <div className="attachment-media-actions">
+            <button type="button" className="attachment-download-fab" onClick={handleSaveToPhotos} aria-label="Save to Photos">
+              <SaveIcon className="file-icon" />
+            </button>
+            <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download image">
+              <DownloadIcon className="file-icon" />
+            </button>
+          </div>
         )}
       </div>
     );
@@ -490,9 +552,14 @@ export default function AttachmentBubble({
       <div className="attachment-media">
         <video className="attachment-video" src={objectUrl} controls playsInline preload="metadata" />
         {!viewOnce && (
-          <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download video">
-            <DownloadIcon className="file-icon" />
-          </button>
+          <div className="attachment-media-actions">
+            <button type="button" className="attachment-download-fab" onClick={handleSaveToPhotos} aria-label="Save to Photos">
+              <SaveIcon className="file-icon" />
+            </button>
+            <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download video">
+              <DownloadIcon className="file-icon" />
+            </button>
+          </div>
         )}
       </div>
     );

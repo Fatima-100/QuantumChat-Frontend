@@ -1399,6 +1399,36 @@ export default function SettingsModal({
                   onChange={(v) => updateNotifField('messageNotifications', v)}
                 />
               </div>
+                           <div className="settings-fieldset">
+                <h3 className="settings-section-title">Media &amp; Downloads</h3>
+                <p className="settings-section-copy">
+                  Control when photos and videos load automatically. When off for a
+                  media type, you'll need to tap to load it manually.
+                </p>
+
+                <ToggleRow
+                  label="Auto-download photos"
+                  hint="Load incoming images automatically"
+                  checked={notifSettings.mediaSettings?.autoDownloadImages !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'autoDownloadImages', v)}
+                />
+                <ToggleRow
+                  label="Auto-download videos"
+                  hint="Load incoming videos automatically (uses more data)"
+                  checked={notifSettings.mediaSettings?.autoDownloadVideos === true}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'autoDownloadVideos', v)}
+                />
+                <ToggleRow
+                  label="Only on Wi-Fi"
+                  hint="Pause auto-download while on mobile data, where supported"
+                  checked={notifSettings.mediaSettings?.wifiOnly !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'wifiOnly', v)}
+                />
+              </div>
+
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Muted Chats</h3>
                 <p className="settings-section-copy">Manage conversations you've muted.</p>
