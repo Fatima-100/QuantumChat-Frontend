@@ -1,4 +1,5 @@
 import { Paperclip, Camera, BarChart2, Calendar, Megaphone, Clock, Forward, Smile } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import BottomSheet from '../ui/BottomSheet.jsx';
 
 /**
@@ -21,31 +22,33 @@ export default function ComposerPlusSheet({
   forwardUntilSeconds = 0,
   onCycleForwardUntil,
 }) {
+  const { t } = useTranslation();
+
   return (
-    <BottomSheet open={open} onClose={onClose} title="More actions">
+    <BottomSheet open={open} onClose={onClose} title={t('composer.moreActions', 'More actions')}>
       <div className="qc-composer-plus-grid" role="menu">
         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onAttach?.(); onClose(); }}>
           <Paperclip size={20} />
-          <span>Attach file</span>
+          <span>{t('composer.attachFile', 'Attach file')}</span>
         </button>
         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onCamera?.(); onClose(); }}>
           <Camera size={20} />
-          <span>Camera</span>
+          <span>{t('composer.camera', 'Camera')}</span>
         </button>
         {showGroupTools ? (
           <>
             <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onPoll?.(); onClose(); }}>
               <BarChart2 size={20} />
-              <span>Poll</span>
+              <span>{t('composer.poll', 'Poll')}</span>
             </button>
             <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onEvent?.(); onClose(); }}>
               <Calendar size={20} />
-              <span>Event</span>
+              <span>{t('composer.event', 'Event')}</span>
             </button>
             {canAnnounce ? (
               <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onAnnounce?.(); onClose(); }}>
                 <Megaphone size={20} />
-                <span>Announce</span>
+                <span>{t('composer.announce', 'Announce')}</span>
               </button>
             ) : null}
           </>
@@ -53,20 +56,20 @@ export default function ComposerPlusSheet({
         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => onCycleDisappear?.()}>
           <Clock size={20} />
           <span>
-            Disappear
-            {disappearSeconds > 0 ? ` · ${disappearSeconds}s` : ' · off'}
+            {t('composer.disappear', 'Disappear')}
+            {disappearSeconds > 0 ? ` · ${disappearSeconds}s` : ` · ${t('composer.off', 'off')}`}
           </span>
         </button>
         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => onToggleForward?.()}>
           <Forward size={20} />
-          <span>Forwarding {allowForward ? 'on' : 'off'}</span>
+          <span>{t('composer.forwarding', 'Forwarding')} {allowForward ? t('composer.on', 'on') : t('composer.off', 'off')}</span>
         </button>
         {allowForward ? (
           <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => onCycleForwardUntil?.()}>
             <Smile size={20} />
             <span>
-              Forward until
-              {forwardUntilSeconds > 0 ? ` · ${forwardUntilSeconds}s` : ' · forever'}
+              {t('composer.forwardUntil', 'Forward until')}
+              {forwardUntilSeconds > 0 ? ` · ${forwardUntilSeconds}s` : ` · ${t('composer.forever', 'forever')}`}
             </span>
           </button>
         ) : null}

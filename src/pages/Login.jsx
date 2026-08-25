@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext.jsx';
 import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
@@ -67,6 +68,7 @@ function readRememberedEmail() {
 }
 
 export default function Login() {
+  const { t } = useTranslation();
   const { user, login, verify2fa } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: readRememberedEmail(), password: '' });
@@ -78,11 +80,11 @@ export default function Login() {
   const [totpCode, setTotpCode] = useState('');
 
   useEffect(() => {
-    document.title = 'Log in — QuantumChat';
+    document.title = `${t('auth.loginTitle', 'Log in')} — QuantumChat`;
     return () => {
       document.title = 'QuantumChat';
     };
-  }, []);
+  }, [t]);
 
   if (user) {
     return <Navigate to="/chat" replace />;
@@ -169,18 +171,18 @@ export default function Login() {
             </span>
           </Link>
           <p className="auth-brand-name">QuantumChat</p>
-          <h1>{pending2fa ? 'Two-factor authentication' : 'Welcome back'}</h1>
+          <h1>{pending2fa ? t('auth.twoFactorPrompt', 'Two-factor authentication') : t('auth.loginTitle', 'Welcome back')}</h1>
           <p className="auth-subtitle">
             {pending2fa
-              ? 'Enter the 6-digit code from your authenticator app.'
-              : 'Sign in to decrypt your conversations.'}
+              ? t('auth.twoFactorPrompt', 'Enter the 6-digit code from your authenticator app.')
+              : t('auth.loginSubtitle', 'Sign in to decrypt your conversations.')}
           </p>
         </div>
 
         {!pending2fa ? (
           <>
             <label className="auth-label" htmlFor="login-email">
-              Email address
+              {t('auth.email', 'Email address')}
             </label>
             <div className="auth-field">
               <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -200,10 +202,10 @@ export default function Login() {
 
             <div className="auth-label-row">
               <label className="auth-label" htmlFor="login-password">
-                Password
+                {t('auth.password', 'Password')}
               </label>
               <Link to="/forgot-password" className="auth-text-btn">
-                Forgot password?
+                {t('auth.forgotPassword', 'Forgot password?')}
               </Link>
             </div>
             <div className="auth-field">
@@ -236,13 +238,13 @@ export default function Login() {
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
               />
-              <span>Keep me signed in on this device</span>
+              <span>{t('auth.rememberMe', 'Keep me signed in on this device')}</span>
             </label>
           </>
         ) : (
           <>
             <label className="auth-label" htmlFor="login-totp">
-              Authenticator code
+              {t('auth.verifyCode', 'Authenticator code')}
             </label>
             <div className="auth-field">
               <input
@@ -267,7 +269,7 @@ export default function Login() {
                 setTotpCode('');
               }}
             >
-              ← Back to password
+              ← {t('common.back', 'Back to password')}
             </button>
           </>
         )}
@@ -284,12 +286,12 @@ export default function Login() {
         )}
 
         <button type="submit" className="confirm-btn" disabled={loading}>
-          {loading ? 'Please wait…' : pending2fa ? 'Verify & continue' : 'Log in'}
+          {loading ? t('common.loading', 'Please wait…') : pending2fa ? t('auth.verifyCode', 'Verify & continue') : t('auth.signIn', 'Log in')}
         </button>
 
         {!pending2fa && (
           <p className="auth-footer">
-            New here? <Link to="/register">Create an account</Link>
+            {t('auth.noAccount', 'New here?')} <Link to="/register">{t('auth.createAccount', 'Create an account')}</Link>
           </p>
         )}
       </form>

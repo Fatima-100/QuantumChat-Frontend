@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Lock, Mail, MoreVertical, Phone, Search, Unlock, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { createPortal } from 'react-dom';
@@ -72,22 +73,21 @@ export default function ConversationList({
   onSelect,
   onCreateGroup,
   onDiscoverJoin,
- onHide,
+  onHide,
   onBlock,
   onMute,
   onArchive,
   onToggleVault,
-  loading,
-  hasMoreContacts,
-  onLoadMoreContacts,
+  loading = false,
   searchQuery = '',
+  hasMoreContacts = false,
+  onLoadMoreContacts,
   friendCandidates = [],
   friendCandidatesLoading = false,
   incomingRequests = [],
   outgoingRequests = [],
   myFriends = [],
   myFriendsLoading = false,
-  onlineUserIds = new Set(),
   contactQuery = '',
   onContactQueryChange,
   contactLookupResult = null,
@@ -100,7 +100,8 @@ export default function ConversationList({
   onDeclineFriendRequest,
   onOpenFriend,
 }) {
- const { isUnlocked: vaultUnlocked, isPeerVaulted } = useVault();
+  const { t } = useTranslation();
+  const { isUnlocked: vaultUnlocked, isPeerVaulted } = useVault();
   const [discoverItems, setDiscoverItems] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState('');
@@ -571,7 +572,17 @@ export default function ConversationList({
                 }`}
                 onClick={() => onFilterChange(f.id)}
               >
-                <span className="sidebar-filter-label">{f.label}</span>
+                <span className="sidebar-filter-label">
+                  {f.id === 'all'
+                    ? t('common.all', 'All')
+                    : f.id === 'unread'
+                      ? t('nav.unread', 'Unread')
+                      : f.id === 'groups'
+                        ? t('nav.groups', 'Groups')
+                        : f.id === 'friends'
+                          ? t('common.friendsOnly', 'Friends')
+                          : f.label}
+                </span>
                 {showFriendBadge ? (
                   <span className="sidebar-filter-badge" aria-hidden="true">
                     {pendingFriendCount > 9 ? '9+' : pendingFriendCount}
@@ -596,7 +607,7 @@ export default function ConversationList({
       <div className="sidebar-create-row">
         <button type="button" className="create-group-btn" onClick={onCreateGroup}>
           <UserPlus size={16} strokeWidth={2} aria-hidden="true" />
-          New group
+          {t('nav.newChat', 'New group')}
         </button>
       </div>
 
