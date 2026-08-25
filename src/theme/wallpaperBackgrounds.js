@@ -4,7 +4,7 @@
 // maps an id to what it actually looks like, kept separate so re-skinning
 // a wallpaper never means touching validation logic.
 //
-// Full backgrounds use /wallpapers/optimized (≤1280px JPEG) so switching
+// Full backgrounds use /wallpapers (≤1280px JPEG) so switching
 // themes doesn't pull multi‑MB originals. Modal tiles use /wallpapers/thumbs
 // (~160px) so opening Chat theme doesn't download every full image at once.
 //
@@ -19,13 +19,13 @@ export const WALLPAPER_BACKGROUNDS = {
     'radial-gradient(circle at 42% 68%, rgba(139,92,246,0.45) 0 2px, transparent 3px),' +
     'radial-gradient(circle at 88% 78%, rgba(167,139,250,0.35) 0 1px, transparent 2px),' +
     'radial-gradient(circle at 28% 35%, #6d28d9 0%, #1e1b4b 55%, #0b1020 100%)',
-  aurora: "url('/wallpapers/optimized/aurora.jpg') center/cover no-repeat",
-  circuit: "url('/wallpapers/optimized/circuit.jpg') center/cover no-repeat",
-  floral: "url('/wallpapers/optimized/floral.jpg') center/cover no-repeat",
-  geometric: "url('/wallpapers/optimized/geometric.jpg') center/cover no-repeat",
-  stardust: "url('/wallpapers/optimized/stardust.jpg') center/cover no-repeat",
-  nebula: "url('/wallpapers/optimized/nebula.jpg') center/cover no-repeat",
-  prism: "url('/wallpapers/optimized/prism.jpg') center/cover no-repeat",
+  aurora: "url('/wallpapers/aurora.jpg') center/cover no-repeat",
+  circuit: "url('/wallpapers/circuit.jpg') center/cover no-repeat",
+  floral: "url('/wallpapers/floral.jpg') center/cover no-repeat",
+  geometric: "url('/wallpapers/geometric.jpg') center/cover no-repeat",
+  stardust: "url('/wallpapers/stardust.jpg') center/cover no-repeat",
+  nebula: "url('/wallpapers/nebula.jpg') center/cover no-repeat",
+  prism: "url('/wallpapers/prism.jpg') center/cover no-repeat",
 };
 
 // Tiny previews for the theme picker — keep these under ~15KB each.
