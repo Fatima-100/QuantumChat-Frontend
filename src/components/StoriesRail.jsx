@@ -1,9 +1,9 @@
-import { Eye, Send, Smile, X } from 'lucide-react';
+import { Eye, Send, Smile, X, Paperclip, Mic, Square } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { getSocket } from '../api/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { KEY_SET_SIZE, pickRandom, sealMessage, unsealMessage } from '../crypto/keys.js';
+import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage, unsealMessage } from '../crypto/keys.js';
 import {
   findSecretKeyForPublicKey,
   getCurrentKeySet,
@@ -265,7 +265,8 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     setPendingPreviewUrl(URL.createObjectURL(file));
   }
 
-  async function uploadStory(file, ttlMs) {
+
+  async function uploadStory(file, ttlMs, allowReplies = true) {
     try {
       setUploading(true);
 
@@ -367,6 +368,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       }
       form.append('durationMs', String(durationMs));
       form.append('ttlMs', String(ttlMs));
+      form.append('allowReplies', String(allowReplies));
 
       await client.post('/stories', form);
       await loadStories();
@@ -385,10 +387,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     setPendingPreviewUrl(null);
   }
 
-  async function confirmPostStory(ttlMs) {
+  async function confirmPostStory(ttlMs, allowReplies) {
     const file = pendingFile;
     if (!file || uploading) return;
-    const ok = await uploadStory(file, ttlMs);
+    const ok = await uploadStory(file, ttlMs, allowReplies);
     if (ok) closeComposer();
   }
 
@@ -561,6 +563,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [burst, setBurst] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const replyFileInputRef = useRef(null);
+  const [replyRecording, setReplyRecording] = useState(false);
+  const [replyRecordSeconds, setReplyRecordSeconds] = useState(0);
+  const replyMediaRecorderRef = useRef(null);
+  const replyMediaStreamRef = useRef(null);
+  const replyRecordChunksRef = useRef([]);
+  const replyRecordTimerRef = useRef(null);
+  const replyRecordStartedAtRef = useRef(0);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+  const [gifLoading, setGifLoading] = useState(false);
 
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
@@ -789,12 +803,225 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }
 
+
   function handleReplyKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendReply();
     }
   }
+
+  async function sendStoryReplyMedia(file, { plainBytes, mediaKind = 'file', gifUrl } = {}) {
+    if (sendingReply) return;
+    try {
+      setSendingReply(true);
+
+      const owner = users.find((u) => String(u.id) === String(group.user?.id));
+      const ownerKeys = (owner?.publicKeys || []).filter(Boolean);
+      if (!ownerKeys.length) {
+        throw new Error("Can't reply — missing this user's encryption keys");
+      }
+      const selfKeySet = getCurrentKeySet(currentUserId);
+      const selfKeys = selfKeySet.map((k) => k.publicKey).filter(Boolean);
+      if (!selfKeys.length) {
+        throw new Error('Import your encryption keys before replying');
+      }
+
+      const recipientPublicKey = pickRandom(ownerKeys);
+      const myPublicKey = pickRandom(selfKeys);
+
+      let attachmentId;
+
+      if (file) {
+        const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
+        const forRecipientFile = sealBytes(fileBytes, recipientPublicKey);
+        const forSenderFile = sealBytes(fileBytes, myPublicKey);
+        const mimeType = file.type || 'application/octet-stream';
+        const recipientBlob = new Blob([forRecipientFile.cipherBytes], { type: mimeType });
+        const senderBlob = new Blob([forSenderFile.cipherBytes], { type: mimeType });
+
+        const initRes = await client.post('/attachments/init', {
+          recipientId: String(group.user?.id),
+          filename: file.name,
+          mimetype: mimeType,
+          size: recipientBlob.size,
+          nonce: forRecipientFile.nonce,
+          ephemeralPublicKey: forRecipientFile.ephemeralPublicKey,
+          targetPublicKey: forRecipientFile.targetPublicKey,
+          forSenderNonce: forSenderFile.nonce,
+          forSenderEphemeralPublicKey: forSenderFile.ephemeralPublicKey,
+          forSenderTargetPublicKey: forSenderFile.targetPublicKey,
+        });
+        const { pendingUploadId, sender } = initRes.data.data;
+
+        async function putCiphertext(blob, filename, slot) {
+          const formData = new FormData();
+          formData.append('file', blob, filename);
+          await client.put(`/attachments/pending/${pendingUploadId}/bytes?slot=${slot}`, formData);
+          return undefined;
+        }
+
+        const recipientDirectUploadId = await putCiphertext(recipientBlob, file.name, 'recipient');
+        const senderDirectUploadId = sender
+          ? await putCiphertext(senderBlob, file.name, 'sender')
+          : undefined;
+
+        const finalizeRes = await client.post('/attachments/finalize', {
+          pendingUploadId,
+          recipientDirectUploadId,
+          senderDirectUploadId,
+        });
+        attachmentId = finalizeRes.data.data.id;
+      }
+
+      const payload = JSON.stringify({
+        type: 'story_reply',
+        storyId: story.id,
+        mediaType: story.mediaType,
+        caption: story.caption || null,
+        text: '',
+        replyMediaKind: mediaKind,
+       
+      });
+
+      const forRecipient = sealMessage(payload, recipientPublicKey);
+      const forSender = sealMessage(payload, myPublicKey);
+
+      const body = {
+        to: String(group.user?.id),
+        forRecipient,
+        forSender,
+        replyToStory: story.id,
+      };
+      if (attachmentId) body.attachmentId = attachmentId;
+
+      await client.post('/messages', body);
+      setGifPickerOpen(false);
+      setGifQuery('');
+      setGifResults([]);
+    } catch (err) {
+      onError?.(err.response?.data?.error || err.message || 'Failed to send reply');
+    } finally {
+      setSendingReply(false);
+    }
+  }
+
+  function handleReplyFileChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const kind = file.type.startsWith('video/')
+      ? 'video'
+      : file.type.startsWith('audio/')
+        ? 'audio'
+        : 'image';
+    sendStoryReplyMedia(file, { mediaKind: kind });
+  }
+
+  function clearReplyRecordingResources() {
+    if (replyRecordTimerRef.current) {
+      clearInterval(replyRecordTimerRef.current);
+      replyRecordTimerRef.current = null;
+    }
+    if (replyMediaStreamRef.current) {
+      replyMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      replyMediaStreamRef.current = null;
+    }
+    replyMediaRecorderRef.current = null;
+    replyRecordChunksRef.current = [];
+    setReplyRecordSeconds(0);
+    setReplyRecording(false);
+  }
+
+  async function startReplyVoiceRecording() {
+    if (replyRecording || sendingReply) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      onError?.('Voice notes are not supported in this browser');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      replyMediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      replyMediaRecorderRef.current = recorder;
+      replyRecordChunksRef.current = [];
+      replyRecordStartedAtRef.current = Date.now();
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) replyRecordChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        clearReplyRecordingResources();
+        onError?.('Voice recording failed');
+      };
+      recorder.onstop = async () => {
+        const chunks = replyRecordChunksRef.current.slice();
+        const type = (recorder.mimeType || 'audio/webm').split(';')[0];
+        clearReplyRecordingResources();
+        if (!chunks.length) return;
+        const blob = new Blob(chunks, { type: type || 'audio/webm' });
+        if (blob.size < 256) return;
+        const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+        const file = new File([blob], `story-reply-voice-${Date.now()}.${ext}`, {
+          type: type || 'audio/webm',
+        });
+        const plainBytes = new Uint8Array(await blob.arrayBuffer());
+        sendStoryReplyMedia(file, { plainBytes, mediaKind: 'voice' });
+      };
+
+      recorder.start(200);
+      setReplyRecording(true);
+      setReplyRecordSeconds(0);
+      replyRecordTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - replyRecordStartedAtRef.current) / 1000);
+        setReplyRecordSeconds(elapsed);
+        if (elapsed >= 60) stopReplyVoiceRecording();
+      }, 200);
+    } catch {
+      clearReplyRecordingResources();
+      onError?.('Microphone permission is required for voice notes');
+    }
+  }
+
+  function stopReplyVoiceRecording() {
+    const recorder = replyMediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      clearReplyRecordingResources();
+      return;
+    }
+    recorder.stop();
+  }
+
+  useEffect(() => {
+    return () => {
+      if (replyRecordTimerRef.current) clearInterval(replyRecordTimerRef.current);
+      if (replyMediaStreamRef.current) {
+        replyMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  async function searchGifs(q) {
+    setGifLoading(true);
+    try {
+      const { data } = await client.get('/gifs/search', { params: { q } });
+      setGifResults(data.data || []);
+    } catch {
+      setGifResults([]);
+    } finally {
+      setGifLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!gifPickerOpen) return undefined;
+    const q = gifQuery.trim() || 'reaction';
+    const timer = setTimeout(() => searchGifs(q), 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gifPickerOpen, gifQuery]);
 
   async function handleReact(emoji) {
     if (reacting) return;
@@ -924,7 +1151,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           />
         )}
 
-        {!isOwn && (
+        {!isOwn && story.allowReplies !== false && (
           <form
             className="story-reply-bar"
             onSubmit={(e) => {
@@ -975,9 +1202,25 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               onClick={() => {
                 setReactionPickerOpen((v) => !v);
                 setEmojiPickerOpen(false);
+                setGifPickerOpen(false);
               }}
             >
               {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
+            </button>
+
+            <button
+              type="button"
+              className={`story-heart-btn ${gifPickerOpen ? 'open' : ''}`}
+              aria-label={gifPickerOpen ? 'Close GIF picker' : 'Send a GIF'}
+              disabled={sendingReply}
+              onClick={() => {
+                setGifPickerOpen((v) => !v);
+                setEmojiPickerOpen(false);
+                setReactionPickerOpen(false);
+              }}
+              style={{ fontSize: 11, fontWeight: 800 }}
+            >
+              {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
             </button>
 
             {emojiPickerOpen && (
@@ -1037,6 +1280,69 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
                 </div>
               </div>
             )}
+
+            {gifPickerOpen && (
+              <div className="story-reaction-picker anchored-right" style={{ width: 'min(320px, calc(100vw - 32px))' }}>
+                <div className="story-reaction-picker-header">
+                  <input
+                    type="text"
+                    value={gifQuery}
+                    onChange={(e) => setGifQuery(e.target.value)}
+                    placeholder="Search GIFs"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="story-reaction-picker-close"
+                    aria-label="Close"
+                    onClick={() => setGifPickerOpen(false)}
+                  >
+                    <X size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 6,
+                    maxHeight: 220,
+                    overflow: 'auto',
+                  }}
+                >
+                  {gifLoading && <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>Searching…</p>}
+                  {!gifLoading && gifResults.length === 0 && (
+                    <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>No GIFs found</p>
+                  )}
+                  {gifResults.map((gif) => (
+                    <button
+                      key={gif.id}
+                      type="button"
+                      style={{ padding: 0, border: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
+                      disabled={sendingReply}
+                      onClick={async () => {
+  try {
+    const resp = await fetch(gif.url);
+    if (!resp.ok) throw new Error('Could not download GIF');
+    const blob = await resp.blob();
+    const file = new File([blob], `gif-${Date.now()}.gif`, {
+      type: blob.type || 'image/gif',
+    });
+    await sendStoryReplyMedia(file, { mediaKind: 'gif' });
+  } catch (err) {
+    onError?.(err.message || 'Failed to send GIF — try again');
+  }
+}}
+                    >
+                      <img
+                        src={gif.previewUrl}
+                        alt=""
+                        style={{ width: '100%', height: 70, objectFit: 'cover', display: 'block' }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </form>
         )}
       </div>
@@ -1063,6 +1369,7 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
   const [customMode, setCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState(24);
   const [customUnit, setCustomUnit] = useState('hours');
+  const [allowReplies, setAllowReplies] = useState(true);
   const imagePreviewRef = useRef(null);
   const videoPreviewRef = useRef(null);
   const audioPreviewRef = useRef(null);
@@ -1173,6 +1480,18 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
           </p>
         </div>
 
+        <label className="story-composer-ttl" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={allowReplies}
+            disabled={uploading}
+            onChange={(e) => setAllowReplies(e.target.checked)}
+          />
+          <span className="story-composer-ttl-label" style={{ margin: 0 }}>
+            Allow replies to this story
+          </span>
+        </label>
+
         <div className="story-composer-actions">
           <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={uploading}>
             Cancel
@@ -1181,7 +1500,7 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
             type="button"
             className="story-composer-post"
             disabled={uploading}
-            onClick={() => onConfirm(computeTtlMs())}
+            onClick={() => onConfirm(computeTtlMs(), allowReplies)}
           >
             {uploading ? 'Encrypting & posting…' : 'Post story'}
           </button>

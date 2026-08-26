@@ -338,6 +338,11 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [emailBannerDismissed, setEmailBannerDismissed] = useState(false);
   const [composerHelpOpen, setComposerHelpOpen] = useState(false);
   const [composerPlusOpen, setComposerPlusOpen] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+const [gifQuery, setGifQuery] = useState('');
+const [gifResults, setGifResults] = useState([]);
+const [gifLoading, setGifLoading] = useState(false);
+const [gifSending, setGifSending] = useState(false);
   const [infoPanelOpen, setInfoPanelOpenState] = useState(() =>
     getInfoPanelOpen(),
   );
@@ -459,7 +464,22 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   useEffect(() => {
     if (chatTheme?.wallpaperId) preloadWallpaper(chatTheme.wallpaperId);
   }, [chatTheme.wallpaperId]);
-
+useEffect(() => {
+  if (!gifPickerOpen) return undefined;
+  const q = gifQuery.trim() || 'trending';
+  const timer = setTimeout(async () => {
+    setGifLoading(true);
+    try {
+      const { data } = await client.get('/gifs/search', { params: { q } });
+      setGifResults(data.data || []);
+    } catch {
+      setGifResults([]);
+    } finally {
+      setGifLoading(false);
+    }
+  }, 350);
+  return () => clearTimeout(timer);
+}, [gifPickerOpen, gifQuery]);
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
@@ -4099,7 +4119,28 @@ async function handleUnblockUser(peerId) {
       }
     }
   }
-
+async function sendGifMessage(gifUrl) {
+  if (!selected || gifSending) return;
+  setGifSending(true);
+  try {
+    const resp = await fetch(gifUrl);
+    if (!resp.ok) throw new Error('Could not download GIF');
+    const blob = await resp.blob();
+    const file = new File([blob], `gif-${Date.now()}.gif`, {
+      type: blob.type || 'image/gif',
+    });
+    await sendAttachmentFile(file, { quiet: true });
+    setGifPickerOpen(false);
+    setGifQuery('');
+    setGifResults([]);
+  } catch (err) {
+    if (!handleNotFriendsError(err, selected?.id)) {
+      showToast(err.message || 'Failed to send GIF — try again', 'error');
+    }
+  } finally {
+    setGifSending(false);
+  }
+}
   // Uploads one already-encrypted blob to our proxy endpoint (POST
   // /attachments/init hands back the pendingUploadId this targets), which
   // forwards the bytes to Cloudinary.
@@ -7037,6 +7078,7 @@ useEffect(() => {
         onEvent={() =>
           setEventDraft({ title: "", when: "", where: "", notes: "" })
         }
+        onGif={() => setGifPickerOpen(true)}
         onAnnounce={() => {
           setPendingAnnouncement(true);
           textareaRef.current?.focus();
@@ -7056,7 +7098,33 @@ useEffect(() => {
           setForwardUntilSeconds(steps[(i + 1) % steps.length]);
         }}
       />
-
+<BottomSheet open={gifPickerOpen} onClose={() => setGifPickerOpen(false)} title="Send a GIF">
+  <div style={{ padding: '0 4px 8px' }}>
+    <input
+      type="text"
+      value={gifQuery}
+      onChange={(e) => setGifQuery(e.target.value)}
+      placeholder="Search GIFs"
+      autoFocus
+      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, marginBottom: 10 }}
+    />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+      {gifLoading && <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>Searching…</p>}
+      {!gifLoading && gifResults.length === 0 && <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>No GIFs found</p>}
+      {gifResults.map((gif) => (
+        <button
+          key={gif.id}
+          type="button"
+          disabled={gifSending}
+          style={{ padding: 0, border: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
+          onClick={() => sendGifMessage(gif.url)}
+        >
+          <img src={gif.previewUrl} alt="" style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
+        </button>
+      ))}
+    </div>
+  </div>
+</BottomSheet>
       <MessageActionSheet
         open={Boolean(actionSheetMessage)}
         onClose={() => setActionSheetMessage(null)}

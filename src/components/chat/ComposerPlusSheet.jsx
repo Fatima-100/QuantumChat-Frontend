@@ -1,4 +1,4 @@
-import { Paperclip, Camera, BarChart2, Calendar, Megaphone, Clock, Forward, Smile } from 'lucide-react';
+import { Paperclip, Camera, BarChart2,Image as ImageIcon, Calendar, Megaphone, Clock, Forward, Smile } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import BottomSheet from '../ui/BottomSheet.jsx';
 
@@ -13,6 +13,7 @@ export default function ComposerPlusSheet({
   onPoll,
   onEvent,
   onAnnounce,
+    onGif,
   showGroupTools = false,
   canAnnounce = false,
   disappearSeconds = 0,
@@ -34,6 +35,10 @@ export default function ComposerPlusSheet({
         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onCamera?.(); onClose(); }}>
           <Camera size={20} />
           <span>{t('composer.camera', 'Camera')}</span>
+        </button>
+         <button type="button" role="menuitem" className="qc-composer-plus-item" onClick={() => { onGif?.(); onClose(); }}>
+          <ImageIcon size={20} />
+          <span>{t('composer.gif', 'GIF')}</span>
         </button>
         {showGroupTools ? (
           <>
