@@ -1,3 +1,4 @@
+import { cacheNotificationContent } from '../crypto/swAuthMirror.js';
 import { playReceiveSound, unlockAudio } from './sounds.js';
 
 /** Returns true if the current time falls inside the configured DND window (handles overnight ranges). */
@@ -127,7 +128,7 @@ export function buildNotificationText(
  * the tab is "visible" made alerts easy to miss during side-by-side testing.
  */
 export function showNotificationPopup(
-  { title, body, requireInteraction, icon, tag, silent: silentOverride },
+ { title, body, requireInteraction, icon, tag, silent: silentOverride, actions, data },
   notifSettings,
   onClick,
 ) {
@@ -139,53 +140,84 @@ export function showNotificationPopup(
   const allowOsSound = soundOnWeb && notifSettings?.soundEnabled !== false;
   const silent =
     typeof silentOverride === 'boolean' ? silentOverride : !allowOsSound;
+  const resolvedTag = tag || 'quantumchat-alert';
 
-  try {
-    const n = new Notification(title, {
-      body,
-      icon: icon || '/logo.png',
-      badge: '/logo.png',
-      silent,
-      requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
-      tag: tag || 'quantumchat-alert',
-      renotify: true,
-    });
-    if (onClick) {
-      n.onclick = () => {
-        window.focus();
-        onClick();
-        n.close();
-      };
-    }
-  } catch {
-    // ignore unsupported/blocked notifications
-  }
-}
-/** Builds { title, body } for multiple buffered messages in one conversation, WhatsApp-style. */
-export function buildGroupedNotificationText(entries, { isGroup, groupName, notifSettings }) {
-  const preview = notifSettings?.messagePreview || 'full';
-  const title = isGroup ? groupName || 'QuantumChat' : entries[0]?.senderName || 'QuantumChat';
-
-  const lineFor = (e) => describeSystemPayload(parseSystemPayload(e.text)) || e.text?.trim() || '[Attachment]';
-
-  if (preview === 'hidden') {
-    return { title, body: entries.length > 1 ? `${entries.length} new messages` : 'New message' };
-  }
-
-  if (entries.length === 1) {
-    const e = entries[0];
-    const text = preview === 'sender_only' ? (describeSystemPayload(parseSystemPayload(e.text)) || 'New message') : lineFor(e);
-    return { title, body: isGroup && e.senderName ? `${e.senderName}: ${text}` : text };
-  }
-
-  if (preview === 'sender_only') {
-    return { title, body: `${entries.length} new messages` };
-  }
-  const lines = entries.slice(-2).map((e) => {
-    const text = lineFor(e);
-    return isGroup && e.senderName ? `${e.senderName}: ${text}` : text;
-  });
-  const extra = entries.length - lines.length;
-  const body = extra > 0 ? `${lines.join('\n')}\n+${extra} more` : lines.join('\n');
-  return { title, body };
-}
+   if (Array.isArray(actions) && actions.length && 'serviceWorker' in navigator) {
+       (async () => {
+         try {
+           const registration = await navigator.serviceWorker.ready;
+           if (!registration) return;
+   
+           console.log('[notif] client showing rich notification, tag =', JSON.stringify(resolvedTag), { title, body });
+           cacheNotificationContent(resolvedTag, { title, body });
+   
+           const existing = await registration.getNotifications({ tag: resolvedTag });
+           console.log('[notif] existing same-tag notifications found before showing:', existing.length);
+           existing.forEach((n) => n.close());
+           await registration.showNotification(title, {
+             body,
+             icon: icon || '/logo.png',
+             badge: '/logo.png',
+             silent,
+             requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
+             tag: resolvedTag,
+             renotify: true,
+             actions: actions.slice(0, 2),
+             data: data || {},
+           });
+         } catch (err) {
+           console.error('[notif] failed to show rich notification', err);
+         }
+       })();
+       return;
+     }
+   
+     try {
+       const n = new Notification(title, {
+         body,
+         icon: icon || '/logo.png',
+         badge: '/logo.png',
+         silent,
+         requireInteraction: requireInteraction ?? notifSettings?.priority === 'high',
+         tag: resolvedTag,
+         renotify: true,
+       });
+       if (onClick) {
+         n.onclick = () => {
+           window.focus();
+           onClick();
+           n.close();
+         };
+       }
+     } catch {
+       // ignore unsupported/blocked notifications
+     }
+   }
+   /** Builds { title, body } for multiple buffered messages in one conversation, WhatsApp-style. */
+   export function buildGroupedNotificationText(entries, { isGroup, groupName, notifSettings }) {
+     const preview = notifSettings?.messagePreview || 'full';
+     const title = isGroup ? groupName || 'QuantumChat' : entries[0]?.senderName || 'QuantumChat';
+   
+     const lineFor = (e) => describeSystemPayload(parseSystemPayload(e.text)) || e.text?.trim() || '[Attachment]';
+   
+     if (preview === 'hidden') {
+       return { title, body: entries.length > 1 ? `${entries.length} new messages` : 'New message' };
+     }
+   
+     if (entries.length === 1) {
+       const e = entries[0];
+       const text = preview === 'sender_only' ? (describeSystemPayload(parseSystemPayload(e.text)) || 'New message') : lineFor(e);
+       return { title, body: isGroup && e.senderName ? `${e.senderName}: ${text}` : text };
+     }
+   
+     if (preview === 'sender_only') {
+       return { title, body: `${entries.length} new messages` };
+     }
+     const lines = entries.slice(-2).map((e) => {
+       const text = lineFor(e);
+       return isGroup && e.senderName ? `${e.senderName}: ${text}` : text;
+     });
+     const extra = entries.length - lines.length;
+     const body = extra > 0 ? `${lines.join('\n')}\n+${extra} more` : lines.join('\n');
+     return { title, body };
+   }

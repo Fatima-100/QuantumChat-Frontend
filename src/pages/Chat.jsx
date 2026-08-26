@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowLeft,
+  Bookmark,
   HelpCircle,
   Info,
   MessageSquare,
@@ -9,15 +10,13 @@ import {
   Phone,
   Pin,
   Plus,
-  Search,
   Send,
   Settings2,
   Smile,
   Square,
-  Bookmark,
   Users,
   Video,
-  X,
+  X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,37 +26,45 @@ import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../ap
 import client, { muteChat, unmuteChat } from "../api/client.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
+import { getPeerVaultDecoyStatus } from "../api/vault.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
 import CameraCapture from "../components/CameraCapture.jsx";
 import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
+import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
+import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
 import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
-import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
+import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
-import BottomSheet from "../components/ui/BottomSheet.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
 import DragDropOverlay from "../components/DragDropOverlay.jsx";
+import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ForwardModal from "../components/ForwardModal.jsx";
 import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
-import MessageSearch from "../components/MessageSearch.jsx";
 import MessageInfoModal from "../components/MessageInfoModal.jsx";
+import MessageSearch from "../components/MessageSearch.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
+import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
+import BottomSheet from "../components/ui/BottomSheet.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
 import UserProfileModal from "../components/UserProfileModal.jsx";
+import VaultSetupModal from "../components/VaultSetupModal.jsx";
+import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
+import { useVault } from "../context/VaultContext.jsx";
 import {
   downloadKeyFile,
   formatKeyFile,
@@ -80,9 +87,10 @@ import {
   pickRecorderMimeType,
 } from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
+import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
-import EditHistoryModal from "../components/EditHistoryModal.jsx";
+import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -99,8 +107,6 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
-import activityStore from "../utils/activityStore.js";
-import screenTimeCollector from "../utils/screenTimeCollector.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -118,21 +124,18 @@ import {
   deleteMessageForMe,
   getDeletedForMeIds,
   getPinnedIds,
+  getStarredEntries,
   getStarredIds,
   togglePinnedMessage,
   toggleStarredMessage,
-    getStarredEntries,
 } from "../utils/messageExtras.js";
 import {
-  buildNotificationText,
   buildGroupedNotificationText,
   playNotificationSound,
   shouldNotify,
-  showNotificationPopup,
+  showNotificationPopup
 } from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
-import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
-import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
 import {
   conversationKeyForGroup,
   conversationKeyForUser,
@@ -143,14 +146,8 @@ import {
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
-import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
-import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
-import { useVault } from "../context/VaultContext.jsx";
-import { getPeerVaultDecoyStatus } from "../api/vault.js";
-import VaultSetupModal from "../components/VaultSetupModal.jsx";
-import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
-import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
-import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
+import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
+import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
@@ -203,6 +200,9 @@ function isMediaPreviewFile(file) {
   if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
   if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
   if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  if (mime.startsWith('audio/') ||/\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) ||/^voice-note/i.test(name)) {
+    return true;
+  }
   return false;
 }
 
@@ -343,7 +343,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   );
   const [actionSheetMessage, setActionSheetMessage] = useState(null);
   const [messageInfoData, setMessageInfoData] = useState(null);
-    const [editHistoryMessage, setEditHistoryMessage] = useState(null);
+  const [editHistoryMessage, setEditHistoryMessage] = useState(null);
   const [callMinimized, setCallMinimized] = useState(false);
   const [isMobileShell, setIsMobileShell] = useState(() =>
     typeof window !== "undefined"
@@ -568,6 +568,173 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     },
   });
+  
+  // Sends a reply typed directly into a notification's inline text field,
+  // entirely in the background — no navigation, no window focus, no change
+  // to whatever the user is currently looking at. Standalone rather than
+  // reusing handleSend()/selected/draft, since those are tied to the
+  // CURRENTLY VISIBLE conversation. Only handles the plain-DM case, since
+  // that's the only path the backend currently attaches a Reply action to.
+     async function sendReplyInBackground(peerId, text) {
+      const trimmed = (text || '').trim();
+    console.log('[reply] sendReplyInBackground called', { peerId, textLength: trimmed.length });
+    if (!trimmed || !peerId) {
+      console.warn('[reply] aborting: missing text or peerId', { trimmed, peerId });
+      return;
+    }
+        try {
+        let replyPeer =
+          String(peerId) === String(user.id)
+            ? selfPeer
+            : users.find((u) => String(u.id) === String(peerId));
+  
+        if (!replyPeer?.publicKeys?.length) {
+          console.log('[reply] peer not found/no keys in local users list, fetching fresh:', peerId);
+          try {
+            const { data } = await client.get(`/users/${peerId}`);
+            replyPeer = data?.data || null;
+          } catch (fetchErr) {
+            console.error('[reply] failed to fetch peer directly', fetchErr);
+          }
+        }
+
+        const myKey = pickRandom(getCurrentKeySet(user.id));
+        const recipientKeys = (replyPeer?.publicKeys || []).filter(Boolean);
+        console.log('[reply] resolved peer', { found: Boolean(replyPeer), recipientKeyCount: recipientKeys.length, haveOwnKey: Boolean(myKey?.publicKey) });
+        if (!myKey?.publicKey || recipientKeys.length === 0) {
+          console.error('[reply] aborting: missing encryption keys', { hasMyKey: Boolean(myKey?.publicKey), recipientKeyCount: recipientKeys.length });
+          showToast('Missing encryption keys for this conversation', 'error');
+          return;
+        }
+        const forRecipient = sealMessage(trimmed, pickRandom(recipientKeys));
+        const forSender = sealMessage(trimmed, myKey.publicKey);
+        console.log('[reply] posting message to server...');
+        const { data } = await client.post('/messages', { to: peerId, forRecipient, forSender });
+        console.log('[reply] sent successfully', data?.data?._id || data?.data?.id);
+        recordActivityFromMessage(data.data);
+      } catch (err) {
+        console.error('[reply] send failed', err);
+        showToast(err.response?.data?.error || err.message || 'Failed to send reply', 'error');
+      }
+    }
+   
+     // ---- Notification action handling (Reply / Mark as Read / call actions) ---
+     const [notificationAction, setNotificationAction] = useState(null);
+   
+     // Path A — cold boot via openWindow(), action arrives as query params.
+     useEffect(() => {
+       const searchParams = new URLSearchParams(location.search);
+       if (searchParams.has('reply')) {
+         const raw = searchParams.get('reply');
+         const typed = raw && raw !== '1' ? decodeURIComponent(raw) : '';
+         setNotificationAction({ type: 'reply', text: typed });
+         navigate(location.pathname, { replace: true });
+       } else if (searchParams.has('acceptCall')) {
+         setNotificationAction({ type: 'accept_call', callId: searchParams.get('acceptCall') });
+         navigate(location.pathname, { replace: true });
+       } else if (searchParams.has('declineCall')) {
+         setNotificationAction({ type: 'decline_call', callId: searchParams.get('declineCall') });
+         navigate(location.pathname, { replace: true });
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [location.search]);
+
+       const navigateRef = useRef(navigate);
+       navigateRef.current = navigate;
+       const locationRef = useRef(location);
+       locationRef.current = location;
+
+     useEffect(() => {
+       function onSwMessage(event) {
+         const msg = event.data;
+         if (!msg || msg.type !== 'quantumchat-notification-action') return;
+         console.log('[reply] received SW message', msg);
+   
+         if (msg.action === 'reply' && msg.text) {
+           sendReplyInBackground(msg.peerId, msg.text);
+           return;
+         }
+   
+        if (msg.url) {
+        const targetPath = msg.url.split('?')[0];
+        if (locationRef.current.pathname !== targetPath) navigateRef.current(targetPath);
+      }
+      if (msg.action === 'reply') {
+        setNotificationAction({ type: 'reply', text: '' });
+      } else if (msg.action === 'accept_call') {
+        setNotificationAction({ type: 'accept_call', callId: msg.callId });
+      } else if (msg.action === 'decline_call') {
+        setNotificationAction({ type: 'decline_call', callId: msg.callId });
+      }
+    }
+    console.log('[reply] SW message listener attached');
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+    return () => {
+      console.log('[reply] SW message listener detached');
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+    };
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, []);
+   
+     // Executes whatever `notificationAction` currently holds (Path A only, or
+     // Path B's non-silent cases), once it's actually safe to: the right
+     // conversation must be loaded, and for a reply with text, the recipient's
+     // public key must actually be available.
+     const pendingAutoSendRef = useRef(false);
+     useEffect(() => {
+       if (!notificationAction) return;
+   
+       if (notificationAction.type === 'reply') {
+         const targetId = params.groupId || params.peerId;
+         const selectedMatches = selected && String(selected.id) === String(targetId);
+         const peerReady =
+           selectedMatches &&
+           (selected.type === 'group' || Boolean(resolveDmPeer(selected)?.publicKeys?.length));
+   
+         if (!notificationAction.text) {
+           if (selectedMatches || selected) {
+             textareaRef.current?.focus();
+             setNotificationAction(null);
+           }
+           return;
+         }
+         if (peerReady) {
+           setDraft(notificationAction.text);
+           pendingAutoSendRef.current = true;
+           setNotificationAction(null);
+         }
+         return;
+       }
+   
+       if (
+         notificationAction.type === 'accept_call' &&
+         webrtc.call &&
+         String(webrtc.call.callId || webrtc.call.id) === String(notificationAction.callId)
+       ) {
+         webrtc.acceptCall().catch(() => showToast('Could not access microphone/camera', 'error'));
+         setNotificationAction(null);
+         return;
+       }
+   
+       if (
+         notificationAction.type === 'decline_call' &&
+         webrtc.call &&
+         String(webrtc.call.callId || webrtc.call.id) === String(notificationAction.callId)
+       ) {
+         webrtc.rejectCall();
+         setNotificationAction(null);
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [notificationAction, selected, users, webrtc.call, params.peerId, params.groupId]);
+   
+     useEffect(() => {
+       if (pendingAutoSendRef.current && draft) {
+         pendingAutoSendRef.current = false;
+         handleSend({ preventDefault: () => {} });
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [draft]);
+    
   useEffect(() => {
     const call = webrtc.call;
     if (!call || call.role !== "callee" || call.status !== "incoming") return;
@@ -1299,7 +1466,37 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
               notifSettings,
             });
 
-            showNotificationPopup({ title, body, tag: convKey }, notifSettings, () => {
+            // The notification's tag must match exactly what the server's
+            // push uses (backend/src/utils/conversationKey.js), or the
+            // IndexedDB content-cache lookup in sw.js's push handler always
+            // misses and silently falls back to generic "New message" text.
+            // Groups already matched (`group:${id}` both sides); DMs did
+            // NOT — the client's own `convKey` here is `dm:${peerId}` while
+            // the server sorts both participant ids together, so build the
+            // matching tag separately rather than reusing convKey.
+            const pushTag = raw.group
+              ? `group:${raw.group}`
+              : `dm:${[String(raw.from), String(raw.to)].sort().join(':')}`;
+            console.log('[notif] client-computed pushTag =', JSON.stringify(pushTag), { from: raw.from, to: raw.to, group: raw.group });
+
+
+            showNotificationPopup(
+              {
+                title,
+                body,
+                tag: pushTag,
+                actions: [
+                  { action: 'reply', title: 'Reply', type: 'text', placeholder: 'Type a reply…' },
+                  { action: 'mark_read', title: 'Mark as Read' },
+                ],
+                data: {
+                  url: raw.group ? `/chat/g/${raw.group}` : `/chat/${String(raw.from) === String(user.id) ? raw.to : raw.from}`,
+                  kind: raw.group ? 'group' : 'dm',
+                  fromUserId: String(raw.from) === String(user.id) ? String(raw.to) : String(raw.from),
+                },
+              },
+              notifSettings,
+              () => {
               const target = raw.group
                 ? { key: convKey, type: "group", id: raw.group }
                 : {
