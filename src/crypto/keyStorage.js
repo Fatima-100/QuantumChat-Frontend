@@ -1,3 +1,6 @@
+import { getApiUrl } from '../api/baseUrl.js';
+import { clearAuthForServiceWorker, mirrorAuthForServiceWorker } from './swAuthMirror.js';
+
 const KEYRING_PREFIX = 'qc_keyring_';
 const TOKEN_KEY = 'qc_token';
 const USER_KEY = 'qc_user';
@@ -106,6 +109,7 @@ export function saveSession(token, user, sessionId) {
   if (sessionId) {
     localStorage.setItem(SESSION_ID_KEY, sessionId);
   }
+  mirrorAuthForServiceWorker(token, getApiUrl());
 }
 
 export function getToken() {
@@ -136,4 +140,5 @@ export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(SESSION_ID_KEY);
+  clearAuthForServiceWorker();
 }
