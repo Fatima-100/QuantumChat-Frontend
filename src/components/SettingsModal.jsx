@@ -30,6 +30,7 @@ import {
   getNotificationPermission,
 } from '../utils/pushNotifications.js';
 import { unlockAudio, playReceiveSound } from '../utils/sounds.js';
+import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -129,6 +130,11 @@ export default function SettingsModal({
   const [bio, setBio] = useState(user?.bio || '');
   const [statusText, setStatusText] = useState(user?.statusText || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [dateOfBirth, setDateOfBirth] = useState(
+    user?.dateOfBirth ? String(user.dateOfBirth).slice(0, 10) : '',
+  );
+  const [timezone, setTimezone] = useState(user?.timezone || detectBrowserTimezone());
+  const timezoneOptions = useState(getTimezoneList)[0];
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
     readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
@@ -354,6 +360,8 @@ export default function SettingsModal({
         bio: bio.trim(),
         statusText: statusText.trim(),
         phone: phone.trim(),
+        dateOfBirth: dateOfBirth || '',
+        timezone,
       });
       onUserUpdated?.(data.data);
       setOk('Profile saved');
@@ -1066,6 +1074,37 @@ export default function SettingsModal({
                     {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
                   </p>
                 </label>
+                <label className="settings-field">
+                  <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
+                  <input
+                    type="date"
+                    value={dateOfBirth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                  />
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.dateOfBirthHint',
+                      'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
+                    )}
+                  </p>
+                </label>
+                <label className="settings-field">
+                  <span>{t('settings.profile.timezone', 'Timezone')}</span>
+                  <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                    {timezoneOptions.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.timezoneHint',
+                      'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
+                    )}
+                  </p>
+                </label>
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
                   {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
                 </button>
@@ -1592,6 +1631,21 @@ export default function SettingsModal({
                   ]}
                   disabled={busy}
                   onChange={(v) => updateNotifField('vibration', v)}
+                />
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Birthday Reminders</h3>
+                <p className="settings-section-copy">
+                  Get a reminder 5 minutes before a friend&apos;s birthday begins.
+                </p>
+
+                <ToggleRow
+                  label="Birthday Reminders"
+                  hint="Notify me before a friend's birthday starts"
+                  checked={notifSettings.birthdayReminders !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('birthdayReminders', v)}
                 />
               </div>
 
