@@ -32,6 +32,43 @@ export function tokenize(text) {
  * @param {Array<{ id?: string, _id?: string, text?: string|null, timestamp?: *, createdAt?: *, hasAttachment?: boolean }>} messages
  * @returns {{ docs: Map<string, object>, inverted: Map<string, Map<string, number>>, docCount: number }}
  */
+export function normalizeAttachment(msg) {
+  const attachment = msg?.attachment || (Array.isArray(msg?.attachments) ? msg.attachments[0] : null);
+  if (!attachment || typeof attachment !== 'object') return null;
+  const filename = String(attachment.filename || attachment.fileName || attachment.name || '').trim();
+  const mimetype = String(attachment.mimetype || attachment.mimeType || attachment.type || '').toLowerCase().trim();
+  return { filename, mimetype };
+}
+
+function classifyAttachment(attachment) {
+  if (!attachment) return { kind: 'none', documentCategory: '', isPicture: false, isDocument: false };
+  const { filename, mimetype } = attachment;
+  const ext = filename.toLowerCase().split('.').pop();
+  const isPicture = mimetype.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'avif'].includes(ext);
+  const isVideo = mimetype.startsWith('video/') || ['mp4', 'mov', 'webm', 'mkv'].includes(ext);
+  const isAudio = mimetype.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg'].includes(ext);
+  const documentCategory = mimetype === 'application/pdf' || ext === 'pdf' ? 'pdf'
+    : ['doc', 'docx'].includes(ext) || mimetype.includes('word') ? 'word'
+      : ['xls', 'xlsx', 'csv'].includes(ext) || mimetype.includes('spreadsheet') ? 'spreadsheet'
+        : ['ppt', 'pptx'].includes(ext) || mimetype.includes('presentation') ? 'presentation'
+          : ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext) || mimetype.includes('zip') ? 'archive'
+            : mimetype.startsWith('text/') || ['txt', 'md', 'json'].includes(ext) ? 'text' : '';
+  const isDocument = Boolean(documentCategory);
+  return { kind: isPicture ? 'picture' : isVideo ? 'video' : isAudio ? 'audio' : isDocument ? 'document' : 'file', documentCategory, isPicture, isDocument };
+}
+
+function extractDomains(text) {
+  const domains = new Set();
+  const matches = String(text || '').match(/(?:https?:\/\/|www\.)[^\s<>()]+/gi) || [];
+  for (const raw of matches) {
+    try {
+      const url = new URL(raw.startsWith('www.') ? `https://${raw}` : raw);
+      domains.add(url.hostname.toLowerCase().replace(/^www\./, ''));
+    } catch { /* Ignore malformed URLs. */ }
+  }
+  return [...domains];
+}
+
 export function buildIndex(messages) {
   const docs = new Map();
   const inverted = new Map();
@@ -43,7 +80,10 @@ export function buildIndex(messages) {
     const text = typeof msg?.text === 'string' ? msg.text : '';
     const ts = msg?.timestamp ?? msg?.createdAt ?? null;
     const timestampMs = ts != null ? new Date(ts).getTime() : NaN;
-    const hasAttachment = Boolean(msg?.hasAttachment);
+    const attachment = normalizeAttachment(msg);
+    const attachmentKind = classifyAttachment(attachment);
+    const hasAttachment = Boolean(msg?.hasAttachment || attachment);
+    const linkDomains = extractDomains(text);
 
     const tokens = text.trim() ? tokenize(text) : [];
     const tf = new Map();
@@ -59,6 +99,10 @@ export function buildIndex(messages) {
       tokenCount: tokens.length,
       tf,
       hasAttachment,
+      filename: attachment?.filename || '',
+      mimetype: attachment?.mimetype || '',
+      linkDomains,
+      ...attachmentKind,
     });
 
     for (const [token, count] of tf) {
@@ -273,12 +317,17 @@ export function matchesDateRange(timestampMs, range) {
 export function searchMessages(index, criteria = {}) {
   if (!index?.docs?.size) return [];
 
-  const { query = '', dateRange = null } = criteria;
+  const { query = '', dateRange = null, type = 'all', filename = '', domain = '' } = criteria;
   const q = String(query || '').trim();
+  const filenameQuery = String(filename || '').trim().toLowerCase();
+  const domainQuery = String(domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
   const hasText = q.length > 0 && tokenize(q).length > 0;
   const hasDate = Boolean(dateRange) && (dateRange.fromMs != null || dateRange.toMs != null);
+  const hasType = type !== 'all';
+  const hasFilename = filenameQuery.length > 0;
+  const hasDomain = domainQuery.length > 0;
 
-  if (!hasText && !hasDate) return [];
+  if (!hasText && !hasDate && !hasType && !hasFilename && !hasDomain) return [];
 
   let candidates;
   if (hasText) {
@@ -288,6 +337,9 @@ export function searchMessages(index, criteria = {}) {
         ...r,
         timestampMs: doc ? doc.timestampMs : NaN,
         hasAttachment: doc ? doc.hasAttachment : false,
+        filename: doc ? doc.filename : '',
+        isPicture: doc ? doc.isPicture : false,
+        isDocument: doc ? doc.isDocument : false,
       };
     });
   } else {
@@ -305,6 +357,18 @@ export function searchMessages(index, criteria = {}) {
     candidates.sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
   }
 
-  if (!hasDate) return candidates;
-  return candidates.filter((r) => matchesDateRange(r.timestampMs, dateRange));
+  return candidates.filter((r) => {
+    const doc = index.docs.get(r.id);
+    if (!doc) return false;
+    if (hasDate && !matchesDateRange(r.timestampMs, dateRange)) return false;
+    if (hasFilename && !doc.filename.toLowerCase().includes(filenameQuery)) return false;
+    if (hasDomain && !doc.linkDomains.some((item) => item.includes(domainQuery))) return false;
+    if (hasType) {
+      if (type === 'messages' && doc.hasAttachment) return false;
+      if (type === 'pictures' && !doc.isPicture) return false;
+      if (type === 'documents' && !doc.isDocument) return false;
+      if (type === 'links' && !doc.linkDomains.length) return false;
+    }
+    return true;
+  });
 }

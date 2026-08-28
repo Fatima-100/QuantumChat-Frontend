@@ -8748,6 +8748,23 @@ body.theme-eyecare .drag-drop-overlay,
   background: var(--bg-input);
 }
 
+.message-search-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.message-search-filter-field input {
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
 .message-search-filter-options {
   display: flex;
   flex-wrap: wrap;
@@ -8867,6 +8884,14 @@ body.theme-eyecare .drag-drop-overlay,
   color: var(--accent);
   border-radius: 2px;
   padding: 0 2px;
+}
+
+.message-search-item-attachment {
+  font-size: 11px;
+  color: var(--accent-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .message-search-item-time {

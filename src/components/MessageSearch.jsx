@@ -5,6 +5,14 @@ import {
   searchMessages,
 } from '../utils/localSearchIndex.js';
 
+const TYPE_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'messages', label: 'Messages' },
+  { value: 'pictures', label: 'Pictures' },
+  { value: 'documents', label: 'Documents' },
+  { value: 'links', label: 'Links' },
+];
+
 const DATE_PRESETS = [
   { value: 'all', label: 'All dates' },
   { value: 'today', label: 'Today' },
@@ -38,6 +46,9 @@ function MessageSearch({ messages = [], onResultSelect, isOpen, onClose }) {
   const [query, setQuery] = useState('');
   const [dateFilter, setDateFilter] = useState({ preset: 'all', from: '', to: '' });
   const [draftFilter, setDraftFilter] = useState({ preset: 'all', from: '', to: '' });
+  const [type, setType] = useState('all');
+  const [filename, setFilename] = useState('');
+  const [domain, setDomain] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const inputRef = useRef(null);
 
@@ -49,6 +60,9 @@ function MessageSearch({ messages = [], onResultSelect, isOpen, onClose }) {
     setQuery('');
     setDateFilter({ preset: 'all', from: '', to: '' });
     setDraftFilter({ preset: 'all', from: '', to: '' });
+    setType('all');
+    setFilename('');
+    setDomain('');
     setFilterOpen(false);
   }, [isOpen]);
 
@@ -64,13 +78,16 @@ function MessageSearch({ messages = [], onResultSelect, isOpen, onClose }) {
 
   const index = useMemo(() => buildIndex(messages), [messages]);
   const dateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter]);
-  const results = useMemo(() => searchMessages(index, { query, dateRange }), [index, query, dateRange]);
+  const results = useMemo(() => searchMessages(index, { query, dateRange, type, filename, domain }), [index, query, dateRange, type, filename, domain]);
   const activePreset = DATE_PRESETS.find((preset) => preset.value === dateFilter.preset);
   const customLabel = dateFilter.from || dateFilter.to
     ? [formatDateLabel(dateFilter.from), formatDateLabel(dateFilter.to)].filter(Boolean).join(' → ')
     : 'Custom range';
   const activeFilterLabel = dateFilter.preset === 'custom' ? customLabel : activePreset?.label || 'All dates';
+  const activeTypeLabel = TYPE_FILTERS.find((item) => item.value === type)?.label || 'All';
   const hasDateFilter = dateFilter.preset !== 'all' || dateFilter.from || dateFilter.to;
+  const hasContentFilter = type !== 'all' || filename || domain;
+  const hasAnyFilter = hasDateFilter || hasContentFilter;
 
   const selectPreset = (preset) => {
     const next = { preset, from: '', to: '' };
@@ -106,12 +123,19 @@ function MessageSearch({ messages = [], onResultSelect, isOpen, onClose }) {
           <button className="message-search-close" onClick={onClose} type="button" aria-label="Close search">✕</button>
         </div>
         <button className={`message-search-filter-button${hasDateFilter ? ' is-active' : ''}`} type="button" onClick={() => setFilterOpen((open) => !open)} aria-expanded={filterOpen} aria-haspopup="true">
-          <span aria-hidden="true">≡</span> Filter{hasDateFilter ? `: ${activeFilterLabel}` : ''}
+          <span aria-hidden="true">≡</span> Filter{hasAnyFilter ? `: ${activeTypeLabel !== 'All' ? activeTypeLabel : activeFilterLabel}` : ''}
         </button>
       </div>
 
       {filterOpen && (
-        <div className="message-search-filter-menu" role="dialog" aria-label="Date filters">
+        <div className="message-search-filter-menu" role="dialog" aria-label="Search filters">
+          <div className="message-search-filter-options" role="group" aria-label="Search type">
+            {TYPE_FILTERS.map((item) => (
+              <button key={item.value} type="button" className={type === item.value ? 'is-selected' : ''} onClick={() => setType(item.value)}>{item.label}</button>
+            ))}
+          </div>
+          {(type === 'documents' || type === 'pictures') && <label className="message-search-filter-field">Filename<input type="search" placeholder="e.g. report or photo" value={filename} onChange={(e) => setFilename(e.target.value)} /></label>}
+          {type === 'links' && <label className="message-search-filter-field">Website<input type="search" placeholder="e.g. example.com" value={domain} onChange={(e) => setDomain(e.target.value)} /></label>}
           <div className="message-search-filter-options" role="group" aria-label="Date presets">
             {DATE_PRESETS.map((preset) => (
               <button key={preset.value} type="button" className={draftFilter.preset === preset.value ? 'is-selected' : ''} onClick={() => selectPreset(preset.value)}>{preset.label}</button>
@@ -131,11 +155,12 @@ function MessageSearch({ messages = [], onResultSelect, isOpen, onClose }) {
       )}
 
       <p className="message-search-hint">On-device index · server never sees this query</p>
-      {(query.trim() || hasDateFilter) && (
+      {(query.trim() || hasAnyFilter) && (
         <div className="message-search-results" role="listbox" aria-label="Search results">
           {results.length === 0 ? <div className="message-search-empty">No messages found</div> : results.map((msg) => (
             <button key={msg.id} className="message-search-item" onClick={() => handleResultClick(msg.id)} type="button" role="option" aria-label={`Go to message: ${truncateText(msg.text, 40)}`}>
-              <span className="message-search-item-text">{truncateText(msg.text || 'Attachment')}</span>
+              <span className="message-search-item-text">{truncateText(msg.text || msg.filename || (msg.isPicture ? 'Image' : 'Attachment'))}</span>
+              {msg.filename && <span className="message-search-item-attachment">{msg.filename}</span>}
               {msg.timestamp && <span className="message-search-item-time">{formatTimestamp(msg.timestamp)}</span>}
             </button>
           ))}
