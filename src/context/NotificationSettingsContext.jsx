@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
   soundVolume: 80,
   messagePreview: 'full',
   vibration: 'on',
+  birthdayReminders: true,
   doNotDisturb: { enabled: false, startTime: '22:00', endTime: '07:00', allowedContacts: [] },
   groupNotifications: 'all',
   callNotifications: {

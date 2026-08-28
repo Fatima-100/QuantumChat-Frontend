@@ -6090,13 +6090,21 @@ useEffect(() => {
                           120000;
                         const mid = String(m.id || m._id);
 
-                        return (
-                          <div
-                            key={item.key}
-                            id={`msg-${mid}`}
-                            className="message-item"
-                          >
-                            <SwipeableMessage
+                       return (
+  <div
+    key={item.key}
+    id={`msg-${mid}`}
+    className="message-item"
+    onDoubleClick={() => {
+      // 1. Clear any edit state so we don't conflict
+      setEditingMessage(null);
+      // 2. Set the current message as the one we are replying to
+      setReplyTo(m);
+      // 3. Automatically put the user's cursor inside the text box!
+      textareaRef.current?.focus();
+    }}
+  >
+    <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}
                               onReply={(msg) => {
