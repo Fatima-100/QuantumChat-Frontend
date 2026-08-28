@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Lock, Mail, MoreVertical, Phone, Search, Unlock, Users, UserPlus, UserX, VolumeX, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Bookmark, Check, ChevronLeft, ChevronRight, Lock, Mail, MoreVertical, Phone, Search, Unlock, UserPlus, Users, UserX, VolumeX, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import client from '../api/client.js';
-import UserAvatar from './UserAvatar.jsx';
-import { createPortal } from 'react-dom';
 import { useVault } from '../context/VaultContext.jsx';
+import UserAvatar from './UserAvatar.jsx';
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -69,6 +69,7 @@ export default function ConversationList({
   conversations,
   filter,
   onFilterChange,
+  onlineUserIds,
   selectedKey,
   onSelect,
   onCreateGroup,
@@ -706,6 +707,12 @@ export default function ConversationList({
                     <span className="user-list-meta">
                       <span className="user-list-name">{r.user.displayName || r.user.username}</span>
                       <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                      {r.moderationWarning?.reportedByMultiple && (
+                        <span className="friend-request-safety-warning">
+                          ⚠ Reported by multiple people
+                          {r.moderationWarning.commonReason ? ` · ${r.moderationWarning.commonReason.replace(/_/g, ' ')}` : ''}
+                        </span>
+                      )}
                     </span>
                     <div className="friend-request-actions">
                       <button

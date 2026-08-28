@@ -40,6 +40,12 @@ export async function updateNotificationSettings(payload) {
   const { data } = await client.put('/users/me/notification-settings', payload);
   return data;
 }
+
+export async function submitReport(userId, reason, details) {
+  const { data } = await client.post('/reports', { userId, reason, details });
+  return data;
+}
+
 export async function muteChat(payload) {
   const { data } = await client.post('/users/me/mute', payload);
   return data;

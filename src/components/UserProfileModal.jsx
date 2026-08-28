@@ -1,13 +1,22 @@
+import { Archive, BadgeCheck, Ban, Cake, Clock, Flag, Lock, Sparkles, UserMinus, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Archive, BadgeCheck, Ban, Cake, Clock, Lock, Sparkles, VolumeX, UserMinus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import client from '../api/client.js';
-import UserAvatar from './UserAvatar.jsx';
+import client, { submitReport } from '../api/client.js';
 import {
   AI_BG_THEMES,
   readStoredAiBg,
   writeStoredAiBg,
 } from '../utils/aiPanelBg.js';
+import UserAvatar from './UserAvatar.jsx';
+
+const REPORT_REASONS = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'harassment', label: 'Harassment or bullying' },
+  { value: 'inappropriate_content', label: 'Inappropriate content' },
+  { value: 'impersonation', label: 'Impersonation' },
+  { value: 'scam_or_fraud', label: 'Scam or fraud' },
+  { value: 'other', label: 'Something else' },
+];
 
 export default function UserProfileModal({
   userId,
@@ -31,6 +40,24 @@ export default function UserProfileModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [aiBg, setAiBg] = useState(readStoredAiBg);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportDone, setReportDone] = useState(false);
+
+   async function handleSubmitReport() {
+      if (!reportReason || !profile?.id) return;
+      setReportBusy(true);
+      try {
+        await submitReport(profile.id, reportReason, reportDetails.trim());
+        setReportDone(true);
+      } catch (err) {
+        setError(err.response?.data?.error || 'Failed to submit report');
+      } finally {
+        setReportBusy(false);
+      }
+    }
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -238,31 +265,94 @@ export default function UserProfileModal({
                     </button>
                   )}
                   {onBlock && (
-  <button
-    type="button"
-    className="user-profile-action-btn danger"
-    title="Block user"
-    aria-label={`Block ${displayName}`}
-    onClick={() => onBlock(profile)}
-  >
-    <Ban size={18} strokeWidth={2} aria-hidden="true" />
-    <span>Block</span>
-  </button>
-)}
-{onRemoveFriend && isFriend && (
-  <button
-    type="button"
-    className="user-profile-action-btn danger"
-    title="Remove friend"
-    aria-label={`Remove ${displayName} as a friend`}
-    onClick={() => onRemoveFriend(profile)}
-  >
-    <UserMinus size={18} strokeWidth={2} aria-hidden="true" />
-    <span>Remove Friend</span>
-  </button>
-)}
+                  <button
+                    type="button"
+                    className="user-profile-action-btn danger"
+                    title="Block user"
+                    aria-label={`Block ${displayName}`}
+                    onClick={() => onBlock(profile)}
+                  >
+                    <Ban size={18} strokeWidth={2} aria-hidden="true" />
+                    <span>Block</span>
+                  </button>
+                )}
+                {profile?.id && (
+                  <button
+                    type="button"
+                    className="user-profile-action-btn danger"
+                    title="Report user"
+                    aria-label={`Report ${displayName}`}
+                    onClick={() => { setReportOpen(true); setReportDone(false); setReportReason(''); setReportDetails(''); }}
+                  >
+                    <Flag size={18} strokeWidth={2} aria-hidden="true" />
+                    <span>Report</span>
+                  </button>
+                )}
+                {onRemoveFriend && isFriend && (
+                  <button
+                    type="button"
+                    className="user-profile-action-btn danger"
+                    title="Remove friend"
+                    aria-label={`Remove ${displayName} as a friend`}
+                    onClick={() => onRemoveFriend(profile)}
+                  >
+                    <UserMinus size={18} strokeWidth={2} aria-hidden="true" />
+                    <span>Remove Friend</span>
+                  </button>
+                )}
                   
                 </div>
+              </section>
+            )}
+
+            {reportOpen && (
+              <section className="user-profile-section report-panel">
+                {reportDone ? (
+                  <p className="report-thanks">
+                    Thanks — your report has been submitted confidentially and will be reviewed.
+                  </p>
+                ) : (
+                  <>
+                    <h3>Report {displayName}</h3>
+                    <p className="settings-section-copy">
+                      Your identity is never shared with the reported account.
+                    </p>
+                    <div className="report-reason-list">
+                      {REPORT_REASONS.map((r) => (
+                        <label key={r.value} className="report-reason-option">
+                          <input
+                            type="radio"
+                            name="report-reason"
+                            value={r.value}
+                            checked={reportReason === r.value}
+                            onChange={() => setReportReason(r.value)}
+                          />
+                          <span>{r.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <textarea
+                      className="report-details-input"
+                      placeholder="Additional details (optional)"
+                      maxLength={500}
+                      value={reportDetails}
+                      onChange={(e) => setReportDetails(e.target.value)}
+                    />
+                    <div className="report-panel-actions">
+                      <button type="button" onClick={() => setReportOpen(false)} disabled={reportBusy}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={!reportReason || reportBusy}
+                        onClick={handleSubmitReport}
+                      >
+                        {reportBusy ? 'Submitting…' : 'Submit report'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </section>
             )}
 
