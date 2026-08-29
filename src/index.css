@@ -8709,8 +8709,115 @@ body.theme-eyecare .drag-drop-overlay,
   animation: messageSearchIn 200ms ease both;
 }
 
+.message-search-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .message-search-input-wrapper {
   position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.message-search-filter-button,
+.message-search-filter-menu button {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.message-search-filter-button {
+  flex: 0 0 auto;
+  padding: 9px 10px;
+  white-space: nowrap;
+}
+
+.message-search-filter-button:hover,
+.message-search-filter-button.is-active,
+.message-search-filter-menu button:hover,
+.message-search-filter-menu button.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.message-search-filter-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+
+.message-search-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.message-search-filter-field input {
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.message-search-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-search-filter-menu button {
+  padding: 6px 8px;
+}
+
+.message-search-custom-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.message-search-custom-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.message-search-custom-range input {
+  min-width: 130px;
+  padding: 6px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.message-search-filter-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.message-search-filter-actions .is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg-surface);
 }
 
 .message-search-hint {
@@ -8785,6 +8892,14 @@ body.theme-eyecare .drag-drop-overlay,
   color: var(--accent);
   border-radius: 2px;
   padding: 0 2px;
+}
+
+.message-search-item-attachment {
+  font-size: 11px;
+  color: var(--accent-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .message-search-item-time {
