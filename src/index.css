@@ -3284,6 +3284,14 @@ input:focus-visible,
   flex: 1;
 }
 
+.friend-request-safety-warning {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger, #dc2626);
+}
+
 .user-list-sub-row {
   display: flex;
   align-items: center;
@@ -10816,6 +10824,65 @@ button.message-reply-preview:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.report-panel {
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+}
+
+.report-reason-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.report-reason-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.report-details-input {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.report-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.report-panel-actions button.danger {
+  background: var(--danger, #dc2626);
+  color: #fff;
+  border: none;
+}
+
+.report-panel-actions button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-thanks {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .user-profile-section-title {

@@ -336,6 +336,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [emailBannerDismissed, setEmailBannerDismissed] = useState(false);
+  const [moderationBannerDismissed, setModerationBannerDismissed] = useState(false);
   const [composerHelpOpen, setComposerHelpOpen] = useState(false);
   const [composerPlusOpen, setComposerPlusOpen] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -3257,7 +3258,7 @@ useEffect(() => {
     }
   }
 
-  async function handleAcceptFriendRequest(requestId) {
+async function executeAcceptFriendRequest(requestId) {
     try {
       const pending = incomingRequests.find(
         (r) => String(r.id) === String(requestId),
@@ -3288,6 +3289,27 @@ useEffect(() => {
         "error",
       );
     }
+  }
+
+  function handleAcceptFriendRequest(requestId) {
+    const pending = incomingRequests.find(
+      (r) => String(r.id) === String(requestId),
+    );
+    if (pending?.moderationWarning?.reportedByMultiple) {
+      const reasonText = pending.moderationWarning.commonReason
+        ? ` The most common reason given is "${pending.moderationWarning.commonReason.replace(/_/g, ' ')}".`
+        : '';
+      setConfirmDialog({
+        type: "accept-with-warning",
+        requestId,
+        title: "Safety warning",
+        message: `${pending.user?.displayName || pending.user?.username || 'This account'} has been reported by multiple people.${reasonText} Do you still want to accept this friend request?`,
+        confirmLabel: "Accept anyway",
+        danger: true,
+      });
+      return;
+    }
+    executeAcceptFriendRequest(requestId);
   }
 
   async function handleDeclineFriendRequest(requestId) {
@@ -5695,6 +5717,23 @@ useEffect(() => {
                   type="button"
                   className="email-verify-banner-dismiss"
                   onClick={() => setEmailBannerDismissed(true)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {user && user.moderation?.status === 'flagged' && !moderationBannerDismissed && (
+              <div className="email-verify-banner email-verify-banner-dismissible moderation-warning-banner">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>
+                    Your account has been reported by multiple people. Continued violations of
+                    community guidelines may result in restrictions.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="email-verify-banner-dismiss"
+                  onClick={() => setModerationBannerDismissed(true)}
                 >
                   <X size={16} />
                 </button>
