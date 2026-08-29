@@ -200,19 +200,22 @@ export default function SettingsModal({
   const shownName = user?.displayName || user?.username || 'You';
   const currentSessionId = getSessionId();
   const [verifyLinkUrl, setVerifyLinkUrl] = useState('');
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
-    function onKeyDown(e) {
-      if (e.key === 'Escape') onClose?.();
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onClose]);
+const onCloseRef = useRef(onClose);
+useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+useEffect(() => {
+  const prev = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  closeRef.current?.focus();
+  function onKeyDown(e) {
+    if (e.key === 'Escape') onCloseRef.current?.();
+  }
+  window.addEventListener('keydown', onKeyDown);
+  return () => {
+    document.body.style.overflow = prev;
+    window.removeEventListener('keydown', onKeyDown);
+  };
+}, []); // safe: onClose is read via ref, so no dep needed
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
