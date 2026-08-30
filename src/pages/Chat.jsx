@@ -1598,9 +1598,23 @@ useEffect(() => {
         return next;
       });
 
-      if (String(raw.from) !== String(user.id) && !raw.group) {
+      if (String(raw.from) !== String(user.id)) {
         const socket = getSocket();
         socket?.emit("message:delivered", { messageId: raw.id || raw._id });
+        if (selectedRef.current?.type === "group") {
+          socket?.emit("message:read", {
+            messageId: raw.id || raw._id,
+            groupId: selectedRef.current.id,
+          });
+          client
+            .post(`/groups/${selectedRef.current.id}/messages/read`)
+            .catch(() => {});
+        } else if (selectedRef.current?.type === "dm") {
+          socket?.emit("message:read", { messageId: raw.id || raw._id });
+          client
+            .post(`/messages/${selectedRef.current.id}/read`)
+            .catch(() => {});
+        }
       }
     }
 
@@ -1959,6 +1973,34 @@ useEffect(() => {
 
     function handleMessageStatus(payload) {
       if (!payload) return;
+      if (payload.groupId && Array.isArray(payload.messageIds)) {
+        const idSet = new Set(payload.messageIds.map(String));
+        const rUid = String(payload.userId || "");
+        const readAt = payload.readAt ? new Date(payload.readAt).toISOString() : null;
+        const deliveredAt = (payload.deliveredAt || payload.readAt)
+          ? new Date(payload.deliveredAt || payload.readAt).toISOString()
+          : null;
+        setMessages((prev) =>
+          prev.map((m) => {
+            const mid = String(m.id || m._id);
+            if (!idSet.has(mid)) return m;
+            const existingRead = (m.readBy || []).filter((r) => String(r.user) !== rUid);
+            const existingDelivered = (m.deliveredTo || []).filter((d) => String(d.user) !== rUid);
+            const nextDelivered = deliveredAt
+              ? [...existingDelivered, { user: rUid, at: deliveredAt }]
+              : m.deliveredTo || [];
+            const nextRead = readAt
+              ? [...existingRead, { user: rUid, at: readAt }]
+              : m.readBy || [];
+            return {
+              ...m,
+              deliveredTo: nextDelivered,
+              readBy: nextRead,
+            };
+          }),
+        );
+        return;
+      }
       if (payload.bulk && payload.conversationWith) {
         const peer = String(payload.conversationWith);
         setMessages((prev) =>
@@ -2263,6 +2305,8 @@ useEffect(() => {
         bumpActivityRef.current();
         if (threadType === "dm") {
           client.post(`/messages/${threadId}/read`).catch(() => { });
+        } else if (threadType === "group") {
+          client.post(`/groups/${threadId}/messages/read`).catch(() => { });
         }
         setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
@@ -6174,6 +6218,13 @@ useEffect(() => {
                               showReadReceipts={
                                 user.privacy?.readReceipts !== false &&
                                 user.privacy?.readReceipts !== 'nobody'
+                              }
+                              groupRecipientCount={
+                                isGroupChat && activeGroup?.members
+                                  ? activeGroup.members.filter(
+                                      (gm) => String(gm._id || gm.id || gm) !== String(user.id),
+                                    ).length
+                                  : undefined
                               }
                               senderLabel={
                                 isGroupChat
