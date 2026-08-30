@@ -26,9 +26,19 @@ function computePosition(triggerEl) {
   const openUp = spaceBelow < MENU_EST_HEIGHT;
   let top = openUp ? rect.top - MENU_EST_HEIGHT - gap : rect.bottom + gap;
   top = Math.max(pad, Math.min(top, window.innerHeight - MENU_EST_HEIGHT - pad));
-  let right = window.innerWidth - rect.right;
-  right = Math.max(pad, Math.min(right, window.innerWidth - MENU_WIDTH - pad));
-  return { top, right, openUp };
+
+  const isRtl = document.documentElement.dir === 'rtl';
+  let left = 'auto';
+  let right = 'auto';
+
+  if (isRtl) {
+    left = Math.max(pad, Math.min(rect.left, window.innerWidth - MENU_WIDTH - pad));
+  } else {
+    right = window.innerWidth - rect.right;
+    right = Math.max(pad, Math.min(right, window.innerWidth - MENU_WIDTH - pad));
+  }
+
+  return { top, left, right, openUp };
 }
 
 export default function ChatOptionsMenu({
@@ -99,7 +109,7 @@ export default function ChatOptionsMenu({
             className={`chat-options-dropdown${pos.openUp ? ' open-up' : ''}`}
             role="menu"
             aria-label="Chat options"
-            style={{ position: 'fixed', top: pos.top, right: pos.right, left: 'auto', bottom: 'auto' }}
+            style={{ position: 'fixed', top: pos.top, right: pos.right, left: pos.left, bottom: 'auto' }}
           >
             {compactExtras && onOpenAi ? (
               <button type="button" role="menuitem" onClick={() => run(onOpenAi)}>

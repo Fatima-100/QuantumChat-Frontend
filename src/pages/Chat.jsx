@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { getDisplayName } from "../utils/getDisplayName.js";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
@@ -231,7 +232,7 @@ function isSameDay(d1, d2) {
 }
 
 export default function Chat() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     user,
     logout,
@@ -2686,30 +2687,32 @@ useEffect(() => {
 
   const usernameById = useMemo(() => {
     const map = new Map();
-    for (const u of users) map.set(String(u.id), u.username);
-    map.set(String(user.id), user.username);
+    for (const u of users) map.set(String(u.id), getDisplayName(u, i18n.language));
+    map.set(String(user.id), getDisplayName(user, i18n.language));
     for (const g of groups) {
       for (const m of g.members || []) {
         const id = memberId(m);
-        if (m.username) map.set(id, m.username);
+        const memberUser = m.user || m;
+        map.set(id, getDisplayName(memberUser, i18n.language) || m.username || "Member");
       }
     }
     return map;
-  }, [users, groups, user]);
+  }, [users, groups, user, i18n.language]);
 
   const selfPeer = useMemo(() => {
     if (!user?.id) return null;
     return {
       id: user.id,
       username: user.username,
-      displayName: user.displayName || user.username,
+      displayName: getDisplayName(user, i18n.language),
       avatarUrl: user.avatarUrl || null,
       hasAvatar: Boolean(user.hasAvatar || user.avatarUrl),
       publicKeys: user.publicKeys || [],
       lastLoginAt: user.lastLoginAt || null,
       isSelfChat: true,
+      transliteratedNames: user.transliteratedNames || {},
     };
-  }, [user]);
+  }, [user, i18n.language]);
 
   const resolveDmPeer = useCallback(
     (conversation) => {
@@ -2800,10 +2803,10 @@ useEffect(() => {
         key,
         type: "dm",
         id: u.id,
-        title: u.displayName || u.username || "Unknown user",
+        title: getDisplayName(u, i18n.language) || "Unknown user",
         subtitle: null,
         searchText:
-          `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
+          `${getDisplayName(u, i18n.language) || ""} ${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         lastMessageAt: activity?.at || null,
         unread,
@@ -5210,8 +5213,12 @@ useEffect(() => {
 
   const title = useMemo(() => {
     if (!selected) return "Select a conversation";
+    if (selected.type === "dm") {
+      const peer = resolveDmPeer(selected);
+      if (peer) return getDisplayName(peer, i18n.language);
+    }
     return selected.title || (selected.type === "group" ? "Group" : "Chat");
-  }, [selected]);
+  }, [selected, resolveDmPeer, i18n.language]);
 
   const headerSubtitle = useMemo(() => {
     if (!selected) return null;

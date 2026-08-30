@@ -1235,7 +1235,9 @@ input:focus-visible,
   top: calc(100% + 8px);
   right: 0;
   z-index: 40;
-  min-width: 220px;
+  min-width: 230px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
   padding: 8px;
   background: var(--bg-glass);
   backdrop-filter: blur(20px);
@@ -3874,12 +3876,14 @@ input:focus-visible,
   pointer-events: none;
   user-select: none;
   margin-left: 10px;
+  margin-right: 0;
   vertical-align: bottom;
 }
 
 .message-time {
   position: absolute;
   right: 10px;
+  left: auto;
   bottom: 5px;
   color: var(--text-muted);
 }
@@ -14773,8 +14777,57 @@ html.qc-screenshot-protection .user-profile-modal {
 
 /* RTL layout adjustments */
 [dir="rtl"] .sidebar-menu-dropdown {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
+  text-align: right;
+  direction: rtl;
+}
+
+[dir="rtl"] .sidebar-menu-item {
+  text-align: right;
+  justify-content: flex-start;
+}
+
+[dir="rtl"] .sidebar-menu-item-left {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+[dir="rtl"] .sidebar-menu-item-left span {
+  text-align: right;
+  white-space: nowrap;
+}
+
+[dir="rtl"] .conv-row-dropdown {
+  text-align: right;
+  direction: rtl;
+  transform-origin: top left;
+}
+
+[dir="rtl"] .conv-row-dropdown.open-up {
+  transform-origin: bottom left;
+}
+
+[dir="rtl"] .conv-row-dropdown button {
+  text-align: right;
+  flex-direction: row;
+}
+
+[dir="rtl"] .chat-options-dropdown {
+  text-align: right;
+  direction: rtl;
+  transform-origin: top left;
+}
+
+[dir="rtl"] .chat-options-dropdown.open-up {
+  transform-origin: bottom left;
+}
+
+[dir="rtl"] .chat-options-dropdown button {
+  text-align: right;
+  flex-direction: row;
 }
 
 [dir="rtl"] .settings-nav {
@@ -14806,6 +14859,45 @@ html.qc-screenshot-protection .user-profile-modal {
 
 [dir="rtl"] .message-bubble.theirs {
   border-radius: 14px 14px 5px 14px;
+}
+
+/* RTL Message Bubble Timestamps & Spacers */
+[dir="rtl"] .message-bubble .message-time,
+.message-bubble.is-rtl .message-time,
+.message-bubble[dir="rtl"] .message-time {
+  right: auto;
+  left: 10px;
+}
+
+[dir="rtl"] .message-bubble .message-time-spacer,
+.message-bubble.is-rtl .message-time-spacer,
+.message-bubble[dir="rtl"] .message-time-spacer {
+  margin-left: 0;
+  margin-right: 10px;
+}
+
+/* In RTL app, if an individual message is explicitly LTR (e.g. English text), keep time at trailing right */
+[dir="rtl"] .message-bubble[dir="ltr"] .message-time,
+[dir="rtl"] .message-bubble.is-ltr .message-time {
+  right: 10px;
+  left: auto;
+}
+
+[dir="rtl"] .message-bubble[dir="ltr"] .message-time-spacer,
+[dir="rtl"] .message-bubble.is-ltr .message-time-spacer {
+  margin-left: 10px;
+  margin-right: 0;
+}
+
+/* RTL Action Cluster (Reactions & More menu) */
+[dir="rtl"] .message-bubble-wrap.theirs .message-action-cluster {
+  left: auto;
+  right: calc(100% + 6px);
+}
+
+[dir="rtl"] .message-bubble-wrap.mine .message-action-cluster {
+  right: auto;
+  left: calc(100% + 6px);
 }
 
 /* Per-Message Script Directionality (independent of app language) */

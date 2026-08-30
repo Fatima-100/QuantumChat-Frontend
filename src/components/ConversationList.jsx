@@ -5,7 +5,11 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import client from '../api/client.js';
 import { useVault } from '../context/VaultContext.jsx';
+<<<<<<< Updated upstream
 import UserAvatar from './UserAvatar.jsx';
+=======
+import { getDisplayName } from '../utils/getDisplayName.js';
+>>>>>>> Stashed changes
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -58,10 +62,18 @@ function computeConvMenuPosition(triggerEl) {
 
   top = Math.max(pad, Math.min(top, window.innerHeight - CONV_MENU_EST_HEIGHT - pad));
 
-  let right = window.innerWidth - rect.right;
-  right = Math.max(pad, Math.min(right, window.innerWidth - CONV_MENU_WIDTH - pad));
+  const isRtl = document.documentElement.dir === 'rtl';
+  let left = 'auto';
+  let right = 'auto';
 
-  return { top, right, openUp };
+  if (isRtl) {
+    left = Math.max(pad, Math.min(rect.left, window.innerWidth - CONV_MENU_WIDTH - pad));
+  } else {
+    right = window.innerWidth - rect.right;
+    right = Math.max(pad, Math.min(right, window.innerWidth - CONV_MENU_WIDTH - pad));
+  }
+
+  return { top, left, right, openUp };
 }
 
 export default function ConversationList({
@@ -101,7 +113,7 @@ export default function ConversationList({
   onDeclineFriendRequest,
   onOpenFriend,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { isUnlocked: vaultUnlocked, isPeerVaulted } = useVault();
   const [discoverItems, setDiscoverItems] = useState([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
@@ -473,7 +485,7 @@ export default function ConversationList({
                     position: 'fixed',
                     top: menuPos.top,
                     right: menuPos.right,
-                    left: 'auto',
+                    left: menuPos.left,
                     bottom: 'auto',
                   }}
                 >
@@ -694,6 +706,7 @@ export default function ConversationList({
               </div>
             ) : (
              <>
+<<<<<<< Updated upstream
                 {visibleIncomingRequests.map((r) => (
                   <div key={`in-${r.id}`} className="user-list-item friend-request-item">
                     <span className="avatar-wrap" style={{ position: 'relative' }}>
@@ -715,49 +728,72 @@ export default function ConversationList({
                       )}
                     </span>
                     <div className="friend-request-actions">
+=======
+                {visibleIncomingRequests.map((r) => {
+                  const reqName = getDisplayName(r.user, i18n.language) || r.user.displayName || r.user.username;
+                  return (
+                    <div key={`in-${r.id}`} className="user-list-item friend-request-item">
+                      <span className="avatar-wrap" style={{ position: 'relative' }}>
+                        <UserAvatar
+                          userId={r.user.id}
+                          name={reqName}
+                          hasAvatar={Boolean(r.user.hasAvatar)}
+                        />
+                        {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                      </span>
+                      <span className="user-list-meta">
+                        <span className="user-list-name">{reqName}</span>
+                        <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                      </span>
+                      <div className="friend-request-actions">
+                        <button
+                          type="button"
+                          className="friend-action-btn accept"
+                          aria-label={`Accept request from ${reqName}`}
+                          onClick={() => onAcceptFriendRequest?.(r.id)}
+                        >
+                          <Check size={15} strokeWidth={2.5} />
+                        </button>
+                        <button
+                          type="button"
+                          className="friend-action-btn decline"
+                          aria-label={`Decline request from ${reqName}`}
+                          onClick={() => onDeclineFriendRequest?.(r.id)}
+                        >
+                          <X size={15} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+               {visibleOutgoingRequests.map((r) => {
+                  const outName = getDisplayName(r.user, i18n.language) || r.user.displayName || r.user.username;
+                  return (
+                    <div key={`out-${r.id}`} className="user-list-item friend-request-item">
+                      <span className="avatar-wrap" style={{ position: 'relative' }}>
+                        <UserAvatar
+                          userId={r.user.id}
+                          name={outName}
+                          hasAvatar={Boolean(r.user.hasAvatar)}
+                        />
+                        {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
+                      </span>
+                      <span className="user-list-meta">
+                        <span className="user-list-name">{outName}</span>
+                        <span className="user-list-lastseen">Pending · @{r.user.username}</span>
+                      </span>
+>>>>>>> Stashed changes
                       <button
                         type="button"
-                        className="friend-action-btn accept"
-                        aria-label={`Accept request from ${r.user.displayName || r.user.username}`}
-                        onClick={() => onAcceptFriendRequest?.(r.id)}
+                        className="friend-action-btn cancel"
+                        aria-label={`Cancel request to ${outName}`}
+                        onClick={() => onCancelFriendRequest?.(r.id)}
                       >
-                        <Check size={15} strokeWidth={2.5} />
-                      </button>
-                      <button
-                        type="button"
-                        className="friend-action-btn decline"
-                        aria-label={`Decline request from ${r.user.displayName || r.user.username}`}
-                        onClick={() => onDeclineFriendRequest?.(r.id)}
-                      >
-                        <X size={15} strokeWidth={2.5} />
+                        Cancel
                       </button>
                     </div>
-                  </div>
-                ))}
-               {visibleOutgoingRequests.map((r) => (
-                  <div key={`out-${r.id}`} className="user-list-item friend-request-item">
-                    <span className="avatar-wrap" style={{ position: 'relative' }}>
-                      <UserAvatar
-                        userId={r.user.id}
-                        name={r.user.displayName || r.user.username}
-                        hasAvatar={Boolean(r.user.hasAvatar)}
-                      />
-                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
-                    </span>
-                    <span className="user-list-meta">
-                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
-                      <span className="user-list-lastseen">Pending · @{r.user.username}</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="friend-action-btn cancel"
-                      aria-label={`Cancel request to ${r.user.displayName || r.user.username}`}
-                      onClick={() => onCancelFriendRequest?.(r.id)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </>
             )}
           </div>
@@ -814,13 +850,13 @@ export default function ConversationList({
                     <span className="avatar-wrap" style={{ position: 'relative' }}>
                       <UserAvatar
                         userId={u.id}
-                        name={u.displayName || u.username}
+                        name={getDisplayName(u, i18n.language) || u.displayName || u.username}
                         hasAvatar={Boolean(u.hasAvatar)}
                       />
                       {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
                     </span>
                     <span className="user-list-meta">
-                      <span className="user-list-name">{u.displayName || u.username}</span>
+                      <span className="user-list-name">{getDisplayName(u, i18n.language) || u.displayName || u.username}</span>
                       <span className="user-list-lastseen">@{u.username}</span>
                     </span>
                     <span className="friend-chat-hint">Chat</span>
@@ -876,14 +912,14 @@ export default function ConversationList({
                 <span className="avatar-wrap" style={{ position: 'relative' }}>
                   <UserAvatar
                     userId={displayedContactLookupResult.id}
-                    name={displayedContactLookupResult.displayName || displayedContactLookupResult.username}
+                    name={getDisplayName(displayedContactLookupResult, i18n.language) || displayedContactLookupResult.displayName || displayedContactLookupResult.username}
                     hasAvatar={Boolean(displayedContactLookupResult.hasAvatar)}
                   />
                   {isOnlineUser(displayedContactLookupResult, onlineUserIds) && <span className="online-dot" />}
                 </span>
                 <span className="user-list-meta">
                   <span className="user-list-name">
-                    {displayedContactLookupResult.displayName || displayedContactLookupResult.username}
+                    {getDisplayName(displayedContactLookupResult, i18n.language) || displayedContactLookupResult.displayName || displayedContactLookupResult.username}
                   </span>
                   <span className="user-list-lastseen">
                     @{displayedContactLookupResult.username}
@@ -975,11 +1011,11 @@ export default function ConversationList({
                 transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
               >
                 <span className="avatar-wrap" style={{ position: 'relative' }}>
-                  <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
+                  <UserAvatar userId={u.id} name={getDisplayName(u, i18n.language) || u.displayName || u.username} hasAvatar={Boolean(u.hasAvatar)} />
                   {isOnlineUser(u, onlineUserIds) && <span className="online-dot" />}
                 </span>
                 <span className="user-list-meta">
-                  <span className="user-list-name">{u.displayName || u.username}</span>
+                  <span className="user-list-name">{getDisplayName(u, i18n.language) || u.displayName || u.username}</span>
                   <span className="user-list-lastseen">@{u.username}</span>
                 </span>
                 {u.requestStatus === 'pending_sent' ? (
