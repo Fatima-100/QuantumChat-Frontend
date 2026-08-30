@@ -1,19 +1,15 @@
 import { Archive, BadgeCheck, Ban, Cake, Clock, Flag, Lock, Sparkles, UserMinus, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-<<<<<<< Updated upstream
 import client, { submitReport } from '../api/client.js';
-=======
-import client from '../api/client.js';
 import UserAvatar from './UserAvatar.jsx';
 import { getDisplayName } from '../utils/getDisplayName.js';
->>>>>>> Stashed changes
 import {
   AI_BG_THEMES,
   readStoredAiBg,
   writeStoredAiBg,
 } from '../utils/aiPanelBg.js';
-import UserAvatar from './UserAvatar.jsx';
+
 
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam' },

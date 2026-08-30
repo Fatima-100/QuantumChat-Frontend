@@ -5,11 +5,8 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import client from '../api/client.js';
 import { useVault } from '../context/VaultContext.jsx';
-<<<<<<< Updated upstream
 import UserAvatar from './UserAvatar.jsx';
-=======
 import { getDisplayName } from '../utils/getDisplayName.js';
->>>>>>> Stashed changes
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -705,30 +702,7 @@ export default function ConversationList({
                 </p>
               </div>
             ) : (
-             <>
-<<<<<<< Updated upstream
-                {visibleIncomingRequests.map((r) => (
-                  <div key={`in-${r.id}`} className="user-list-item friend-request-item">
-                    <span className="avatar-wrap" style={{ position: 'relative' }}>
-                      <UserAvatar
-                        userId={r.user.id}
-                        name={r.user.displayName || r.user.username}
-                        hasAvatar={Boolean(r.user.hasAvatar)}
-                      />
-                      {isOnlineUser(r.user, onlineUserIds) && <span className="online-dot" />}
-                    </span>
-                    <span className="user-list-meta">
-                      <span className="user-list-name">{r.user.displayName || r.user.username}</span>
-                      <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
-                      {r.moderationWarning?.reportedByMultiple && (
-                        <span className="friend-request-safety-warning">
-                          ⚠ Reported by multiple people
-                          {r.moderationWarning.commonReason ? ` · ${r.moderationWarning.commonReason.replace(/_/g, ' ')}` : ''}
-                        </span>
-                      )}
-                    </span>
-                    <div className="friend-request-actions">
-=======
+              <>
                 {visibleIncomingRequests.map((r) => {
                   const reqName = getDisplayName(r.user, i18n.language) || r.user.displayName || r.user.username;
                   return (
@@ -744,6 +718,12 @@ export default function ConversationList({
                       <span className="user-list-meta">
                         <span className="user-list-name">{reqName}</span>
                         <span className="user-list-lastseen">Wants to connect · @{r.user.username}</span>
+                        {r.moderationWarning?.reportedByMultiple && (
+                          <span className="friend-request-safety-warning">
+                            ⚠ Reported by multiple people
+                            {r.moderationWarning.commonReason ? ` · ${r.moderationWarning.commonReason.replace(/_/g, ' ')}` : ''}
+                          </span>
+                        )}
                       </span>
                       <div className="friend-request-actions">
                         <button
@@ -766,7 +746,7 @@ export default function ConversationList({
                     </div>
                   );
                 })}
-               {visibleOutgoingRequests.map((r) => {
+                {visibleOutgoingRequests.map((r) => {
                   const outName = getDisplayName(r.user, i18n.language) || r.user.displayName || r.user.username;
                   return (
                     <div key={`out-${r.id}`} className="user-list-item friend-request-item">
@@ -782,15 +762,16 @@ export default function ConversationList({
                         <span className="user-list-name">{outName}</span>
                         <span className="user-list-lastseen">Pending · @{r.user.username}</span>
                       </span>
->>>>>>> Stashed changes
-                      <button
-                        type="button"
-                        className="friend-action-btn cancel"
-                        aria-label={`Cancel request to ${outName}`}
-                        onClick={() => onCancelFriendRequest?.(r.id)}
-                      >
-                        Cancel
-                      </button>
+                      <div className="friend-request-actions">
+                        <button
+                          type="button"
+                          className="friend-action-btn cancel"
+                          aria-label={`Cancel request to ${outName}`}
+                          onClick={() => onCancelFriendRequest?.(r.id)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

@@ -131,13 +131,11 @@ export default function SettingsModal({
   const [bio, setBio] = useState(user?.bio || '');
   const [statusText, setStatusText] = useState(user?.statusText || '');
   const [phone, setPhone] = useState(user?.phone || '');
-<<<<<<< Updated upstream
   const [dateOfBirth, setDateOfBirth] = useState(
     user?.dateOfBirth ? String(user.dateOfBirth).slice(0, 10) : '',
   );
   const [timezone, setTimezone] = useState(user?.timezone || detectBrowserTimezone());
   const timezoneOptions = useState(getTimezoneList)[0];
-=======
   const [transliteratedNames, setTransliteratedNames] = useState(() => ({
     ur: user?.transliteratedNames?.ur || '',
     ar: user?.transliteratedNames?.ar || '',
@@ -159,7 +157,6 @@ export default function SettingsModal({
       });
     }
   }, [user]);
->>>>>>> Stashed changes
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
     readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
@@ -388,12 +385,9 @@ useEffect(() => {
         bio: bio.trim(),
         statusText: statusText.trim(),
         phone: phone.trim(),
-<<<<<<< Updated upstream
         dateOfBirth: dateOfBirth || '',
         timezone,
-=======
         transliteratedNames,
->>>>>>> Stashed changes
       });
       onUserUpdated?.(data.data);
       setOk('Profile saved');
@@ -1106,7 +1100,6 @@ useEffect(() => {
                     {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
                   </p>
                 </label>
-<<<<<<< Updated upstream
                 <label className="settings-field">
                   <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
                   <input
@@ -1138,7 +1131,6 @@ useEffect(() => {
                     )}
                   </p>
                 </label>
-=======
 
                 <div className="settings-transliterations" style={{ marginTop: '1.25rem', marginBottom: '1.25rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
@@ -1215,7 +1207,6 @@ useEffect(() => {
                   </div>
                 </div>
 
->>>>>>> Stashed changes
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
                   {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
                 </button>
