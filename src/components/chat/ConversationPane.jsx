@@ -1,8 +1,10 @@
+import { useTranslation } from 'react-i18next';
 import BrandLogo from '../BrandLogo.jsx';
 import ConversationList from '../ConversationList.jsx';
 import NotificationPermissionBanner from '../NotificationPermissionBanner.jsx';
 import SidebarMenu from '../SidebarMenu.jsx';
 import StoriesRail from '../StoriesRail.jsx';
+import { getDisplayName } from '../../utils/getDisplayName.js';
 
 /**
  * Left conversation pane — list, filters, stories.
@@ -59,6 +61,8 @@ export default function ConversationPane({
   onlineUserIds,  
   onOpenStarred,
 }) {
+  const { t, i18n } = useTranslation();
+
   return (
     <>
       <div
@@ -73,8 +77,8 @@ export default function ConversationPane({
               <BrandLogo size={40} />
             </div>
             <div className="sidebar-user-info">
-              <div className="sidebar-username">{user.username}</div>
-              <div className="sidebar-lastseen sidebar-status-online">online</div>
+              <div className="sidebar-username">{getDisplayName(user, i18n.language) || user.username}</div>
+              <div className="sidebar-lastseen sidebar-status-online">{t('common.online', 'online')}</div>
             </div>
           </div>
           <div className="sidebar-header-actions">
@@ -101,10 +105,10 @@ export default function ConversationPane({
             />
             <div className="sidebar-search">
               <input
-                placeholder="Search conversations…"
+                placeholder={t('nav.searchChats', 'Search conversations…')}
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
-                aria-label="Search conversations"
+                aria-label={t('nav.searchChats', 'Search conversations')}
               />
             </div>
           </>

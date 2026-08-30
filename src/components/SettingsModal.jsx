@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Languages } from 'lucide-react';
 import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
 import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
 import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
 import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
+import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n/index.js';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
@@ -28,6 +31,7 @@ import {
   getNotificationPermission,
 } from '../utils/pushNotifications.js';
 import { unlockAudio, playReceiveSound } from '../utils/sounds.js';
+import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -96,6 +100,7 @@ export default function SettingsModal({
   initialTab = 'profile',
   className = '',
 }) {
+  const { t, i18n } = useTranslation();
   const { theme, appIcon, setAppIcon } = useTheme();
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const { settings: notifSettings, updateSettings: updateNotifSettings } = useNotificationSettings();
@@ -103,16 +108,55 @@ export default function SettingsModal({
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const [tab, setTab] = useState(initialTab);
+  const [activeLang, setActiveLang] = useState(() => user?.preferredLanguage || i18n.language || 'en');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [notifPermission, setNotifPermission] = useState(() => getNotificationPermission());
 
+  async function handleLanguageChange(langCode) {
+    setActiveLang(langCode);
+    setAppLanguage(langCode);
+    try {
+      await client.patch('/users/me/language', { language: langCode });
+      onUserUpdated?.({ ...user, preferredLanguage: langCode });
+    } catch (err) {
+      console.warn('Failed to persist preferred language to backend:', err);
+    }
+  }
+
   const [username, setUsername] = useState(user?.username || '');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [bio, setBio] = useState(user?.bio || '');
+  const [statusText, setStatusText] = useState(user?.statusText || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [dateOfBirth, setDateOfBirth] = useState(
+    user?.dateOfBirth ? String(user.dateOfBirth).slice(0, 10) : '',
+  );
+  const [timezone, setTimezone] = useState(user?.timezone || detectBrowserTimezone());
+  const timezoneOptions = useState(getTimezoneList)[0];
+  const [transliteratedNames, setTransliteratedNames] = useState(() => ({
+    ur: user?.transliteratedNames?.ur || '',
+    ar: user?.transliteratedNames?.ar || '',
+    fa: user?.transliteratedNames?.fa || '',
+    hi: user?.transliteratedNames?.hi || '',
+    zh: user?.transliteratedNames?.zh || '',
+    ru: user?.transliteratedNames?.ru || '',
+  }));
+
+  useEffect(() => {
+    if (user?.transliteratedNames) {
+      setTransliteratedNames({
+        ur: user.transliteratedNames.ur || '',
+        ar: user.transliteratedNames.ar || '',
+        fa: user.transliteratedNames.fa || '',
+        hi: user.transliteratedNames.hi || '',
+        zh: user.transliteratedNames.zh || '',
+        ru: user.transliteratedNames.ru || '',
+      });
+    }
+  }, [user]);
   const [privacy, setPrivacy] = useState({
     lastSeen: user?.privacy?.lastSeen || 'everyone',
     readReceipts: typeof user?.privacy?.readReceipts === 'boolean'
@@ -178,19 +222,22 @@ export default function SettingsModal({
   const shownName = user?.displayName || user?.username || 'You';
   const currentSessionId = getSessionId();
   const [verifyLinkUrl, setVerifyLinkUrl] = useState('');
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
-    function onKeyDown(e) {
-      if (e.key === 'Escape') onClose?.();
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onClose]);
+const onCloseRef = useRef(onClose);
+useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+useEffect(() => {
+  const prev = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  closeRef.current?.focus();
+  function onKeyDown(e) {
+    if (e.key === 'Escape') onCloseRef.current?.();
+  }
+  window.addEventListener('keydown', onKeyDown);
+  return () => {
+    document.body.style.overflow = prev;
+    window.removeEventListener('keydown', onKeyDown);
+  };
+}, []); // safe: onClose is read via ref, so no dep needed
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
@@ -336,7 +383,11 @@ export default function SettingsModal({
         username: username.trim(),
         displayName: displayName.trim(),
         bio: bio.trim(),
+        statusText: statusText.trim(),
         phone: phone.trim(),
+        dateOfBirth: dateOfBirth || '',
+        timezone,
+        transliteratedNames,
       });
       onUserUpdated?.(data.data);
       setOk('Profile saved');
@@ -847,16 +898,23 @@ export default function SettingsModal({
       >
         <div className="settings-modal-header">
           <div className="settings-modal-heading">
-            <h2 id="settings-title">Settings</h2>
-            <p>Profile, privacy, security, and data</p>
+            <h2 id="settings-title">{t('settings.title', 'Settings')}</h2>
+            <p>{t('settings.privacy.subtitle', 'Profile, privacy, security, and data')}</p>
           </div>
-          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="Close settings">
+          <button ref={closeRef} type="button" className="settings-close settings-close-btn" onClick={onClose} aria-label={t('common.close', 'Close')}>
             ✕
           </button>
         </div>
 
-        <nav className="settings-tabs" aria-label="Settings sections">
-          {TABS.map(([id, label]) => (
+        <nav className="settings-tabs settings-nav" aria-label="Settings sections">
+          {[
+            ['profile', t('settings.tabs.profile', 'Profile')],
+            ['privacy', t('settings.tabs.privacy', 'Privacy')],
+            ['notifications', t('settings.tabs.notifications', 'Notifications')],
+            ['security', t('settings.tabs.security', 'Security')],
+            ['blocked', t('settings.tabs.blocked', 'Blocked')],
+            ['data', t('settings.tabs.data', 'Data')],
+          ].map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -898,7 +956,7 @@ export default function SettingsModal({
                     className="settings-avatar-edit"
                     disabled={avatarBusy}
                     onClick={() => avatarInputRef.current?.click()}
-                    aria-label="Change profile photo"
+                    aria-label={t('settings.profile.changeAvatar', 'Change photo')}
                   >
                     {avatarBusy ? '…' : '✎'}
                   </button>
@@ -915,7 +973,7 @@ export default function SettingsModal({
                   <span className="settings-account-email">{user?.email}</span>
                   <div className="settings-status-row">
                     {user?.emailVerified ? (
-                      <span className="settings-badge settings-badge-ok">Verified</span>
+                      <span className="settings-badge settings-badge-ok">{t('settings.profile.emailVerified', 'Verified')}</span>
                     ) : (
                       <span className="settings-badge settings-badge-warn">Unverified email</span>
                     )}
@@ -927,11 +985,11 @@ export default function SettingsModal({
                       disabled={avatarBusy}
                       onClick={() => avatarInputRef.current?.click()}
                     >
-                      {avatarBusy ? 'Uploading…' : 'Change photo'}
+                      {avatarBusy ? t('common.loading', 'Uploading…') : t('settings.profile.changeAvatar', 'Change photo')}
                     </button>
                     {user?.hasAvatar && (
                       <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
-                        Remove
+                        {t('settings.profile.removeAvatar', 'Remove')}
                       </button>
                     )}
                   </div>
@@ -945,19 +1003,47 @@ export default function SettingsModal({
                     <p>Verify to unlock full account recovery and security alerts.</p>
                   </div>
                   <button type="button" className="settings-btn text" disabled={busy} onClick={resendVerification}>
-                    Resend link
+                    {t('settings.profile.resendVerifyEmail', 'Resend link')}
                   </button>
                 </div>
               )}
 
+              {/* Language Selector Fieldset */}
               <div className="settings-fieldset">
-                <h3 className="settings-section-title">About you</h3>
+                <h3 className="settings-section-title">{t('settings.language.title', 'Language & Region')}</h3>
+                <p className="settings-section-copy">{t('settings.language.subtitle', 'Choose your interface language')}</p>
+                <div className="settings-lang-grid" role="radiogroup" aria-label={t('settings.language.selectLanguage', 'Interface Language')}>
+                  {SUPPORTED_LANGUAGES.map((lang) => {
+                    const isActive = (activeLang || i18n.language || 'en') === lang.code;
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        role="radio"
+                        aria-checked={isActive}
+                        className={`settings-lang-card ${isActive ? 'active' : ''}`}
+                        onClick={() => handleLanguageChange(lang.code)}
+                      >
+                        <span className="settings-lang-native">{lang.nativeName}</span>
+                        <span className="settings-lang-english">{lang.name}</span>
+                        {isActive && <span className="settings-lang-check">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="settings-section-copy" style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
+                  {t('settings.language.languageHint', 'Changes apply immediately across the entire app.')}
+                </p>
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">{t('settings.profile.aboutYou', 'About you')}</h3>
                 <label className="settings-field">
-                  <span>Username</span>
+                  <span>{t('settings.profile.username', 'Username')}</span>
                   <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} autoComplete="username" />
                 </label>
                 <label className="settings-field">
-                  <span>Display name</span>
+                  <span>{t('settings.profile.displayName', 'Display name')}</span>
                   <input
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
@@ -966,11 +1052,43 @@ export default function SettingsModal({
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Bio</span>
-                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder="A short line about you" />
+                  <span>{t('settings.profile.bio', 'Bio')}</span>
+                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder={t('settings.profile.bioPlaceholder', 'A short line about you')} />
                 </label>
                 <label className="settings-field">
-                  <span>Phone</span>
+                  <span>{t('settings.profile.status', 'Status')}</span>
+                  <input
+                    value={statusText}
+                    onChange={(e) => setStatusText(e.target.value)}
+                    maxLength={100}
+                    placeholder={t('settings.profile.statusPlaceholder', 'e.g. Busy studying, In a meeting')}
+                  />
+                  <p className="settings-section-copy">
+                    {t('settings.profile.statusHint', 'A custom status shown on your profile. Separate from your online state.')}
+                    {statusText.trim() ? (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          onClick={() => setStatusText('')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            font: 'inherit',
+                            color: 'inherit',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {t('settings.profile.clearStatus', 'Clear status')}
+                        </button>
+                      </>
+                    ) : null}
+                  </p>
+                </label>
+                <label className="settings-field">
+                  <span>{t('settings.profile.phone', 'Phone')}</span>
                   <input
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -979,25 +1097,132 @@ export default function SettingsModal({
                     inputMode="tel"
                   />
                   <p className="settings-section-copy">
-                    Friends can find you by this number. It is never shown on your public profile.
+                    {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
                   </p>
                 </label>
+                <label className="settings-field">
+                  <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
+                  <input
+                    type="date"
+                    value={dateOfBirth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                  />
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.dateOfBirthHint',
+                      'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
+                    )}
+                  </p>
+                </label>
+                <label className="settings-field">
+                  <span>{t('settings.profile.timezone', 'Timezone')}</span>
+                  <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                    {timezoneOptions.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.timezoneHint',
+                      'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
+                    )}
+                  </p>
+                </label>
+
+                <div className="settings-transliterations" style={{ marginTop: '1.25rem', marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <Languages size={17} strokeWidth={2} style={{ color: 'var(--accent, #6366f1)' }} />
+                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary, #fff)' }}>
+                      {t('settings.transliteration.title', 'Script Names & Transliteration')}
+                    </span>
+                  </div>
+                  <p className="settings-section-copy" style={{ marginBottom: '0.9rem', fontSize: '0.82rem' }}>
+                    {t('settings.transliteration.hint', 'When users switch their app to non-Latin scripts, your name appears in their native alphabet. You can customize your name spelling for each script below:')}
+                  </p>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Urdu · اردو</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.ur || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ur: e.target.value }))}
+                        placeholder="زہرا"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Arabic · العربية</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.ar || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ar: e.target.value }))}
+                        placeholder="زهراء"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Persian · فارسی</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.fa || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, fa: e.target.value }))}
+                        placeholder="زهرا"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Hindi · हिन्दी</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.hi || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, hi: e.target.value }))}
+                        placeholder="ज़हरा"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Chinese · 简体中文</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.zh || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, zh: e.target.value }))}
+                        placeholder="扎赫拉"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field" style={{ margin: 0 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Russian · Русский</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.ru || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ru: e.target.value }))}
+                        placeholder="Захра"
+                        maxLength={60}
+                      />
+                    </label>
+                  </div>
+                </div>
+
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
-                  {busy ? 'Saving…' : 'Save profile'}
+                  {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
                 </button>
               </div>
 
               <div className="settings-fieldset settings-appearance">
-                <h3 className="settings-section-title">Appearance</h3>
+                <h3 className="settings-section-title">{t('settings.appearance.title', 'Appearance')}</h3>
                 <p className="settings-section-copy">
-                  Current look: <strong>{THEME_LABELS[theme] || theme}</strong>
+                  {t('settings.appearance.currentLook', 'Current look')}: <strong>{THEME_LABELS[theme] || theme}</strong>
                 </p>
 
                 <div className="settings-skin-card settings-skin-card--mode">
                   <header className="settings-skin-card-head">
                     <div>
-                      <h4 className="settings-skin-card-title">Display mode</h4>
-                      <p className="settings-skin-card-hint">Everyday light, dark, or eyecare</p>
+                      <h4 className="settings-skin-card-title">{t('settings.appearance.displayMode', 'Display mode')}</h4>
+                      <p className="settings-skin-card-hint">{t('settings.appearance.modeHint', 'Everyday light, dark, or eyecare')}</p>
                     </div>
                   </header>
                   <div className="settings-skin-card-body settings-skin-card-body--mode">
@@ -1009,11 +1234,11 @@ export default function SettingsModal({
                   <div className="settings-skin-card settings-skin-card--themes">
                     <header className="settings-skin-card-head">
                       <div>
-                        <h4 className="settings-skin-card-title">Dreamy themes</h4>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.dreamyThemes', 'Dreamy themes')}</h4>
                         <p className="settings-skin-card-hint">
                           {FUN_THEMES.includes(theme)
                             ? `${THEME_LABELS[theme] || theme} is active`
-                            : 'Pick a decorative skin'}
+                            : t('settings.appearance.pickDecorativeSkin', 'Pick a decorative skin')}
                         </p>
                       </div>
                       <span className="settings-skin-badge" aria-hidden="true">FX</span>
@@ -1026,8 +1251,8 @@ export default function SettingsModal({
                   <div className="settings-skin-card settings-skin-card--icons">
                     <header className="settings-skin-card-head">
                       <div>
-                        <h4 className="settings-skin-card-title">App icon</h4>
-                        <p className="settings-skin-card-hint">Browser tab &amp; shortcut color</p>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.appIcon', 'App icon')}</h4>
+                        <p className="settings-skin-card-hint">{t('settings.appearance.appIconHint', 'Browser tab & shortcut color')}</p>
                       </div>
                       <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
                     </header>
@@ -1060,12 +1285,12 @@ export default function SettingsModal({
               </div>
 
               <div className="settings-fieldset settings-fieldset-danger">
-                <h3 className="settings-section-title">Session</h3>
+                <h3 className="settings-section-title">{t('settings.session.title', 'Session')}</h3>
                 <p className="settings-section-copy">
-                  Sign out on this browser. Your encryption keys stay on this device for the next login.
+                  {t('settings.session.logoutDesc', 'Sign out on this browser. Your encryption keys stay on this device for the next login.')}
                 </p>
                 <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
-                  Log out
+                  {t('settings.session.logoutButton', 'Log out')}
                 </button>
               </div>
             </section>
@@ -1365,6 +1590,36 @@ export default function SettingsModal({
                   onChange={(v) => updateNotifField('messageNotifications', v)}
                 />
               </div>
+                           <div className="settings-fieldset">
+                <h3 className="settings-section-title">Media &amp; Downloads</h3>
+                <p className="settings-section-copy">
+                  Control when photos and videos load automatically. When off for a
+                  media type, you'll need to tap to load it manually.
+                </p>
+
+                <ToggleRow
+                  label="Auto-download photos"
+                  hint="Load incoming images automatically"
+                  checked={notifSettings.mediaSettings?.autoDownloadImages !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'autoDownloadImages', v)}
+                />
+                <ToggleRow
+                  label="Auto-download videos"
+                  hint="Load incoming videos automatically (uses more data)"
+                  checked={notifSettings.mediaSettings?.autoDownloadVideos === true}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'autoDownloadVideos', v)}
+                />
+                <ToggleRow
+                  label="Only on Wi-Fi"
+                  hint="Pause auto-download while on mobile data, where supported"
+                  checked={notifSettings.mediaSettings?.wifiOnly !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifNested('mediaSettings', 'wifiOnly', v)}
+                />
+              </div>
+
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Muted Chats</h3>
                 <p className="settings-section-copy">Manage conversations you've muted.</p>
@@ -1478,6 +1733,21 @@ export default function SettingsModal({
                   ]}
                   disabled={busy}
                   onChange={(v) => updateNotifField('vibration', v)}
+                />
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Birthday Reminders</h3>
+                <p className="settings-section-copy">
+                  Get a reminder 5 minutes before a friend&apos;s birthday begins.
+                </p>
+
+                <ToggleRow
+                  label="Birthday Reminders"
+                  hint="Notify me before a friend's birthday starts"
+                  checked={notifSettings.birthdayReminders !== false}
+                  disabled={busy}
+                  onChange={(v) => updateNotifField('birthdayReminders', v)}
                 />
               </div>
 

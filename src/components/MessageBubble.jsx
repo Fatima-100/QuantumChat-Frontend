@@ -21,6 +21,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { COMPOSER_EMOJIS, QUICK_REACTIONS, isEmojiOnlyText, searchEmojis, splitEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
+import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
 
@@ -145,7 +146,7 @@ function MessageBubble({
   onVotePoll,
   onBurnViewOnce,
   onShowInfo,
-    onShowEditHistory,
+  onShowEditHistory,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
@@ -168,8 +169,8 @@ function MessageBubble({
   );
 
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
- const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
-const storyReplyPayload = useMemo(() => {
+  const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
+  const storyReplyPayload = useMemo(() => {
     if (!message.text) return null;
     try {
       const parsed = JSON.parse(message.text);
@@ -178,10 +179,20 @@ const storyReplyPayload = useMemo(() => {
       return null;
     }
   }, [message.text]);
+  const gifPayload = useMemo(() => {
+    if (!message.text) return null;
+    try {
+      const parsed = JSON.parse(message.text);
+      return parsed?.type === 'gif' && parsed.gifUrl ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [message.text]);
+  const isGif = Boolean(gifPayload);
   const isStoryReply = Boolean(storyReplyPayload);
   const isStoryReaction = storyReplyPayload?.type === 'story_reaction';
   const isStructured = Boolean(message.group) && structured.type && structured.type !== 'text';
-  const hasTextContent = !isStructured && !isStoryReply && message.text && message.text.length > 0;
+  const hasTextContent = !isStructured && !isStoryReply && !isGif && message.text && message.text.length > 0;
   const emojiOnly = hasTextContent && isEmojiOnlyText(message.text);
   const emojiTokens = useMemo(
     () => (emojiOnly ? splitEmojis(message.text) : []),
@@ -221,6 +232,11 @@ const storyReplyPayload = useMemo(() => {
 
   const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
+
+  const textDir = useMemo(() => {
+    if (!message.text || typeof message.text !== 'string' || !message.text.trim()) return undefined;
+    return detectTextDirection(message.text);
+  }, [message.text]);
 
   // Rendered twice: once as an invisible inline spacer that reserves room on the
   // last line of text, and once absolutely positioned on top of that space. This
@@ -318,7 +334,7 @@ const storyReplyPayload = useMemo(() => {
       >
         {menuOpen && (
           <>
-                       {onReply && (
+            {onReply && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onReply(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Reply size={16} strokeWidth={2} /></span>
                 <span>Reply</span>
@@ -344,24 +360,24 @@ const storyReplyPayload = useMemo(() => {
                 message.forwardPolicy?.forwardUntil &&
                 new Date(message.forwardPolicy.forwardUntil).getTime() < Date.now()
               ) && (
-              <button type="button" role="menuitem" onClick={() => { closeAll(); onForward(message); }}>
-                <span className="message-menu-icon" aria-hidden="true"><Forward size={16} strokeWidth={2} /></span>
-                <span>Forward</span>
+                <button type="button" role="menuitem" onClick={() => { closeAll(); onForward(message); }}>
+                  <span className="message-menu-icon" aria-hidden="true"><Forward size={16} strokeWidth={2} /></span>
+                  <span>Forward</span>
+                </button>
+              )}
+            {onStar && (
+              <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
+                <span className="message-menu-icon" aria-hidden="true">
+                  <Star
+                    size={16}
+                    strokeWidth={2}
+                    fill={starred ? '#FFC107' : 'none'}
+                    stroke={starred ? '#FFC107' : 'currentColor'}
+                  />
+                </span>
+                <span>{starred ? 'Unstar' : 'Star'}</span>
               </button>
             )}
-           {onStar && (
-  <button type="button" role="menuitem" onClick={() => { closeAll(); onStar(messageId); }}>
-    <span className="message-menu-icon" aria-hidden="true">
-      <Star
-        size={16}
-        strokeWidth={2}
-        fill={starred ? '#FFC107' : 'none'}
-        stroke={starred ? '#FFC107' : 'currentColor'}
-      />
-    </span>
-    <span>{starred ? 'Unstar' : 'Star'}</span>
-  </button>
-)}
             {onPin && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onPin(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pin size={16} strokeWidth={2} /></span>
@@ -460,7 +476,10 @@ const storyReplyPayload = useMemo(() => {
         transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
-          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}`}>
+          <div
+            className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}${textDir ? ` is-${textDir}` : ''}`}
+            dir={textDir}
+          >
             {senderLabel && !isMine && !grouped && (
               <div className="message-sender-label">
                 {senderLabel}
@@ -475,11 +494,11 @@ const storyReplyPayload = useMemo(() => {
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
-              {starred && (
-  <span title="Starred">
-    <Star size={12} fill="#FFC107" stroke="#FFC107" strokeWidth={0} />
-  </span>
-)}
+                {starred && (
+                  <span title="Starred">
+                    <Star size={12} fill="#FFC107" stroke="#FFC107" strokeWidth={0} />
+                  </span>
+                )}
               </div>
             )}
             {message.kind === 'ai_note' && (
@@ -499,8 +518,8 @@ const storyReplyPayload = useMemo(() => {
                 <span className="message-reply-text">{replyPreview.text}</span>
               </button>
             )}
-            {(message.viewOnce && message.viewOnceOpenedAt) ||
-            (message.attachment && structured.type !== 'file') ? (
+           {(message.viewOnce && message.viewOnceOpenedAt) ||
+  (message.attachment && structured.type !== 'file' && !isStoryReply) ? (
               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
@@ -556,7 +575,7 @@ const storyReplyPayload = useMemo(() => {
                   onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
                 }
               />
-              ) : isStoryReaction ? (
+            ) : isStoryReaction ? (
               <button
                 type="button"
                 className="story-reaction-bubble story-reaction-bubble-clickable"
@@ -567,6 +586,13 @@ const storyReplyPayload = useMemo(() => {
                   {isMine ? 'You reacted to their story' : 'Reacted to your story'}
                 </span>
               </button>
+            ) : isGif ? (
+              <img
+                src={gifPayload.gifUrl}
+                alt="GIF"
+                loading="lazy"
+                style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10 }}
+              />
             ) : isStoryReply ? (
               <div>
                 <button
@@ -592,13 +618,34 @@ const storyReplyPayload = useMemo(() => {
                     ) : null}
                   </div>
                 </button>
-                <div>{storyReplyPayload.text}</div>
+                {storyReplyPayload.replyMediaKind === 'gif' ? (
+                  storyReplyPayload.gifUrl ? (
+                    // Legacy pre-encryption GIF replies — still stored as a plaintext URL
+                    <img
+                      src={storyReplyPayload.gifUrl}
+                      alt="GIF"
+                      loading="lazy"
+                      style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10, marginTop: 6 }}
+                    />
+                  ) : message.attachment ? (
+                    <AttachmentBubble
+                      attachment={message.attachment}
+                      isMine={isMine}
+                      resolveSecretKey={keyResolver}
+                      onImagePreview={onImagePreview}
+                      onImageReady={onImageReady}
+                    />
+                  ) : null
+                ) : (
+                  <div>{storyReplyPayload.text}</div>
+                )}
               </div>
             ) : hasTextContent ? (
               emojiOnly ? (
                 <span
                   className={`message-text message-text--emoji-only${emojiTokens.length === 1 ? ' is-single' : emojiTokens.length <= 3 ? ' is-few' : ' is-many'}`}
                   aria-label={message.text}
+                  dir={detectTextDirection(message.text)}
                 >
                   {emojiTokens.map((emoji, i) => (
                     <span
@@ -611,10 +658,15 @@ const storyReplyPayload = useMemo(() => {
                   ))}
                 </span>
               ) : (
-                <span className="message-text">{message.text}</span>
+                <span
+                  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+                  dir={detectTextDirection(message.text)}
+                >
+                  {message.text}
+                </span>
               )
             ) : isDecryptionFail ? (
-              <em>[Unable to decrypt message]</em>
+              <em dir="auto">[Unable to decrypt message]</em>
             ) : null}
             <span className="message-time-spacer" aria-hidden="true">{timeMeta}</span>
             <span className={`message-time ${isStoryReaction ? 'story-reaction-time' : ''}`} title={fullTime}>
@@ -654,8 +706,8 @@ const storyReplyPayload = useMemo(() => {
             >
               <MoreHorizontal size={16} strokeWidth={2} aria-hidden="true" />
             </button>
-      </div>
-    </div>
+          </div>
+        </div>
 
         {popover}
 

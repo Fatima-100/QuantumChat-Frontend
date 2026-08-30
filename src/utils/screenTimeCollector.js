@@ -1,6 +1,17 @@
 const STORAGE_KEY = 'qc_screen_time_v1';
 const CHECKPOINT_MS = 15_000;
 
+// Local calendar-day key (YYYY-MM-DD), NOT UTC. Using toISOString() here
+// would bucket by UTC day, which silently disagrees with a browser whose
+// local timezone differs from UTC — see ScreenTimeChart.jsx for the other
+// half of this fix.
+function localDayKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 let running = false;
 let lastVisibleAt = null;
 let checkpointTimer = null;
@@ -22,7 +33,7 @@ function checkpoint() {
   const now = Date.now();
   const delta = now - lastVisibleAt;
   if (delta <= 0) return;
-  const today = new Date(lastVisibleAt).toISOString().slice(0, 10);
+  const today = localDayKey(new Date(lastVisibleAt));
   const data = read();
   data[today] = (data[today] || 0) + delta;
   if (write(data)) lastVisibleAt = now;
@@ -58,7 +69,7 @@ export function stop() {
 }
 
 export function getToday() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = localDayKey(new Date());
   const data = read();
   return data[today] || 0;
 }

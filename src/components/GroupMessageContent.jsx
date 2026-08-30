@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { secretboxOpen } from '../crypto/keys.js';
 import { isEmojiOnlyText, splitEmojis } from '../utils/emojis.js';
+import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 
 function MentionText({ text }) {
@@ -298,7 +299,10 @@ export default function GroupMessageContent({
       );
     }
     return (
-      <div className="message-text">
+      <div
+        className={`message-text ${detectTextDirection(body) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+        dir={detectTextDirection(body)}
+      >
         <MentionText text={body} />
       </div>
     );
@@ -306,7 +310,10 @@ export default function GroupMessageContent({
 
   if (payload.type === 'announcement') {
     return (
-      <div className="group-announcement">
+      <div
+        className="group-announcement"
+        dir={detectTextDirection(payload.body)}
+      >
         <span className="group-kind-badge">Announcement</span>
         <MentionText text={payload.body || ''} />
       </div>
@@ -315,7 +322,10 @@ export default function GroupMessageContent({
 
   if (payload.type === 'event') {
     return (
-      <div className="group-event-card">
+      <div
+        className="group-event-card"
+        dir={detectTextDirection(payload.title || payload.notes)}
+      >
         <span className="group-kind-badge">Event</span>
         <strong>{payload.title || 'Event'}</strong>
         {payload.when && <div className="group-event-row">When: {new Date(payload.when).toLocaleString()}</div>}

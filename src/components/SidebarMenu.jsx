@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCheck, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
 import { Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+
 export default function SidebarMenu({
   onSettings,
   onLogout,
@@ -12,6 +14,7 @@ export default function SidebarMenu({
   vaultUnlocked,
   onOpenVault,
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
@@ -34,7 +37,6 @@ export default function SidebarMenu({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
-  
 
   return (
     <div className="sidebar-menu" ref={rootRef}>
@@ -72,7 +74,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <CheckCheck size={16} aria-hidden="true" />
-                <span>Mark all as read</span>
+                <span>{t('nav.markAllRead', 'Mark all as read')}</span>
               </span>
             </button>
 
@@ -89,7 +91,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <Star size={16} aria-hidden="true" />
-                <span>Starred messages</span>
+                <span>{t('nav.starredMessages', 'Starred messages')}</span>
               </span>
             </button>
 
@@ -112,10 +114,10 @@ export default function SidebarMenu({
                 )}
                 <span>
                   {!vaultEnabled
-                    ? 'Set up vault'
+                    ? t('nav.setUpVault', 'Set up vault')
                     : vaultUnlocked
-                      ? 'Lock vault'
-                      : 'Unlock vault'}
+                      ? t('nav.lockVault', 'Lock vault')
+                      : t('nav.unlockVault', 'Unlock vault')}
                 </span>
               </span>
             </button>
@@ -132,7 +134,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <Settings size={16} aria-hidden="true" />
-                <span>Settings</span>
+                <span>{t('nav.settings', 'Settings')}</span>
               </span>
             </button>
 
@@ -147,7 +149,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <Clock size={16} aria-hidden="true" />
-                <span>Activity</span>
+                <span>{t('nav.activity', 'Activity')}</span>
               </span>
             </button>
 
@@ -164,7 +166,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <LogOut size={16} aria-hidden="true" />
-                <span>Log out</span>
+                <span>{t('nav.logout', 'Log out')}</span>
               </span>
             </button>
           </motion.div>

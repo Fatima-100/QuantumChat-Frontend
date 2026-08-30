@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
-import { connectSocket, disconnectSocket } from '../api/socket.js';
+import { connectSocket, disconnectSocket , getSocket} from '../api/socket.js';
 import { clearVaultToken } from '../api/vaultToken.js';
 import { derivePublicKey, generateKeySet, KEY_SET_SIZE } from '../crypto/keys.js';
 import {
@@ -14,9 +14,10 @@ import {
   keyringMatchesPublishedKeys,
   saveSession
 } from '../crypto/keyStorage.js';
+import { setAppLanguage } from '../i18n/index.js';
+import activityStore from '../utils/activityStore.js';
 
 const AuthContext = createContext(null);
-
 function clearOtherAccountKeyring(loggedInUserId) {
   const previous = getStoredUser();
   if (previous?.id && String(previous.id) !== String(loggedInUserId)) {
@@ -76,8 +77,11 @@ export function AuthProvider({ children }) {
     return null;
   }, [recomputeKeyringSync]);
 
-  // Restore socket + refresh session token when the app loads with a saved login.
+  // Restore socket + refresh session token and sync language when the app loads with a saved login.
   useEffect(() => {
+    if (user?.preferredLanguage) {
+      setAppLanguage(user.preferredLanguage);
+    }
     if (!user?.id || !getToken()) {
       setKeyringSync(null);
       return undefined;
@@ -100,9 +104,59 @@ export function AuthProvider({ children }) {
     // Only re-run when the signed-in user identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+  // Activity feed polling fallback. Socket.IO can't run on serverless
+// deployments (Vercel), so the socket-based activity listeners in
+// Chat.jsx never fire there. This polls a small derived-events endpoint
+// instead — but only when no live socket is already covering it, so
+// local dev (where sockets work) is untouched.
+const activityCursorRef = useRef(null);
+
+useEffect(() => {
+  if (!user?.id || !getToken()) return undefined;
+
+  let cancelled = false;
+  let inFlight = false;
+
+  async function pollActivity() {
+    if (cancelled || inFlight) return;
+    if (document.visibilityState === 'hidden') return;
+    if (getSocket()?.connected) return; // real-time socket already covers this
+
+    inFlight = true;
+    try {
+      const { data } = await client.get('/activity/sync', {
+        params: activityCursorRef.current ? { since: activityCursorRef.current } : undefined,
+      });
+      if (cancelled) return;
+      if (data?.meta?.cursor) activityCursorRef.current = data.meta.cursor;
+      for (const event of data?.data || []) {
+        activityStore.appendEvent(event);
+      }
+    } catch {
+      // Transient network errors are fine — just retry on the next tick.
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  // Start from "now" so first login doesn't replay a user's entire recent
+  // history as fresh activity — only genuinely new events count.
+  activityCursorRef.current = new Date().toISOString();
+  const timer = window.setInterval(pollActivity, 4000);
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') pollActivity();
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
+  return () => {
+    cancelled = true;
+    window.clearInterval(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}, [user?.id]);
 
   const register = useCallback(
-    async ({ username, email, password, dateOfBirth, timezone }) => {
+    async ({ username, email, password, dateOfBirth, timezone, preferredLanguage }) => {
       const keySet = generateKeySet();
       const publicKeys = keySet.map((k) => k.publicKey);
       // Validate localStorage works before creating a server account whose keys we must store here.
@@ -114,7 +168,15 @@ export function AuthProvider({ children }) {
         throw new Error('Cannot save keys to localStorage: ' + err.message);
       }
 
-      const { data } = await client.post('/auth/register', {username,email,password,publicKeys,dateOfBirth: dateOfBirth || undefined,timezone,});
+      const { data } = await client.post('/auth/register', {
+        username,
+        email,
+        password,
+        publicKeys,
+        dateOfBirth: dateOfBirth || undefined,
+        timezone,
+        preferredLanguage: preferredLanguage || undefined,
+      });
       const { token, user: newUser } = data.data;
 
       // CRITICAL: persist private keys before anything else that could navigate away.
@@ -124,6 +186,10 @@ export function AuthProvider({ children }) {
         throw new Error(
           'Account was created but encryption keys could not be saved on this device. Log in and use "Generate new keys" to resync.'
         );
+      }
+
+      if (newUser.preferredLanguage) {
+        setAppLanguage(newUser.preferredLanguage);
       }
 
       saveSession(token, newUser);
@@ -164,9 +230,12 @@ export function AuthProvider({ children }) {
         rememberMe: data.data.rememberMe !== false,
       };
     }
-   const { token, user: loggedInUser, sessionId } = data.data;
+    const { token, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
     lockVaultOnAccountSwitch(loggedInUser.id);
+    if (loggedInUser.preferredLanguage) {
+      setAppLanguage(loggedInUser.preferredLanguage);
+    }
     saveSession(token, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -185,6 +254,9 @@ export function AuthProvider({ children }) {
     const { token: jwt, user: loggedInUser, sessionId } = data.data;
     clearOtherAccountKeyring(loggedInUser.id);
     lockVaultOnAccountSwitch(loggedInUser.id);
+    if (loggedInUser.preferredLanguage) {
+      setAppLanguage(loggedInUser.preferredLanguage);
+    }
     saveSession(jwt, loggedInUser, sessionId);
     setUser(loggedInUser);
     connectSocket();
@@ -243,6 +315,9 @@ const logout = useCallback(() => {
   const updateSessionUser = useCallback(
     (nextUser) => {
       if (!nextUser) return;
+      if (nextUser.preferredLanguage) {
+        setAppLanguage(nextUser.preferredLanguage);
+      }
       saveSession(getToken(), nextUser);
       setUser(nextUser);
       recomputeKeyringSync(nextUser);

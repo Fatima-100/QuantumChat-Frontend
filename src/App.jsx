@@ -15,6 +15,7 @@ import Activity from './pages/Activity.jsx';
 import JoinInvite from './components/JoinInvite.jsx';
 import Landing from './pages/Landing.jsx';
 import LinkDevice from './pages/LinkDevice.jsx';
+import ScreenTimeTracker from './components/ScreenTimeTracker.jsx';
 
 function ProtectedChat() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
        <AuthProvider>
           <VaultProvider>
           <NotificationSettingsProvider>
+            <ScreenTimeTracker />
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/register" element={<Register />} />

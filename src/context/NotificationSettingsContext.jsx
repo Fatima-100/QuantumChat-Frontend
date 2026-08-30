@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
   soundVolume: 80,
   messagePreview: 'full',
   vibration: 'on',
+  birthdayReminders: true,
   doNotDisturb: { enabled: false, startTime: '22:00', endTime: '07:00', allowedContacts: [] },
   groupNotifications: 'all',
   callNotifications: {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS = {
   badgeCount: 'show',
   webNotifications: { enabled: true, soundOnWeb: true, syncReadAcrossDevices: true },
   priority: 'normal',
+  mediaSettings: { autoDownloadImages: true, autoDownloadVideos: false, wifiOnly: true },
 };
 
 function mergeNotificationSettings(base, patch) {
@@ -32,6 +34,9 @@ function mergeNotificationSettings(base, patch) {
   }
   if (patch?.webNotifications) {
     next.webNotifications = { ...(base.webNotifications || {}), ...patch.webNotifications };
+  }
+  if (patch?.mediaSettings) {
+    next.mediaSettings = { ...(base.mediaSettings || {}), ...patch.mediaSettings };
   }
   return next;
 }

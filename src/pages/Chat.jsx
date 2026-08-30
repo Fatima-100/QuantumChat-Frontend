@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowLeft,
+  Bookmark,
   HelpCircle,
   Info,
   MessageSquare,
@@ -9,54 +10,62 @@ import {
   Phone,
   Pin,
   Plus,
-  Search,
   Send,
   Settings2,
   Smile,
   Square,
-  Bookmark,
   Users,
   Video,
-  X,
+  X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { getDisplayName } from "../utils/getDisplayName.js";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
+import { getPeerVaultDecoyStatus } from "../api/vault.js";
 import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
 import CameraCapture from "../components/CameraCapture.jsx";
 import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
+import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
+import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
 import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
-import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import ConversationPane from "../components/chat/ConversationPane.jsx";
 import InfoPanel from "../components/chat/InfoPanel.jsx";
+import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
-import BottomSheet from "../components/ui/BottomSheet.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
 import DragDropOverlay from "../components/DragDropOverlay.jsx";
+import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ForwardModal from "../components/ForwardModal.jsx";
 import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
-import MessageSearch from "../components/MessageSearch.jsx";
 import MessageInfoModal from "../components/MessageInfoModal.jsx";
+import MessageSearch from "../components/MessageSearch.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
+import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
+import BottomSheet from "../components/ui/BottomSheet.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
 import UserProfileModal from "../components/UserProfileModal.jsx";
+import VaultSetupModal from "../components/VaultSetupModal.jsx";
+import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
+import { useVault } from "../context/VaultContext.jsx";
 import {
   downloadKeyFile,
   formatKeyFile,
@@ -79,9 +88,10 @@ import {
   pickRecorderMimeType,
 } from "../crypto/voiceCache.js";
 import useMeetingCall from "../hooks/useMeetingCall.js";
+import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
-import EditHistoryModal from "../components/EditHistoryModal.jsx";
+import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
   getInfoPanelOpen,
@@ -98,8 +108,6 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
-import activityStore from "../utils/activityStore.js";
-import screenTimeCollector from "../utils/screenTimeCollector.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -117,21 +125,18 @@ import {
   deleteMessageForMe,
   getDeletedForMeIds,
   getPinnedIds,
+  getStarredEntries,
   getStarredIds,
   togglePinnedMessage,
   toggleStarredMessage,
-    getStarredEntries,
 } from "../utils/messageExtras.js";
 import {
-  buildNotificationText,
   buildGroupedNotificationText,
   playNotificationSound,
   shouldNotify,
-  showNotificationPopup,
+  showNotificationPopup
 } from "../utils/notificationDispatch.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
-import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
-import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
 import {
   conversationKeyForGroup,
   conversationKeyForUser,
@@ -142,14 +147,8 @@ import {
   markConversationRead,
   setConversationActivity,
 } from "../utils/readState.js";
-import { playReceiveSound, playSendSound, unlockAudio, startIncomingRingSound } from "../utils/sounds.js";
-import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
-import { useVault } from "../context/VaultContext.jsx";
-import { getPeerVaultDecoyStatus } from "../api/vault.js";
-import VaultSetupModal from "../components/VaultSetupModal.jsx";
-import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
-import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
-import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
+import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
+import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
@@ -202,6 +201,9 @@ function isMediaPreviewFile(file) {
   if (mime === 'image/svg+xml' || name.endsWith('.svg')) return false;
   if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
   if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return true;
+  if (mime.startsWith('audio/') ||/\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) ||/^voice-note/i.test(name)) {
+    return true;
+  }
   return false;
 }
 
@@ -230,6 +232,7 @@ function isSameDay(d1, d2) {
 }
 
 export default function Chat() {
+  const { t, i18n } = useTranslation();
   const {
     user,
     logout,
@@ -334,14 +337,20 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [emailBannerDismissed, setEmailBannerDismissed] = useState(false);
+  const [moderationBannerDismissed, setModerationBannerDismissed] = useState(false);
   const [composerHelpOpen, setComposerHelpOpen] = useState(false);
   const [composerPlusOpen, setComposerPlusOpen] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+const [gifQuery, setGifQuery] = useState('');
+const [gifResults, setGifResults] = useState([]);
+const [gifLoading, setGifLoading] = useState(false);
+const [gifSending, setGifSending] = useState(false);
   const [infoPanelOpen, setInfoPanelOpenState] = useState(() =>
     getInfoPanelOpen(),
   );
   const [actionSheetMessage, setActionSheetMessage] = useState(null);
   const [messageInfoData, setMessageInfoData] = useState(null);
-    const [editHistoryMessage, setEditHistoryMessage] = useState(null);
+  const [editHistoryMessage, setEditHistoryMessage] = useState(null);
   const [callMinimized, setCallMinimized] = useState(false);
   const [isMobileShell, setIsMobileShell] = useState(() =>
     typeof window !== "undefined"
@@ -380,13 +389,9 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       mqCompact.removeEventListener?.("change", syncCompact);
     };
   }, []);
-
-  useEffect(() => {
-    if (!hasLocalKeyring || !user?.id) return undefined;
-    screenTimeCollector.start();
-    return () => screenTimeCollector.stop();
-  }, [hasLocalKeyring, user?.id]);
-
+ // Screen-time tracking is session-level now — see ScreenTimeTracker.jsx,
+  // mounted once above <Routes> in App.jsx so it survives navigation
+  // between /chat, /chat/activity, etc.
   useEffect(() => {
     const cores = navigator.hardwareConcurrency || 4;
     const reduced =
@@ -461,7 +466,22 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
   useEffect(() => {
     if (chatTheme?.wallpaperId) preloadWallpaper(chatTheme.wallpaperId);
   }, [chatTheme.wallpaperId]);
-
+useEffect(() => {
+  if (!gifPickerOpen) return undefined;
+  const q = gifQuery.trim() || 'trending';
+  const timer = setTimeout(async () => {
+    setGifLoading(true);
+    try {
+      const { data } = await client.get('/gifs/search', { params: { q } });
+      setGifResults(data.data || []);
+    } catch {
+      setGifResults([]);
+    } finally {
+      setGifLoading(false);
+    }
+  }, 350);
+  return () => clearTimeout(timer);
+}, [gifPickerOpen, gifQuery]);
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
   const typingPeerTimeoutRef = useRef(null);
@@ -570,6 +590,173 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       }
     },
   });
+  
+  // Sends a reply typed directly into a notification's inline text field,
+  // entirely in the background — no navigation, no window focus, no change
+  // to whatever the user is currently looking at. Standalone rather than
+  // reusing handleSend()/selected/draft, since those are tied to the
+  // CURRENTLY VISIBLE conversation. Only handles the plain-DM case, since
+  // that's the only path the backend currently attaches a Reply action to.
+     async function sendReplyInBackground(peerId, text) {
+      const trimmed = (text || '').trim();
+    console.log('[reply] sendReplyInBackground called', { peerId, textLength: trimmed.length });
+    if (!trimmed || !peerId) {
+      console.warn('[reply] aborting: missing text or peerId', { trimmed, peerId });
+      return;
+    }
+        try {
+        let replyPeer =
+          String(peerId) === String(user.id)
+            ? selfPeer
+            : users.find((u) => String(u.id) === String(peerId));
+  
+        if (!replyPeer?.publicKeys?.length) {
+          console.log('[reply] peer not found/no keys in local users list, fetching fresh:', peerId);
+          try {
+            const { data } = await client.get(`/users/${peerId}`);
+            replyPeer = data?.data || null;
+          } catch (fetchErr) {
+            console.error('[reply] failed to fetch peer directly', fetchErr);
+          }
+        }
+
+        const myKey = pickRandom(getCurrentKeySet(user.id));
+        const recipientKeys = (replyPeer?.publicKeys || []).filter(Boolean);
+        console.log('[reply] resolved peer', { found: Boolean(replyPeer), recipientKeyCount: recipientKeys.length, haveOwnKey: Boolean(myKey?.publicKey) });
+        if (!myKey?.publicKey || recipientKeys.length === 0) {
+          console.error('[reply] aborting: missing encryption keys', { hasMyKey: Boolean(myKey?.publicKey), recipientKeyCount: recipientKeys.length });
+          showToast('Missing encryption keys for this conversation', 'error');
+          return;
+        }
+        const forRecipient = sealMessage(trimmed, pickRandom(recipientKeys));
+        const forSender = sealMessage(trimmed, myKey.publicKey);
+        console.log('[reply] posting message to server...');
+        const { data } = await client.post('/messages', { to: peerId, forRecipient, forSender });
+        console.log('[reply] sent successfully', data?.data?._id || data?.data?.id);
+        recordActivityFromMessage(data.data);
+      } catch (err) {
+        console.error('[reply] send failed', err);
+        showToast(err.response?.data?.error || err.message || 'Failed to send reply', 'error');
+      }
+    }
+   
+     // ---- Notification action handling (Reply / Mark as Read / call actions) ---
+     const [notificationAction, setNotificationAction] = useState(null);
+   
+     // Path A — cold boot via openWindow(), action arrives as query params.
+     useEffect(() => {
+       const searchParams = new URLSearchParams(location.search);
+       if (searchParams.has('reply')) {
+         const raw = searchParams.get('reply');
+         const typed = raw && raw !== '1' ? decodeURIComponent(raw) : '';
+         setNotificationAction({ type: 'reply', text: typed });
+         navigate(location.pathname, { replace: true });
+       } else if (searchParams.has('acceptCall')) {
+         setNotificationAction({ type: 'accept_call', callId: searchParams.get('acceptCall') });
+         navigate(location.pathname, { replace: true });
+       } else if (searchParams.has('declineCall')) {
+         setNotificationAction({ type: 'decline_call', callId: searchParams.get('declineCall') });
+         navigate(location.pathname, { replace: true });
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [location.search]);
+
+       const navigateRef = useRef(navigate);
+       navigateRef.current = navigate;
+       const locationRef = useRef(location);
+       locationRef.current = location;
+
+     useEffect(() => {
+       function onSwMessage(event) {
+         const msg = event.data;
+         if (!msg || msg.type !== 'quantumchat-notification-action') return;
+         console.log('[reply] received SW message', msg);
+   
+         if (msg.action === 'reply' && msg.text) {
+           sendReplyInBackground(msg.peerId, msg.text);
+           return;
+         }
+   
+        if (msg.url) {
+        const targetPath = msg.url.split('?')[0];
+        if (locationRef.current.pathname !== targetPath) navigateRef.current(targetPath);
+      }
+      if (msg.action === 'reply') {
+        setNotificationAction({ type: 'reply', text: '' });
+      } else if (msg.action === 'accept_call') {
+        setNotificationAction({ type: 'accept_call', callId: msg.callId });
+      } else if (msg.action === 'decline_call') {
+        setNotificationAction({ type: 'decline_call', callId: msg.callId });
+      }
+    }
+    console.log('[reply] SW message listener attached');
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+    return () => {
+      console.log('[reply] SW message listener detached');
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+    };
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, []);
+   
+     // Executes whatever `notificationAction` currently holds (Path A only, or
+     // Path B's non-silent cases), once it's actually safe to: the right
+     // conversation must be loaded, and for a reply with text, the recipient's
+     // public key must actually be available.
+     const pendingAutoSendRef = useRef(false);
+     useEffect(() => {
+       if (!notificationAction) return;
+   
+       if (notificationAction.type === 'reply') {
+         const targetId = params.groupId || params.peerId;
+         const selectedMatches = selected && String(selected.id) === String(targetId);
+         const peerReady =
+           selectedMatches &&
+           (selected.type === 'group' || Boolean(resolveDmPeer(selected)?.publicKeys?.length));
+   
+         if (!notificationAction.text) {
+           if (selectedMatches || selected) {
+             textareaRef.current?.focus();
+             setNotificationAction(null);
+           }
+           return;
+         }
+         if (peerReady) {
+           setDraft(notificationAction.text);
+           pendingAutoSendRef.current = true;
+           setNotificationAction(null);
+         }
+         return;
+       }
+   
+       if (
+         notificationAction.type === 'accept_call' &&
+         webrtc.call &&
+         String(webrtc.call.callId || webrtc.call.id) === String(notificationAction.callId)
+       ) {
+         webrtc.acceptCall().catch(() => showToast('Could not access microphone/camera', 'error'));
+         setNotificationAction(null);
+         return;
+       }
+   
+       if (
+         notificationAction.type === 'decline_call' &&
+         webrtc.call &&
+         String(webrtc.call.callId || webrtc.call.id) === String(notificationAction.callId)
+       ) {
+         webrtc.rejectCall();
+         setNotificationAction(null);
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [notificationAction, selected, users, webrtc.call, params.peerId, params.groupId]);
+   
+     useEffect(() => {
+       if (pendingAutoSendRef.current && draft) {
+         pendingAutoSendRef.current = false;
+         handleSend({ preventDefault: () => {} });
+       }
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, [draft]);
+    
   useEffect(() => {
     const call = webrtc.call;
     if (!call || call.role !== "callee" || call.status !== "incoming") return;
@@ -1301,7 +1488,37 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
               notifSettings,
             });
 
-            showNotificationPopup({ title, body, tag: convKey }, notifSettings, () => {
+            // The notification's tag must match exactly what the server's
+            // push uses (backend/src/utils/conversationKey.js), or the
+            // IndexedDB content-cache lookup in sw.js's push handler always
+            // misses and silently falls back to generic "New message" text.
+            // Groups already matched (`group:${id}` both sides); DMs did
+            // NOT — the client's own `convKey` here is `dm:${peerId}` while
+            // the server sorts both participant ids together, so build the
+            // matching tag separately rather than reusing convKey.
+            const pushTag = raw.group
+              ? `group:${raw.group}`
+              : `dm:${[String(raw.from), String(raw.to)].sort().join(':')}`;
+            console.log('[notif] client-computed pushTag =', JSON.stringify(pushTag), { from: raw.from, to: raw.to, group: raw.group });
+
+
+            showNotificationPopup(
+              {
+                title,
+                body,
+                tag: pushTag,
+                actions: [
+                  { action: 'reply', title: 'Reply', type: 'text', placeholder: 'Type a reply…' },
+                  { action: 'mark_read', title: 'Mark as Read' },
+                ],
+                data: {
+                  url: raw.group ? `/chat/g/${raw.group}` : `/chat/${String(raw.from) === String(user.id) ? raw.to : raw.from}`,
+                  kind: raw.group ? 'group' : 'dm',
+                  fromUserId: String(raw.from) === String(user.id) ? String(raw.to) : String(raw.from),
+                },
+              },
+              notifSettings,
+              () => {
               const target = raw.group
                 ? { key: convKey, type: "group", id: raw.group }
                 : {
@@ -1399,40 +1616,55 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== id));
     }
 
-  function handleReaction(raw) {
-    const messageId = String(raw?.messageId || raw?.message?.id || raw?.message?._id || "");
-    const eventId = String(raw?.id || raw?._id || messageId || "");
-    if (!eventId) return;
-    const actorId = raw?.from || raw?.userId || raw?.actorId;
-    const actor = resolveActivityActor(actorId);
-    const message = messagesRef.current.find((candidate) => String(candidate.id || candidate._id) === messageId);
-    const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
-    const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
-    const reactedByYou = actor.actorIsCurrentUser;
-    const originalAuthorId = message?.from || message?.senderId;
-    const originalAuthor = resolveActivityActor(originalAuthorId);
-    activityStore.appendEvent({
-      id: eventId,
-      type: "reaction",
-      targetId: messageId || eventId,
-      messageId: messageId || undefined,
-      actorId,
-      actorName: actor.actorLabel,
-      actorIsCurrentUser: actor.actorIsCurrentUser,
-      emoji: raw?.emoji || raw?.reaction,
-      groupId,
-      groupName,
-      preview: message ? decorate(message).text : undefined,
-      originalAuthorLabel: originalAuthor.actorLabel,
-      originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
-      reactedByYou,
-      conversationKey: groupId ? `group:${groupId}` : undefined,
+   function handleReaction(raw) {
+    const messageId = String(raw?.id || raw?._id || raw?.messageId || raw?.message?.id || raw?.message?._id || "");
+    if (!messageId) return;
+
+    // raw is a full-message snapshot, not a delta — diff its decrypted
+    // reactions against what we last rendered for this message to find
+    // out WHO just reacted and with WHAT emoji. raw.from is the message's
+    // original author, never the reactor — do not use it for actorId.
+    const decorated = decorate(raw);
+    const prevMessage = messagesRef.current.find(
+      (candidate) => String(candidate.id || candidate._id) === messageId,
+    );
+    const prevReactions = prevMessage?.reactions || [];
+    const nextReactions = decorated.reactions || [];
+    const changed = nextReactions.find((next) => {
+      const prev = prevReactions.find((p) => String(p.user) === String(next.user));
+      return !prev || prev.emoji !== next.emoji;
     });
-      if (!isCurrentConversation(raw)) return;
-      setMessages((prev) =>
-        prev.map((m) => (String(m.id || m._id) === id ? decorate(raw) : m)),
-      );
+
+    if (changed) {
+      const actorId = changed.user;
+      const actor = resolveActivityActor(actorId);
+      const groupId = typeof raw?.group === "object" ? raw.group.id || raw.group._id : raw?.group;
+      const groupName = typeof raw?.group === "object" ? raw.group.name : groupsRef.current.find((candidate) => String(candidate.id || candidate._id) === String(groupId))?.name;
+      const originalAuthor = resolveActivityActor(decorated.from);
+      activityStore.appendEvent({
+        id: `${messageId}:${actorId}:${changed.emoji || "clear"}:${Date.now()}`,
+        type: "reaction",
+        targetId: messageId,
+        messageId,
+        actorId,
+        actorName: actor.actorLabel,
+        actorIsCurrentUser: actor.actorIsCurrentUser,
+        emoji: changed.emoji,
+        groupId,
+        groupName,
+        preview: decorated.text,
+        originalAuthorLabel: originalAuthor.actorLabel,
+        originalAuthorIsCurrentUser: originalAuthor.actorIsCurrentUser,
+        reactedByYou: actor.actorIsCurrentUser,
+        conversationKey: groupId ? `group:${groupId}` : undefined,
+      });
     }
+
+   if (!isCurrentConversation(raw)) return;
+    setMessages((prev) =>
+      prev.map((m) => (String(m.id || m._id) === messageId ? decorated : m)),
+    );
+  }
 
     function handleEdited(raw) {
       const id = String(raw?.id || raw?._id || "");
@@ -1761,6 +1993,52 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       );
     }
 
+    function handleChatCleared(payload = {}) {
+      // Multi-device sync: another of this user's sessions cleared a chat. If
+      // we're viewing that same conversation, empty it here too. The backend
+      // already filters cleared messages out of fetch/sync, so nothing stale
+      // reappears on a later refresh.
+      const current = selectedRef.current;
+      if (!current) return;
+      const matchesGroup =
+        payload.groupId &&
+        current.type === "group" &&
+        String(current.id) === String(payload.groupId);
+      const matchesDm =
+        payload.peerId &&
+        current.type === "dm" &&
+        String(current.id) === String(payload.peerId);
+      if (matchesGroup || matchesDm) {
+        setMessages([]);
+      }
+    }
+
+    function handleUserStatus(payload = {}) {
+      const { userId: statusUserId } = payload;
+      if (!statusUserId) return;
+      const nextStatus = payload.statusText || "";
+      // Reflect the new custom status in the contact list...
+      setUsers((prev) =>
+        prev.map((u) =>
+          String(u.id) === String(statusUserId) ? { ...u, statusText: nextStatus } : u,
+        ),
+      );
+      // ...the currently-open DM (so the header/peer view updates live)...
+      setSelected((prev) =>
+        prev && prev.type === "dm" && String(prev.id) === String(statusUserId)
+          ? {
+            ...prev,
+            statusText: nextStatus,
+            peer: prev.peer ? { ...prev.peer, statusText: nextStatus } : prev.peer,
+          }
+          : prev,
+      );
+      // ...and our own session (when this is our own status echoed back to us).
+      if (String(statusUserId) === String(user.id)) {
+        updateSessionUser({ ...userRef.current, statusText: nextStatus });
+      }
+    }
+
     socket.on("message:new", handleIncoming);
     socket.on("message:deleted", handleDeleted);
     socket.on("message:expired", handleExpired);
@@ -1780,6 +2058,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     socket.on("friend:request:new", handleFriendRequestNew);
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
+    socket.on("chat:cleared", handleChatCleared);
+    socket.on("user:status", handleUserStatus);
 
     // Auth may connect the socket before Chat mounts, so the initial
     // presence:snapshot is easy to miss. Re-request whenever listeners attach
@@ -1810,6 +2090,8 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
       socket.off("friend:request:new", handleFriendRequestNew);
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
+      socket.off("chat:cleared", handleChatCleared);
+      socket.off("user:status", handleUserStatus);
       socket.off("connect", requestPresence);
       clearTimeout(typingPeerTimeoutRef.current);
     };
@@ -2405,30 +2687,32 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
 
   const usernameById = useMemo(() => {
     const map = new Map();
-    for (const u of users) map.set(String(u.id), u.username);
-    map.set(String(user.id), user.username);
+    for (const u of users) map.set(String(u.id), getDisplayName(u, i18n.language));
+    map.set(String(user.id), getDisplayName(user, i18n.language));
     for (const g of groups) {
       for (const m of g.members || []) {
         const id = memberId(m);
-        if (m.username) map.set(id, m.username);
+        const memberUser = m.user || m;
+        map.set(id, getDisplayName(memberUser, i18n.language) || m.username || "Member");
       }
     }
     return map;
-  }, [users, groups, user]);
+  }, [users, groups, user, i18n.language]);
 
   const selfPeer = useMemo(() => {
     if (!user?.id) return null;
     return {
       id: user.id,
       username: user.username,
-      displayName: user.displayName || user.username,
+      displayName: getDisplayName(user, i18n.language),
       avatarUrl: user.avatarUrl || null,
       hasAvatar: Boolean(user.hasAvatar || user.avatarUrl),
       publicKeys: user.publicKeys || [],
       lastLoginAt: user.lastLoginAt || null,
       isSelfChat: true,
+      transliteratedNames: user.transliteratedNames || {},
     };
-  }, [user]);
+  }, [user, i18n.language]);
 
   const resolveDmPeer = useCallback(
     (conversation) => {
@@ -2519,10 +2803,10 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         key,
         type: "dm",
         id: u.id,
-        title: u.displayName || u.username || "Unknown user",
+        title: getDisplayName(u, i18n.language) || "Unknown user",
         subtitle: null,
         searchText:
-          `${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
+          `${getDisplayName(u, i18n.language) || ""} ${u.displayName || ""} ${u.username || ""} ${u.email || ""}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         lastMessageAt: activity?.at || null,
         unread,
@@ -2977,7 +3261,7 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
     }
   }
 
-  async function handleAcceptFriendRequest(requestId) {
+async function executeAcceptFriendRequest(requestId) {
     try {
       const pending = incomingRequests.find(
         (r) => String(r.id) === String(requestId),
@@ -3008,6 +3292,27 @@ const [pendingJumpMessageId, setPendingJumpMessageId] = useState(null);
         "error",
       );
     }
+  }
+
+  function handleAcceptFriendRequest(requestId) {
+    const pending = incomingRequests.find(
+      (r) => String(r.id) === String(requestId),
+    );
+    if (pending?.moderationWarning?.reportedByMultiple) {
+      const reasonText = pending.moderationWarning.commonReason
+        ? ` The most common reason given is "${pending.moderationWarning.commonReason.replace(/_/g, ' ')}".`
+        : '';
+      setConfirmDialog({
+        type: "accept-with-warning",
+        requestId,
+        title: "Safety warning",
+        message: `${pending.user?.displayName || pending.user?.username || 'This account'} has been reported by multiple people.${reasonText} Do you still want to accept this friend request?`,
+        confirmLabel: "Accept anyway",
+        danger: true,
+      });
+      return;
+    }
+    executeAcceptFriendRequest(requestId);
   }
 
   async function handleDeclineFriendRequest(requestId) {
@@ -3225,6 +3530,50 @@ async function handleToggleVault(peerId) {
       setConfirmDialog(null);
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to block user", "error");
+      setConfirmDialog(null);
+    } finally {
+      setConfirmBusy(false);
+    }
+  }
+
+  function handleClearChat() {
+    if (!selected) return;
+    setConfirmDialog({
+      type: "clear-chat",
+      selectionType: selected.type,
+      selectionId: selected.id,
+      title: "Clear this chat?",
+      message:
+        "Previous messages will be removed from this chat for you and can’t be easily undone. The conversation stays in your list, and you can still send and receive new messages.",
+      confirmLabel: "Clear chat",
+      danger: true,
+    });
+  }
+
+  async function executeClearChat(dialog) {
+    const type = dialog?.selectionType;
+    const id = dialog?.selectionId;
+    if (!type || !id) {
+      setConfirmDialog(null);
+      return;
+    }
+    try {
+      setConfirmBusy(true);
+      const payload = type === "group" ? { groupId: id } : { peerId: id };
+      const { data } = await client.post("/users/me/clear-chat", payload);
+      // Server confirmed — persist the updated watermarks to the session, then
+      // (and only then) empty the visible thread. No optimistic clear: if the
+      // request had failed, the existing messages stay intact. Guard on the
+      // still-open conversation so a fast switch doesn't blank a different chat.
+      if (data?.data) updateSessionUser(data.data);
+      const current = selectedRef.current;
+      if (current && current.type === type && String(current.id) === String(id)) {
+        setMessages([]);
+      }
+      showToast("Chat cleared", "success");
+      setConfirmDialog(null);
+    } catch (err) {
+      showToast(err.response?.data?.error || "Failed to clear chat", "error");
       setConfirmDialog(null);
     } finally {
       setConfirmBusy(false);
@@ -3795,7 +4144,28 @@ async function handleUnblockUser(peerId) {
       }
     }
   }
-
+async function sendGifMessage(gifUrl) {
+  if (!selected || gifSending) return;
+  setGifSending(true);
+  try {
+    const resp = await fetch(gifUrl);
+    if (!resp.ok) throw new Error('Could not download GIF');
+    const blob = await resp.blob();
+    const file = new File([blob], `gif-${Date.now()}.gif`, {
+      type: blob.type || 'image/gif',
+    });
+    await sendAttachmentFile(file, { quiet: true });
+    setGifPickerOpen(false);
+    setGifQuery('');
+    setGifResults([]);
+  } catch (err) {
+    if (!handleNotFriendsError(err, selected?.id)) {
+      showToast(err.message || 'Failed to send GIF — try again', 'error');
+    }
+  } finally {
+    setGifSending(false);
+  }
+}
   // Uploads one already-encrypted blob to our proxy endpoint (POST
   // /attachments/init hands back the pendingUploadId this targets), which
   // forwards the bytes to Cloudinary.
@@ -3955,7 +4325,6 @@ async function handleUnblockUser(peerId) {
           prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
         );
       };
-
       const recipientDirectUploadId = await putCiphertext(
         recipientBlob,
         file.name,
@@ -4641,6 +5010,10 @@ useEffect(() => {
       await executeDeleteMessage(confirmDialog.messageId);
       return;
     }
+    if (confirmDialog.type === "clear-chat") {
+      await executeClearChat(confirmDialog);
+      return;
+    }
     if (confirmDialog.type === "regenerate-keys") {
       await handleGenerateKeys();
     }
@@ -4840,8 +5213,12 @@ useEffect(() => {
 
   const title = useMemo(() => {
     if (!selected) return "Select a conversation";
+    if (selected.type === "dm") {
+      const peer = resolveDmPeer(selected);
+      if (peer) return getDisplayName(peer, i18n.language);
+    }
     return selected.title || (selected.type === "group" ? "Group" : "Chat");
-  }, [selected]);
+  }, [selected, resolveDmPeer, i18n.language]);
 
   const headerSubtitle = useMemo(() => {
     if (!selected) return null;
@@ -4871,8 +5248,14 @@ useEffect(() => {
       return aiBusy ? "generating…" : "AI Assistant";
     if (peerTyping) return "typing…";
     // Server already filtered presence by the peer's onlineStatus privacy.
-    if (onlineUserIds.has(String(selected.id))) return "online";
-    return formatLastSeen(peer?.lastLoginAt);
+    const presenceLabel = onlineUserIds.has(String(selected.id))
+      ? "online"
+      : formatLastSeen(peer?.lastLoginAt);
+    const customStatus = (peer?.statusText || "").trim();
+    if (customStatus) {
+      return presenceLabel ? `${presenceLabel} · ${customStatus}` : customStatus;
+    }
+    return presenceLabel;
   }, [
     selected,
     groups,
@@ -5346,6 +5729,23 @@ useEffect(() => {
                 </button>
               </div>
             )}
+            {user && user.moderation?.status === 'flagged' && !moderationBannerDismissed && (
+              <div className="email-verify-banner email-verify-banner-dismissible moderation-warning-banner">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>
+                    Your account has been reported by multiple people. Continued violations of
+                    community guidelines may result in restrictions.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="email-verify-banner-dismiss"
+                  onClick={() => setModerationBannerDismissed(true)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             <header className="chat-header">
               <div className="chat-header-left">
                 <button
@@ -5596,6 +5996,7 @@ useEffect(() => {
                         : muteChat({ ...payload, duration: "always" });
                       request.catch(() => {});
                     }}
+                    onClearChat={handleClearChat}
                     onSearch={() => setSearchOpen(true)}
                     onWallpaper={
                       selected.type === "dm" && !selected.isSelfChat
@@ -5735,13 +6136,21 @@ useEffect(() => {
                           120000;
                         const mid = String(m.id || m._id);
 
-                        return (
-                          <div
-                            key={item.key}
-                            id={`msg-${mid}`}
-                            className="message-item"
-                          >
-                            <SwipeableMessage
+                       return (
+  <div
+    key={item.key}
+    id={`msg-${mid}`}
+    className="message-item"
+    onDoubleClick={() => {
+      // 1. Clear any edit state so we don't conflict
+      setEditingMessage(null);
+      // 2. Set the current message as the one we are replying to
+      setReplyTo(m);
+      // 3. Automatically put the user's cursor inside the text box!
+      textareaRef.current?.focus();
+    }}
+  >
+    <SwipeableMessage
                               message={m}
                               isMine={String(m.from) === String(user.id)}
                               onReply={(msg) => {
@@ -6076,26 +6485,27 @@ useEffect(() => {
                       />
                       <textarea
                         ref={textareaRef}
+                        dir="auto"
                         placeholder={
                           sendingVoice
-                            ? "Sending voice note…"
+                            ? t('chat.sendingVoice', 'Sending voice note…')
                             : uploads.length
-                              ? "Uploading encrypted file…"
+                              ? t('chat.placeholderUploading', 'Uploading encrypted file…')
                               : pendingAnnouncement
-                                ? "Write an announcement…"
+                                ? t('chat.placeholderAnnouncement', 'Write an announcement…')
                                 : isGroupChat
-                                  ? "Type an encrypted group message… @mention"
+                                  ? t('chat.placeholderGroup', 'Type an encrypted group message… @mention')
                                   : selected?.isSelfChat ||
                                     String(selected?.id) === String(user.id)
-                                    ? "Write a note to yourself…"
-                                    : "Type an encrypted message…"
+                                    ? t('chat.placeholderSelf', 'Write a note to yourself…')
+                                    : t('chat.placeholderDirect', 'Type an encrypted message…')
                         }
                         value={draft}
                         onChange={handleDraftChange}
                         onInput={handleTextareaInput}
                         onKeyDown={handleTextareaKeyDown}
                         onPaste={handlePaste}
-                        aria-label="Type message body"
+                        aria-label={t('chat.placeholderDirect', 'Type message body')}
                         disabled={sendingVoice}
                         rows={1}
                       />
@@ -6722,6 +7132,7 @@ useEffect(() => {
         onEvent={() =>
           setEventDraft({ title: "", when: "", where: "", notes: "" })
         }
+        onGif={() => setGifPickerOpen(true)}
         onAnnounce={() => {
           setPendingAnnouncement(true);
           textareaRef.current?.focus();
@@ -6741,7 +7152,33 @@ useEffect(() => {
           setForwardUntilSeconds(steps[(i + 1) % steps.length]);
         }}
       />
-
+<BottomSheet open={gifPickerOpen} onClose={() => setGifPickerOpen(false)} title="Send a GIF">
+  <div style={{ padding: '0 4px 8px' }}>
+    <input
+      type="text"
+      value={gifQuery}
+      onChange={(e) => setGifQuery(e.target.value)}
+      placeholder="Search GIFs"
+      autoFocus
+      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, marginBottom: 10 }}
+    />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+      {gifLoading && <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>Searching…</p>}
+      {!gifLoading && gifResults.length === 0 && <p className="empty-hint" style={{ gridColumn: '1 / -1' }}>No GIFs found</p>}
+      {gifResults.map((gif) => (
+        <button
+          key={gif.id}
+          type="button"
+          disabled={gifSending}
+          style={{ padding: 0, border: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
+          onClick={() => sendGifMessage(gif.url)}
+        >
+          <img src={gif.previewUrl} alt="" style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
+        </button>
+      ))}
+    </div>
+  </div>
+</BottomSheet>
       <MessageActionSheet
         open={Boolean(actionSheetMessage)}
         onClose={() => setActionSheetMessage(null)}
