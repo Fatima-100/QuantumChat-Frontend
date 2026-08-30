@@ -4226,7 +4226,7 @@ async function sendGifMessage(gifUrl) {
           },
           { signal: controller.signal },
         );
-        const { pendingUploadId, recipient } = initRes.data.data;
+        const { pendingUploadId } = initRes.data.data;
 
         const recipientDirectUploadId = await putCiphertext(
           cipherBlob,
@@ -4310,7 +4310,7 @@ async function sendGifMessage(gifUrl) {
         },
         { signal: controller.signal },
       );
-      const { pendingUploadId, recipient, sender } = initRes.data.data;
+      const { pendingUploadId, sender } = initRes.data.data;
 
       let recipientLoaded = 0;
       let senderLoaded = 0;
