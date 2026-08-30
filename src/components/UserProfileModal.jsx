@@ -2,12 +2,14 @@ import { Archive, BadgeCheck, Ban, Cake, Clock, Flag, Lock, Sparkles, UserMinus,
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import client, { submitReport } from '../api/client.js';
+import UserAvatar from './UserAvatar.jsx';
+import { getDisplayName } from '../utils/getDisplayName.js';
 import {
   AI_BG_THEMES,
   readStoredAiBg,
   writeStoredAiBg,
 } from '../utils/aiPanelBg.js';
-import UserAvatar from './UserAvatar.jsx';
+
 
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam' },
@@ -34,7 +36,7 @@ export default function UserProfileModal({
   onClose,
   onLoaded,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const closeRef = useRef(null);
   const [profile, setProfile] = useState(seed);
   const [loading, setLoading] = useState(true);
@@ -140,7 +142,7 @@ export default function UserProfileModal({
     window.dispatchEvent(new CustomEvent('qc-ai-panel-bg', { detail: id }));
   }
 
-  const displayName = profile?.displayName?.trim() || profile?.username || 'User';
+  const displayName = getDisplayName(profile, i18n.language) || profile?.displayName?.trim() || profile?.username || 'User';
   const username = profile?.username || '';
   const bio = (profile?.bio || '').trim();
   const statusText = (profile?.statusText || '').trim();

@@ -95,6 +95,10 @@
       "emailVerified": "Email verified",
       "resendVerifyEmail": "Resend link"
     },
+    "transliteration": {
+      "title": "Script Names & Transliteration",
+      "hint": "When users switch their app to non-Latin scripts, your name appears in their native alphabet. You can customize your name spelling for each script below:"
+    },
     "appearance": {
       "title": "Appearance",
       "currentLook": "Current look",

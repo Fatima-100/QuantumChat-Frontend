@@ -233,6 +233,11 @@ function MessageBubble({
   const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
 
+  const textDir = useMemo(() => {
+    if (!message.text || typeof message.text !== 'string' || !message.text.trim()) return undefined;
+    return detectTextDirection(message.text);
+  }, [message.text]);
+
   // Rendered twice: once as an invisible inline spacer that reserves room on the
   // last line of text, and once absolutely positioned on top of that space. This
   // is what lets the timestamp sit on the text's last line (and makes short
@@ -471,7 +476,10 @@ function MessageBubble({
         transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
-          <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}`}>
+          <div
+            className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}${textDir ? ` is-${textDir}` : ''}`}
+            dir={textDir}
+          >
             {senderLabel && !isMine && !grouped && (
               <div className="message-sender-label">
                 {senderLabel}
