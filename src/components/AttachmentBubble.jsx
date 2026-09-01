@@ -101,13 +101,14 @@ function typeLabel(kind) {
   if (kind === 'audio') return 'Audio';
   return 'File';
 }
-
 function VoicePlayer({ url, onPlayedThrough }) {
   const audioRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const burnedRef = useRef(false);
+  const fixingDurationRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -119,6 +120,23 @@ function VoicePlayer({ url, onPlayedThrough }) {
     if (burnedRef.current) return;
     burnedRef.current = true;
     onPlayedThrough?.();
+  }
+
+  // MediaRecorder webm blobs (Chrome/Android) don't carry a real duration
+  // header — audio.duration comes back Infinity/NaN on loadedmetadata.
+  // Standard workaround: seek to a huge time, which forces the browser to
+  // resolve the true duration, then seek back to 0.
+  function fixInfiniteDuration(audio) {
+    if (fixingDurationRef.current) return;
+    fixingDurationRef.current = true;
+    audio.currentTime = 1e101;
+    const onTimeUpdate = () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.currentTime = 0;
+      if (Number.isFinite(audio.duration)) setDuration(audio.duration);
+      fixingDurationRef.current = false;
+    };
+    audio.addEventListener('timeupdate', onTimeUpdate);
   }
 
   async function togglePlay() {
@@ -137,6 +155,9 @@ function VoicePlayer({ url, onPlayedThrough }) {
     }
   }
 
+  // WhatsApp-style: show total duration at rest, count up elapsed while playing.
+  const displaySeconds = playing || currentTime > 0 ? currentTime : duration;
+
   return (
     <div className="voice-player">
       <audio
@@ -144,16 +165,28 @@ function VoicePlayer({ url, onPlayedThrough }) {
         src={url}
         preload="metadata"
         onLoadedMetadata={(e) => {
+          const audio = e.currentTarget;
+          const d = audio.duration;
+          if (Number.isFinite(d) && d > 0) {
+            setDuration(d);
+          } else {
+            fixInfiniteDuration(audio);
+          }
+        }}
+        onDurationChange={(e) => {
           const d = e.currentTarget.duration;
-          setDuration(Number.isFinite(d) ? d : 0);
+          if (Number.isFinite(d) && d > 0) setDuration(d);
         }}
         onTimeUpdate={(e) => {
           const a = e.currentTarget;
-          setProgress(a.duration ? a.currentTime / a.duration : 0);
+          if (fixingDurationRef.current) return; // ignore the seek-probe tick
+          setCurrentTime(a.currentTime);
+          setProgress(a.duration && Number.isFinite(a.duration) ? a.currentTime / a.duration : 0);
         }}
         onEnded={() => {
           setPlaying(false);
           setProgress(0);
+          setCurrentTime(0);
           maybeBurn();
         }}
         onPause={() => setPlaying(false)}
@@ -174,7 +207,7 @@ function VoicePlayer({ url, onPlayedThrough }) {
       <div className="voice-wave">
         <div className="voice-wave-fill" style={{ width: `${Math.min(100, progress * 100)}%` }} />
       </div>
-      <span className="voice-duration">{formatDuration(duration)}</span>
+      <span className="voice-duration">{formatDuration(displaySeconds)}</span>
     </div>
   );
 }

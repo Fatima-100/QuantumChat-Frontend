@@ -666,16 +666,16 @@ function MessageBubble({
                     ) : null}
                   </div>
                 </button>
-                {storyReplyPayload.replyMediaKind === 'gif' ? (
-                  storyReplyPayload.gifUrl ? (
-                    // Legacy pre-encryption GIF replies — still stored as a plaintext URL
-                    <img
-                      src={storyReplyPayload.gifUrl}
-                      alt="GIF"
-                      loading="lazy"
-                      style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10, marginTop: 6 }}
-                    />
-                  ) : message.attachment ? (
+                 {storyReplyPayload.replyMediaKind === 'gif' && storyReplyPayload.gifUrl ? (
+                  // Legacy pre-encryption GIF replies — still stored as a plaintext URL
+                  <img
+                    src={storyReplyPayload.gifUrl}
+                    alt="GIF"
+                    loading="lazy"
+                    style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10, marginTop: 6 }}
+                  />
+                ) : ['gif', 'voice', 'image', 'video', 'file'].includes(storyReplyPayload.replyMediaKind) ? (
+                  message.attachment ? (
                     <AttachmentBubble
                       attachment={message.attachment}
                       isMine={isMine}
@@ -683,10 +683,12 @@ function MessageBubble({
                       onImagePreview={onImagePreview}
                       onImageReady={onImageReady}
                     />
-                  ) : null
-                ) : (
+                  ) : (
+                    <em dir="auto">[Attachment missing]</em>
+                  )
+                ) : storyReplyPayload.text ? (
                   <div>{storyReplyPayload.text}</div>
-                )}
+                ) : null}
               </div>
             ) : hasTextContent ? (
               emojiOnly ? (
