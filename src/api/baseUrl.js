@@ -6,7 +6,7 @@ const CONFIGURED = String(import.meta.env.VITE_API_URL || '')
   .trim()
   .replace(/\/$/, '');
 
-const PROD_FALLBACK = 'https://quantum-chat-backend.vercel.app';
+const PROD_FALLBACK = 'https://quantum-chat-backend-six.vercel.app';
 
 function isLocalhostUrl(url) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(url);
