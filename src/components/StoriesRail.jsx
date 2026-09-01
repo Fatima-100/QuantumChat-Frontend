@@ -170,31 +170,6 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
-function formatElapsed(dateStr) {
-  if (!dateStr) return '';
-  const diffMs = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function formatRemaining(expiresAtStr) {
-  if (!expiresAtStr) return '';
-  const diffMs = new Date(expiresAtStr).getTime() - Date.now();
-  if (diffMs <= 0) return 'Expired';
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 60) return `${mins}m left`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h left`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours ? `${days}d ${remHours}h left` : `${days}d left`;
-}
-
 const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError, notifSettings }, ref) {
   const { keyringInSync, keyringNeedsResync, refreshUserFromServer, verifyKeySync } = useAuth();
   const [stories, setStories] = useState([]);
@@ -205,6 +180,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
   const inputRef = useRef(null);
+
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -216,10 +192,6 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       map.get(uid).items.push(story);
     }
     const list = [...map.values()];
-    // Server returns stories newest-first; playback should go oldest → newest.
-    for (const group of list) {
-      group.items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    }
     list.sort((a, b) => {
       const aOwn = String(a.user?.id) === String(currentUser?.id);
       const bOwn = String(b.user?.id) === String(currentUser?.id);
@@ -742,13 +714,6 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, [story.id, isOwn]);
 
-   // Keeps the "Posted … / Expires in …" label ticking for everyone.
-  const [, forceMetaTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => forceMetaTick((t) => t + 1), 60000);
-    return () => clearInterval(id);
-  }, []);
-
   useEffect(() => {
     function onKey(e) {
       if (confirmDelete) return;
@@ -1110,70 +1075,23 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     () => (reactionQuery.trim() ? searchEmojis(reactionQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
     [reactionQuery]
   );
+
   function insertEmoji(emoji) {
     setReplyText((t) => t + emoji);
   }
-
-  // Single tap left/right navigates; a second tap within the window is
-  // treated as a double-tap "like" instead, so the pending nav is cancelled.
-  const mediaClickTimerRef = useRef(null);
-
-  function handleMediaClick(e) {
-    if (mediaClickTimerRef.current) {
-      clearTimeout(mediaClickTimerRef.current);
-      mediaClickTimerRef.current = null;
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const tappedRight = e.clientX - rect.left > rect.width / 2;
-
-    mediaClickTimerRef.current = setTimeout(() => {
-      mediaClickTimerRef.current = null;
-      if (tappedRight) {
-        if (index < group.items.length - 1) {
-          setIndex((i) => i + 1);
-        } else {
-          onClose(); // tapped right on the last story — go outside
-        }
-      } else if (index > 0) {
-        setIndex((i) => i - 1);
-      }
-      // tapping left on the first story is a no-op
-    }, 250);
-  }
-
-  function handleMediaDoubleClick() {
-    if (mediaClickTimerRef.current) {
-      clearTimeout(mediaClickTimerRef.current);
-      mediaClickTimerRef.current = null;
-    }
-    if (!isOwn) handleReact('❤️');
-  }
-
-  useEffect(() => {
-    return () => {
-      if (mediaClickTimerRef.current) clearTimeout(mediaClickTimerRef.current);
-    };
-  }, []);
 
   return (
     <div className="story-viewer-overlay" onClick={onClose}>
       <div className="story-viewer" onClick={(e) => e.stopPropagation()}>
         <div className="story-viewer-top">
-           <div className="story-viewer-user">
+          <div className="story-viewer-user">
             <UserAvatar
               userId={group.user?.id}
               name={group.user?.username}
               hasAvatar={group.user?.hasAvatar}
               size="sm"
             />
-            <div className="story-viewer-user-text">
-              <span>{group.user?.username}</span>
-              <span className="story-viewer-user-meta">
-                {formatElapsed(story.createdAt)}
-                {isOwn ? ` · ${formatRemaining(story.expiresAt)}` : ''}
-              </span>
-            </div>
+            <span>{group.user?.username}</span>
             {story.sealed ? <span className="story-sealed-badge">Sealed X5</span> : null}
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
@@ -1185,10 +1103,9 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             <span key={s.id} className={i === index ? 'on' : ''} />
           ))}
         </div>
-               <div
+        <div
           className="story-viewer-media"
-          onClick={handleMediaClick}
-          onDoubleClick={handleMediaDoubleClick}
+          onDoubleClick={() => !isOwn && handleReact('❤️')}
         >
           {blockedReason && (
             <div className="story-decrypt-error" role="alert">
@@ -1233,7 +1150,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             onClose={() => setViewersOpen(false)}
           />
         )}
-       {!isOwn && story.allowReplies !== false && (
+
+        {!isOwn && story.allowReplies !== false && (
           <form
             className="story-reply-bar"
             onSubmit={(e) => {
@@ -1241,104 +1159,69 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               handleSendReply();
             }}
           >
-            <input
-              ref={replyFileInputRef}
-              type="file"
-              accept="image/*,video/*,audio/*"
-              hidden
-              onChange={handleReplyFileChange}
-            />
-            <div className="story-reply-row-main">
-              <button
-                type="button"
-                className="story-icon-btn"
-                aria-label="Attach media"
-                disabled={sendingReply || replyRecording}
-                onClick={() => replyFileInputRef.current?.click()}
-              >
-                <Paperclip size={18} strokeWidth={2} />
-              </button>
-
-              <div className="story-reply-input-wrap">
-                <textarea
-                  ref={replyInputRef}
-                  rows={1}
-                  value={replyText}
-                  onChange={(e) => {
-                    setReplyText(e.target.value);
-                    autoGrow(e.target);
-                  }}
-                  onKeyDown={handleReplyKeyDown}
-                  placeholder={
-                    replyRecording
-                      ? `Recording ${String(Math.floor(replyRecordSeconds / 60)).padStart(2, '0')}:${String(replyRecordSeconds % 60).padStart(2, '0')}…`
-                      : `Reply to ${group.user?.username}…`
-                  }
-                  disabled={sendingReply || replyRecording}
-                />
-                <button
-                  type="button"
-                  className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
-                  aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
-                  onClick={() => {
-                    setEmojiPickerOpen((v) => !v);
-                    setReactionPickerOpen(false);
-                    setGifPickerOpen(false);
-                  }}
-                >
-                  {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
-                </button>
-              </div>
-
-              {replyText.trim() ? (
-                <button
-                  type="submit"
-                  disabled={sendingReply}
-                  aria-label="Send reply"
-                  className="story-reply-send ready"
-                >
-                  {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className={`story-icon-btn ${replyRecording ? 'recording' : ''}`}
-                  aria-label={replyRecording ? 'Stop recording' : 'Record a voice reply'}
-                  disabled={sendingReply}
-                  onClick={replyRecording ? stopReplyVoiceRecording : startReplyVoiceRecording}
-                >
-                  {replyRecording ? <Square size={17} strokeWidth={2.2} /> : <Mic size={18} strokeWidth={2} />}
-                </button>
-              )}
-
-              <button
-                type="button"
-                className={`story-icon-btn ${reactionPickerOpen ? 'open' : ''}`}
-                aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
-                disabled={reacting || replyRecording}
-                onClick={() => {
-                  setReactionPickerOpen((v) => !v);
-                  setEmojiPickerOpen(false);
-                  setGifPickerOpen(false);
+            <div className="story-reply-input-wrap">
+              <textarea
+                ref={replyInputRef}
+                rows={1}
+                value={replyText}
+                onChange={(e) => {
+                  setReplyText(e.target.value);
+                  autoGrow(e.target);
                 }}
-              >
-                {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
-              </button>
-
+                onKeyDown={handleReplyKeyDown}
+                placeholder={`Reply to ${group.user?.username}…`}
+                disabled={sendingReply}
+              />
               <button
                 type="button"
-                className={`story-icon-btn story-gif-btn ${gifPickerOpen ? 'open' : ''}`}
-                aria-label={gifPickerOpen ? 'Close GIF picker' : 'Send a GIF'}
-                disabled={sendingReply || replyRecording}
+                className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
+                aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
                 onClick={() => {
-                  setGifPickerOpen((v) => !v);
-                  setEmojiPickerOpen(false);
+                  setEmojiPickerOpen((v) => !v);
                   setReactionPickerOpen(false);
                 }}
               >
-                {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
+                {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
               </button>
             </div>
+
+            <button
+              type="submit"
+              disabled={sendingReply || !replyText.trim()}
+              aria-label="Send reply"
+              className={`story-reply-send ${replyText.trim() ? 'ready' : ''}`}
+            >
+              {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
+            </button>
+
+            <button
+              type="button"
+              className={`story-heart-btn ${reactionPickerOpen ? 'open' : ''}`}
+              aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
+              disabled={reacting}
+              onClick={() => {
+                setReactionPickerOpen((v) => !v);
+                setEmojiPickerOpen(false);
+                setGifPickerOpen(false);
+              }}
+            >
+              {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
+            </button>
+
+            <button
+              type="button"
+              className={`story-heart-btn ${gifPickerOpen ? 'open' : ''}`}
+              aria-label={gifPickerOpen ? 'Close GIF picker' : 'Send a GIF'}
+              disabled={sendingReply}
+              onClick={() => {
+                setGifPickerOpen((v) => !v);
+                setEmojiPickerOpen(false);
+                setReactionPickerOpen(false);
+              }}
+              style={{ fontSize: 11, fontWeight: 800 }}
+            >
+              {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
+            </button>
 
             {emojiPickerOpen && (
               <div className="story-emoji-picker anchored-left">
