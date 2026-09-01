@@ -15348,3 +15348,18 @@ html.qc-screenshot-protection .user-profile-modal {
 }
 
 
+.story-viewer-user-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.story-viewer-user-meta {
+  font-size: 11px;
+  opacity: 0.7;
+  font-weight: 400;
+}
+.story-viewer-media {
+  cursor: pointer;
+  position: relative;
+}

@@ -170,6 +170,31 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
+function formatElapsed(dateStr) {
+  if (!dateStr) return '';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatRemaining(expiresAtStr) {
+  if (!expiresAtStr) return '';
+  const diffMs = new Date(expiresAtStr).getTime() - Date.now();
+  if (diffMs <= 0) return 'Expired';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `${mins}m left`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h left`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h left` : `${days}d left`;
+}
+
 const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError, notifSettings }, ref) {
   const { keyringInSync, keyringNeedsResync, refreshUserFromServer, verifyKeySync } = useAuth();
   const [stories, setStories] = useState([]);
@@ -180,7 +205,6 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
   const inputRef = useRef(null);
-
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -192,6 +216,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       map.get(uid).items.push(story);
     }
     const list = [...map.values()];
+    // Server returns stories newest-first; playback should go oldest → newest.
+    for (const group of list) {
+      group.items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    }
     list.sort((a, b) => {
       const aOwn = String(a.user?.id) === String(currentUser?.id);
       const bOwn = String(b.user?.id) === String(currentUser?.id);
@@ -714,6 +742,14 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, [story.id, isOwn]);
 
+  // Keeps the "Posted … / Expires in …" label ticking for the owner.
+  const [, forceMetaTick] = useState(0);
+  useEffect(() => {
+    if (!isOwn) return undefined;
+    const id = setInterval(() => forceMetaTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, [isOwn]);
+
   useEffect(() => {
     function onKey(e) {
       if (confirmDelete) return;
@@ -1075,10 +1111,51 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     () => (reactionQuery.trim() ? searchEmojis(reactionQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
     [reactionQuery]
   );
-
   function insertEmoji(emoji) {
     setReplyText((t) => t + emoji);
   }
+
+  // Single tap left/right navigates; a second tap within the window is
+  // treated as a double-tap "like" instead, so the pending nav is cancelled.
+  const mediaClickTimerRef = useRef(null);
+
+  function handleMediaClick(e) {
+    if (mediaClickTimerRef.current) {
+      clearTimeout(mediaClickTimerRef.current);
+      mediaClickTimerRef.current = null;
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const tappedRight = e.clientX - rect.left > rect.width / 2;
+
+    mediaClickTimerRef.current = setTimeout(() => {
+      mediaClickTimerRef.current = null;
+      if (tappedRight) {
+        if (index < group.items.length - 1) {
+          setIndex((i) => i + 1);
+        } else {
+          onClose(); // tapped right on the last story — go outside
+        }
+      } else if (index > 0) {
+        setIndex((i) => i - 1);
+      }
+      // tapping left on the first story is a no-op
+    }, 250);
+  }
+
+  function handleMediaDoubleClick() {
+    if (mediaClickTimerRef.current) {
+      clearTimeout(mediaClickTimerRef.current);
+      mediaClickTimerRef.current = null;
+    }
+    if (!isOwn) handleReact('❤️');
+  }
+
+  useEffect(() => {
+    return () => {
+      if (mediaClickTimerRef.current) clearTimeout(mediaClickTimerRef.current);
+    };
+  }, []);
 
   return (
     <div className="story-viewer-overlay" onClick={onClose}>
@@ -1091,7 +1168,14 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               hasAvatar={group.user?.hasAvatar}
               size="sm"
             />
-            <span>{group.user?.username}</span>
+            <div className="story-viewer-user-text">
+              <span>{group.user?.username}</span>
+              {isOwn && (
+                <span className="story-viewer-user-meta">
+                  {formatElapsed(story.createdAt)} · {formatRemaining(story.expiresAt)}
+                </span>
+              )}
+            </div>
             {story.sealed ? <span className="story-sealed-badge">Sealed X5</span> : null}
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
@@ -1103,9 +1187,10 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             <span key={s.id} className={i === index ? 'on' : ''} />
           ))}
         </div>
-        <div
+               <div
           className="story-viewer-media"
-          onDoubleClick={() => !isOwn && handleReact('❤️')}
+          onClick={handleMediaClick}
+          onDoubleClick={handleMediaDoubleClick}
         >
           {blockedReason && (
             <div className="story-decrypt-error" role="alert">
