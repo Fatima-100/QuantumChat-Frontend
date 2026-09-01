@@ -146,6 +146,7 @@ export default function UserProfileModal({
   const username = profile?.username || '';
   const bio = (profile?.bio || '').trim();
   const statusText = (profile?.statusText || '').trim();
+  const profileLocked = Boolean(profile?.profileLocked);
   const presence = formatPresence(profile, online);
   const keyRotated = formatKeyRotated(profile?.keyRotatedAt);
   const isAi = profile?.systemRole === 'quantum_ai' || profile?.isSystemUser;
@@ -400,7 +401,12 @@ export default function UserProfileModal({
 
             <section className="user-profile-section">
               <h3 className="user-profile-section-title">About</h3>
-              {bio ? (
+              {profileLocked ? (
+                <p className="user-profile-locked">
+                  <Lock size={14} strokeWidth={2} aria-hidden="true" />
+                  This profile is locked
+                </p>
+              ) : bio ? (
                 <p className="user-profile-bio">{bio}</p>
               ) : (
                 <p className="user-profile-empty">No bio yet</p>
@@ -419,7 +425,7 @@ export default function UserProfileModal({
                     <span>{presence?.label || 'Hidden'}</span>
                   </span>
                 </li>
-                {profile?.birthday && (
+                {profile?.birthday && !profileLocked && (
                   <li className="user-profile-meta-row">
                     <span className="user-profile-meta-icon" aria-hidden="true">
                       <Cake size={16} strokeWidth={2} />

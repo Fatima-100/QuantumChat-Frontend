@@ -15346,4 +15346,11 @@ html.qc-screenshot-protection .user-profile-modal {
   left: 0.6rem;
 }
 
-
+.user-profile-locked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary, #9a94b8);
+  font-style: italic;
+  font-size: 0.9rem;
+}
