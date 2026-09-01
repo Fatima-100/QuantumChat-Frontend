@@ -8401,6 +8401,28 @@ body.theme-light .theme-switcher-btn:hover {
   animation: fadeSlideUp 200ms ease both;
 }
 
+/* Avatar overlap stack — each avatar sits 8px behind the previous one */
+.typing-avatar-stack {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.typing-avatar-stack .avatar {
+  margin-left: -8px;
+  box-shadow: 0 0 0 2px var(--bg-elevated, #1e293b);
+  transition: transform 150ms ease;
+}
+
+.typing-avatar-stack .avatar:first-child {
+  margin-left: 0;
+}
+
+.typing-avatar-stack .avatar:hover {
+  transform: translateY(-2px);
+}
+
+
 .typing-indicator-text {
   font-weight: 500;
 }
