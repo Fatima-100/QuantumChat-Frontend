@@ -594,11 +594,11 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     }
 
     (async () => {
-      if (story.sealed) {
+       if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
-        const ivB64 = unlocked?.ivB64 || story.contentIv;
+        const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
 
-        if (!unlocked?.keyB64 || !ivB64) {
+        if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
           setBlockedReason('Sealed story — no envelope for your keys');
           return;
         }
@@ -612,7 +612,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         if (abortController.signal.aborted) return;
 
         const cipherBytes = new Uint8Array(res.data);
-        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.keyB64, ivB64);
+        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
 
         if (abortController.signal.aborted) return;
 
