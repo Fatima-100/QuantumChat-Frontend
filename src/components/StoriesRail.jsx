@@ -1,4 +1,4 @@
-import { Eye, Send, Smile, X, Paperclip, Mic, Square } from 'lucide-react';
+import { Eye, Paperclip, Send, Smile, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { getSocket } from '../api/socket.js';
@@ -260,8 +260,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
     if (!isOwn) {
       const mode = notifSettings?.statusNotifications;
-      const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
-      const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
+      const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
+        .map(String)
+        .includes(String(payload.user?.id));
+      const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
       if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
         playNotificationSound(notifSettings);
         showNotificationPopup(
@@ -1437,18 +1439,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
                       style={{ padding: 0, border: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
                       disabled={sendingReply}
                       onClick={async () => {
-  try {
-    const resp = await fetch(gif.url);
-    if (!resp.ok) throw new Error('Could not download GIF');
-    const blob = await resp.blob();
-    const file = new File([blob], `gif-${Date.now()}.gif`, {
-      type: blob.type || 'image/gif',
-    });
-    await sendStoryReplyMedia(file, { mediaKind: 'gif' });
-  } catch (err) {
-    onError?.(err.message || 'Failed to send GIF — try again');
-  }
-}}
+                      try {
+                        const resp = await fetch(gif.url);
+                        if (!resp.ok) throw new Error('Could not download GIF');
+                        const blob = await resp.blob();
+                        const file = new File([blob], `gif-${Date.now()}.gif`, {
+                          type: blob.type || 'image/gif',
+                        });
+                        await sendStoryReplyMedia(file, { mediaKind: 'gif' });
+                      } catch (err) {
+                        onError?.(err.message || 'Failed to send GIF — try again');
+                      }
+                    }}
                     >
                       <img
                         src={gif.previewUrl}

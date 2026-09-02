@@ -1,18 +1,8 @@
+import { Languages } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Languages } from 'lucide-react';
 import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
-import { useAuth } from '../context/AuthContext.jsx';
-import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
-import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
-import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
-import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
-import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n/index.js';
-import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
-import PrivacySelect from './ui/PrivacySelect.jsx';
-import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
-import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
-import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
 import {
   approveDeviceLink,
   buildQrPayload,
@@ -20,18 +10,27 @@ import {
   listDeviceSessions as listLinkedDeviceSessions,
   rejectDeviceLink,
   revokeDeviceSession as revokeDeviceSessionApi,
-  sendDeviceLinkEmail as sendDeviceLinkEmailApi,
-  verifyDeviceLink,
+  sendDeviceLinkEmail as sendDeviceLinkEmailApi
 } from '../api/deviceLink.js';
-import { getSocket, connectSocket } from '../api/socket.js';
-import QRCode from 'qrcode';
+import { connectSocket, getSocket } from '../api/socket.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
+import { APP_ICONS, FUN_THEMES, useTheme } from '../context/ThemeContext.jsx';
+import { getCurrentKeySet, getSessionId } from '../crypto/keyStorage.js';
+import { decryptVaultPayload, encryptVaultPayload } from '../crypto/keyVault.js';
+import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n/index.js';
 import {
   disablePushNotifications,
   enablePushNotifications,
   getNotificationPermission,
 } from '../utils/pushNotifications.js';
-import { unlockAudio, playReceiveSound } from '../utils/sounds.js';
+import { playReceiveSound, unlockAudio } from '../utils/sounds.js';
 import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
+import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
+import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
+import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
+import PrivacySelect from './ui/PrivacySelect.jsx';
+import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -399,12 +398,13 @@ useEffect(() => {
   }
 
   useEffect(() => {
-    if (tab !== 'privacy') return;
-    client
-      .get('/users/friends')
-      .then((res) => setFriendsList(res.data.data || []))
-      .catch(() => setFriendsList([]));
-  }, [tab]);
+  if (tab !== 'privacy' && tab !== 'notifications') return;
+
+  client
+    .get('/users/friends')
+    .then((res) => setFriendsList(res.data.data || []))
+    .catch(() => setFriendsList([]));
+}, [tab]);
 
   useEffect(() => {
     if (tab !== 'security') return undefined;
@@ -469,6 +469,16 @@ useEffect(() => {
       current.add(friendId);
     }
     updatePrivacyField('onlineStatusVisibleTo', [...current]);
+  }
+
+  function toggleStatusNotificationFriend(friendId) {
+    const current = new Set(notifSettings.statusNotificationsSelectedFriends || []);
+    if (current.has(friendId)) {
+      current.delete(friendId);
+    } else {
+      current.add(friendId);
+    }
+    updateNotifField('statusNotificationsSelectedFriends', [...current]);
   }
 
   function toggleStoryViewer(friendId) {
@@ -1666,12 +1676,40 @@ useEffect(() => {
                   value={notifSettings.statusNotifications}
                   options={[
                     { value: 'all', label: 'All Friend Statuses' },
-                    { value: 'favorites_only', label: 'Favorite Friends Only' },
+                    { value: 'selected', label: 'Selected Friends' },
                     { value: 'off', label: 'Off' },
                   ]}
                   disabled={busy}
                   onChange={(v) => updateNotifField('statusNotifications', v)}
                 />
+
+                {notifSettings.statusNotifications === 'selected' && (
+                  <div className="privacy-friend-picker">
+                    <span className="privacy-select-description" style={{ marginBottom: 4 }}>
+                      Friends whose stories notify you:
+                    </span>
+                    {friendsList.length === 0 ? (
+                      <p className="privacy-select-description">No friends added yet.</p>
+                    ) : (
+                      friendsList.map((f) => {
+                        const fId = String(f.id || f._id);
+                        const isChecked = (notifSettings.statusNotificationsSelectedFriends || []).includes(fId);
+                        return (
+                          <label key={fId} className="privacy-friend-item">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={busy}
+                              onChange={() => toggleStatusNotificationFriend(fId)}
+                            />
+                            <UserAvatar userId={f.id} name={f.displayName || f.username} size="xs" />
+                            <span>{f.displayName || f.username}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">Notification Sound</h3>
