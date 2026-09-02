@@ -5344,6 +5344,18 @@ export default function Chat() {
     return isGroupAdmin(activeGroup, user.id);
   }, [activeGroup, user.id]);
 
+  const iAmGroupAdmin = useMemo(
+    () => Boolean(activeGroup && isGroupAdmin(activeGroup, user.id)),
+    [activeGroup, user.id],
+  );
+
+  function mentionBlockReason(m) {
+    const policy = m.privacy?.groupMentions || m.groupMentions || "everyone";
+    if (policy === "nobody") return "mentions_off";
+    if (policy === "admins" && !iAmGroupAdmin) return "admins_only";
+    return null;
+  }
+
   const mentionSuggestions = useMemo(() => {
     if (!mentionOpen || !activeGroup) return [];
     const q = mentionQuery || "";
@@ -5355,7 +5367,8 @@ export default function Chat() {
         return !q || name.startsWith(q);
       })
       .slice(0, 6);
-  }, [mentionOpen, mentionQuery, activeGroup, user.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionOpen, mentionQuery, activeGroup, user.id, iAmGroupAdmin]);
 
   async function submitPollDraft(e) {
     e?.preventDefault?.();
@@ -6480,23 +6493,48 @@ export default function Chat() {
                           gap: 4,
                         }}
                       >
-                        {mentionSuggestions.map((m) => (
-                          <button
-                            key={memberId(m)}
-                            type="button"
-                            className="composer-context-close"
-                            style={{
-                              width: "100%",
-                              justifyContent: "flex-start",
-                              borderRadius: 8,
-                              padding: "6px 10px",
-                              fontSize: 13,
-                            }}
-                            onClick={() => insertMention(m.username)}
-                          >
-                            @{m.username}
-                          </button>
-                        ))}
+                        {mentionSuggestions.map((m) => {
+                          const reason = mentionBlockReason(m);
+                          const blocked = Boolean(reason);
+                          return (
+                            <button
+                              key={memberId(m)}
+                              type="button"
+                              className="composer-context-close"
+                              style={{
+                                width: "100%",
+                                justifyContent: "space-between",
+                                display: "flex",
+                                alignItems: "center",
+                                borderRadius: 8,
+                                padding: "6px 10px",
+                                fontSize: 13,
+                                opacity: blocked ? 0.55 : 1,
+                                cursor: blocked ? "not-allowed" : "pointer",
+                              }}
+                              disabled={blocked}
+                              onClick={() => {
+                                if (blocked) return;
+                                insertMention(m.username);
+                              }}
+                            >
+                              <span>@{m.username}</span>
+                              {blocked && (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "#b45309",
+                                  }}
+                                >
+                                  {reason === "mentions_off"
+                                    ? "Mentions off"
+                                    : "Admins only"}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     <div className="composer-tools-bar qc-composer-tools-slim">
