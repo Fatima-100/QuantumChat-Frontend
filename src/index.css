@@ -15556,3 +15556,36 @@ html.qc-screenshot-protection .user-profile-modal {
   background: #3b82f6;
   color: #fff;
 }
+.member-picker-item.blocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.member-picker-item.blocked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+.member-picker-blocked-tag {
+  font-size: 11px;
+  color: #b45309;
+  font-weight: 600;
+}
+.create-group-blocked-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(180, 83, 9, 0.1);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.create-group-blocked-note-link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
