@@ -5379,9 +5379,9 @@ export default function Chat() {
   );
 
   function mentionBlockReason(m) {
-    const policy = m.privacy?.groupMentions || m.groupMentions || "everyone";
+    const policy = m.privacy?.groupMentions || "everyone";
     if (policy === "nobody") return "mentions_off";
-    if (policy === "admins" && !iAmGroupAdmin) return "admins_only";
+    if (policy === "adminsOnly" && !iAmGroupAdmin) return "admins_only";
     return null;
   }
 
