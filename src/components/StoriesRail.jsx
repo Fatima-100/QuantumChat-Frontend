@@ -1,4 +1,4 @@
-import { Eye, Paperclip, Send, Smile, X } from 'lucide-react';
+import { Eye, Mic, Paperclip, Send, Smile, Square, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import client from '../api/client.js';
 import { getSocket } from '../api/socket.js';
