@@ -516,6 +516,29 @@ export default function Chat() {
   usersRef.current = users;
   groupsRef.current = groups;
 
+  function stopTyping({ emit = true } = {}) {
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = null;
+    const target = presenceTypingRef.current;
+    presenceTypingRef.current = { to: null, groupId: null };
+    if (!emit || (!target.to && !target.groupId)) return;
+    const socket = getSocket();
+    if (!socket?.connected) return;
+    socket.emit(
+      "typing:stop",
+      target.to ? { to: target.to } : { groupId: target.groupId },
+    );
+  }
+
+  function syncTypingPrivacy() {
+    const socket = getSocket();
+    if (socket?.connected) {
+      socket.emit("privacy:typing-indicator", {
+        enabled: userRef.current?.privacy?.typingIndicator !== false,
+      });
+    }
+  }
+
   const resolveActivityActor = useCallback((actorId) => {
     if (actorId == null) return {};
     const normalizedId = String(actorId);
@@ -2117,11 +2140,14 @@ export default function Chat() {
     // Auth may connect the socket before Chat mounts, so the initial
     // presence:snapshot is easy to miss. Re-request whenever listeners attach
     // and again after every reconnect.
-    function requestPresence() {
-      if (socket.connected) socket.emit("presence:request");
-    }
-    socket.on("connect", requestPresence);
-    requestPresence();
+  function requestPresence() {
+  if (socket.connected) {
+    socket.emit("presence:request");
+    syncTypingPrivacy();
+  }
+  }
+  socket.on("connect", requestPresence);
+  requestPresence();
 
     return () => {
       socket.off("message:new", handleIncoming);
@@ -2145,9 +2171,12 @@ export default function Chat() {
       socket.off("friend:removed", handleFriendRemoved);
       socket.off("chat:cleared", handleChatCleared);
       socket.off("user:status", handleUserStatus);
-      socket.off("connect", requestPresence);
-      clearTimeout(typingPeerTimeoutRef.current);
-    };
+  socket.off("connect", requestPresence);
+  stopTyping({ emit: false });
+  clearTimeout(typingPeerTimeoutRef.current);
+  setPeerTyping(false);
+  setGroupTypingUsers([]);
+  };
   }, [
     hasLocalKeyring,
     user,
@@ -3059,9 +3088,13 @@ export default function Chat() {
   }, [params.peerId, params.groupId, conversations, isSettingsRoute, selfPeer, user.id]);
 
   function applyConversationSelection(c, { syncUrl = true } = {}) {
-    if (!c) {
-      setSelected(null);
-      setMessages([]);
+  stopTyping();
+  clearTimeout(typingPeerTimeoutRef.current);
+  setPeerTyping(false);
+  setGroupTypingUsers([]);
+  if (!c) {
+  setSelected(null);
+  setMessages([]);
       if (syncUrl && !isSettingsRoute) navigate("/chat");
       return;
     }
@@ -3979,11 +4012,7 @@ export default function Chat() {
       return;
     }
 
-    const socket = getSocket();
-    if (socket && selected.type === "dm")
-      socket.emit("typing:stop", { to: selected.id });
-    clearTimeout(typingTimeoutRef.current);
-    presenceTypingRef.current = { to: null, groupId: null };
+  stopTyping();
 
     try {
       if (
@@ -6311,10 +6340,11 @@ export default function Chat() {
                         );
                       })
                     )}
-                    <TypingIndicator
-                      isTyping={(peerTyping && selected.type === "dm") || (selected.type === "group" && groupTypingUsers.length > 0)}
-                      typingUsers={selected.type === "group" ? groupTypingUsers : (peerTyping ? [{ id: resolveDmPeer(selected)?.id || selected.id, username: selected.title, hasAvatar: resolveDmPeer(selected)?.hasAvatar }] : [])}
-                    />
+  <TypingIndicator
+  isTyping={peerTyping && selected.type === "dm"}
+  username={selected.title}
+  usernames={selected.type === "group" ? groupTypingUsers : []}
+  />
                     <div ref={bottomRef} />
                   </motion.div>
                 </AnimatePresence>
