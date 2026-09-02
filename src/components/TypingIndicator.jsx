@@ -4,7 +4,10 @@ import UserAvatar from './UserAvatar.jsx';
  * TypingIndicator — bouncing dots + name(s) + overlapping avatar stack.
  */
 function TypingIndicator({ isTyping, username, usernames = [] }) {
-  const names = usernames.filter(Boolean);
+  const activeUsers = usernames.filter(Boolean);
+  const names = activeUsers.map((user) =>
+    typeof user === "string" ? user : user.username,
+  ).filter(Boolean);
   const label = names.length
     ? `${names.join(", ")} ${names.length === 1 ? "is" : "are"} typing`
     : username
@@ -16,16 +19,16 @@ function TypingIndicator({ isTyping, username, usernames = [] }) {
   let text = 'Someone is typing';
   let avatars = null;
 
-  if (typingUsers.length > 0) {
-    if (typingUsers.length === 1) {
-      text = `${typingUsers[0].username} is typing`;
-    } else if (typingUsers.length === 2) {
-      text = `${typingUsers[0].username} and ${typingUsers[1].username} are typing`;
+  if (activeUsers.length > 0) {
+    if (activeUsers.length === 1) {
+      text = `${names[0]} is typing`;
+    } else if (activeUsers.length === 2) {
+      text = `${names[0]} and ${names[1]} are typing`;
     } else {
-      text = `${typingUsers[0].username}, ${typingUsers[1].username} and ${typingUsers.length - 2} others are typing`;
+      text = `${names[0]}, ${names[1]} and ${activeUsers.length - 2} others are typing`;
     }
 
-    const shown = typingUsers.slice(0, 3);
+    const shown = activeUsers.slice(0, 3);
     avatars = (
       <div className="typing-avatar-stack">
         {shown.map((u, i) => (

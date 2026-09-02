@@ -6330,7 +6330,7 @@ export default function Chat() {
   <TypingIndicator
   isTyping={peerTyping && selected.type === "dm"}
   username={selected.title}
-  usernames={selected.type === "group" ? groupTypingNames : []}
+  usernames={selected.type === "group" ? groupTypingUsers : []}
   />
                     <div ref={bottomRef} />
                   </motion.div>
