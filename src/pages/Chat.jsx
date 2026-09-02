@@ -2175,7 +2175,7 @@ export default function Chat() {
   stopTyping({ emit: false });
   clearTimeout(typingPeerTimeoutRef.current);
   setPeerTyping(false);
-  setGroupTypingNames([]);
+  setGroupTypingUsers([]);
   };
   }, [
     hasLocalKeyring,
@@ -3091,7 +3091,7 @@ export default function Chat() {
   stopTyping();
   clearTimeout(typingPeerTimeoutRef.current);
   setPeerTyping(false);
-  setGroupTypingNames([]);
+  setGroupTypingUsers([]);
   if (!c) {
   setSelected(null);
   setMessages([]);
