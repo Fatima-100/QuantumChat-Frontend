@@ -1899,7 +1899,7 @@ export default function Chat() {
       );
     }
 
-    function handleMentionNew(payload = {}) {
+     function handleMentionNew(payload = {}) {
       const message = payload?.message || payload;
       const from = message.from || message.senderId || payload.from;
       const messageId = message.id || message._id || message.messageId || payload.messageId;
@@ -1915,11 +1915,52 @@ export default function Chat() {
           conversationKey: groupId ? `group:${groupId}` : undefined,
         });
       }
-      const username =
-        String(from) === String(user.id)
-          ? user.username
-          : users.find((u) => String(u.id) === String(from))?.username;
-      showToast(`${username || "Someone"} mentioned you`);
+
+      const isSelf = String(from) === String(user.id);
+      const username = isSelf
+        ? user.username
+        : users.find((u) => String(u.id) === String(from))?.username;
+      const groupName = groupId
+        ? groups.find((g) => String(g.id) === String(groupId))?.name
+        : null;
+
+      const convKey = groupId ? conversationKeyForGroup(groupId) : null;
+      const muted = convKey ? isChatMuted(user.id, convKey) : false;
+      const current = selectedRef.current;
+      const isCurrent =
+        groupId && current?.type === "group" && String(current.id) === String(groupId);
+
+      // Mentions always alert unless the chat itself is muted — a mention
+      // is a direct call-out, so it shouldn't be silently downgraded to a
+      // toast the way a routine group message can be.
+      if (isSelf || muted) {
+        showToast(`${username || "Someone"} mentioned you`);
+        return;
+      }
+
+      playNotificationSound(notifSettings);
+      showNotificationPopup(
+        {
+          title: groupName || "Group mention",
+          body: `${username || "Someone"} mentioned you`,
+          tag: groupId ? `group:${groupId}` : undefined,
+          data: {
+            url: groupId ? `/chat/g/${groupId}` : undefined,
+            kind: "group",
+          },
+        },
+        notifSettings,
+        () => {
+          if (groupId) {
+            handleSelectConversation({ key: convKey, type: "group", id: groupId });
+          }
+          if (messageId) handleSearchResult(messageId);
+        },
+      );
+
+      if (!isCurrent) {
+        showToast(`${username || "Someone"} mentioned you in ${groupName || "a group"}`);
+      }
     }
 
     function handleTypingStart({ from, groupId } = {}) {
@@ -4101,7 +4142,26 @@ export default function Chat() {
         const plaintext = asAnnouncement
           ? encodeAnnouncement(bodyText)
           : bodyText;
-        const mentionedUserIds = extractMentions(bodyText, group.members || []);
+               const allMentionedUserIds = extractMentions(bodyText, group.members || []);
+        const mentionedUserIds = allMentionedUserIds.filter((mid) => {
+          const member = (group.members || []).find((m) => String(memberId(m)) === String(mid));
+          return member ? !mentionBlockReason(member) : true;
+        });
+        if (mentionedUserIds.length < allMentionedUserIds.length) {
+          const blockedNames = allMentionedUserIds
+            .filter((mid) => !mentionedUserIds.includes(mid))
+            .map((mid) => {
+              const member = (group.members || []).find((m) => String(memberId(m)) === String(mid));
+              return member?.username;
+            })
+            .filter(Boolean);
+          if (blockedNames.length) {
+            showToast(
+              `${blockedNames.join(", ")} won't be notified — mentions are turned off for them`,
+              "info",
+            );
+          }
+        }
         const kind = asAnnouncement ? "announcement" : "text";
         const tempId = `tmp-${crypto.randomUUID()}`;
         const replySnapshot = replyTo;
