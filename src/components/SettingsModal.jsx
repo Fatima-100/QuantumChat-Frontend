@@ -942,363 +942,357 @@ useEffect(() => {
             </div>
           )}
           {tab === 'profile' && (
-            <section className="settings-section settings-profile-layout">
-              {/* Left Column: Identity, Language, Session */}
-              <div className="settings-profile-col">
-                <div className="settings-identity">
-                  <div className="settings-avatar-stack">
-                    <UserAvatar
-                      userId={user?.id}
-                      name={shownName}
-                      hasAvatar={user?.hasAvatar}
-                      size="lg"
-                    />
+            <section className="settings-section">
+              <div className="settings-identity">
+                <div className="settings-avatar-stack">
+                  <UserAvatar
+                    userId={user?.id}
+                    name={shownName}
+                    hasAvatar={user?.hasAvatar}
+                    size="lg"
+                  />
+                  <button
+                    type="button"
+                    className="settings-avatar-edit"
+                    disabled={avatarBusy}
+                    onClick={() => avatarInputRef.current?.click()}
+                    aria-label={t('settings.profile.changeAvatar', 'Change photo')}
+                  >
+                    {avatarBusy ? '…' : '✎'}
+                  </button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    hidden
+                    onChange={handleAvatarChange}
+                  />
+                </div>
+                <div className="settings-account-meta">
+                  <span className="settings-account-name">{shownName}</span>
+                  <span className="settings-account-email">{user?.email}</span>
+                  <div className="settings-status-row">
+                    {user?.emailVerified ? (
+                      <span className="settings-badge settings-badge-ok">{t('settings.profile.emailVerified', 'Verified')}</span>
+                    ) : (
+                      <span className="settings-badge settings-badge-warn">Unverified email</span>
+                    )}
+                  </div>
+                  <div className="settings-photo-actions">
                     <button
                       type="button"
-                      className="settings-avatar-edit"
+                      className="settings-btn ghost"
                       disabled={avatarBusy}
                       onClick={() => avatarInputRef.current?.click()}
-                      aria-label={t('settings.profile.changeAvatar', 'Change photo')}
                     >
-                      {avatarBusy ? '…' : '✎'}
+                      {avatarBusy ? t('common.loading', 'Uploading…') : t('settings.profile.changeAvatar', 'Change photo')}
                     </button>
-                    <input
-                      ref={avatarInputRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      hidden
-                      onChange={handleAvatarChange}
-                    />
-                  </div>
-                  <div className="settings-account-meta">
-                    <span className="settings-account-name">{shownName}</span>
-                    <span className="settings-account-email">{user?.email}</span>
-                    <div className="settings-status-row">
-                      {user?.emailVerified ? (
-                        <span className="settings-badge settings-badge-ok">{t('settings.profile.emailVerified', 'Verified')}</span>
-                      ) : (
-                        <span className="settings-badge settings-badge-warn">Unverified email</span>
-                      )}
-                    </div>
-                    <div className="settings-photo-actions">
-                      <button
-                        type="button"
-                        className="settings-btn ghost"
-                        disabled={avatarBusy}
-                        onClick={() => avatarInputRef.current?.click()}
-                      >
-                        {avatarBusy ? t('common.loading', 'Uploading…') : t('settings.profile.changeAvatar', 'Change photo')}
+                    {user?.hasAvatar && (
+                      <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
+                        {t('settings.profile.removeAvatar', 'Remove')}
                       </button>
-                      {user?.hasAvatar && (
-                        <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
-                          {t('settings.profile.removeAvatar', 'Remove')}
-                        </button>
-                      )}
-                    </div>
+                    )}
                   </div>
-                </div>
-
-                {!user?.emailVerified && (
-                  <div className="settings-verify-banner">
-                    <div>
-                      <strong>Confirm your email</strong>
-                      <p>Verify to unlock full account recovery and security alerts.</p>
-                    </div>
-                    <button type="button" className="settings-btn text" disabled={busy} onClick={resendVerification}>
-                      {t('settings.profile.resendVerifyEmail', 'Resend link')}
-                    </button>
-                  </div>
-                )}
-
-                {/* Language Selector Fieldset */}
-                <div className="settings-fieldset">
-                  <h3 className="settings-section-title">{t('settings.language.title', 'Language & Region')}</h3>
-                  <p className="settings-section-copy">{t('settings.language.subtitle', 'Choose your interface language')}</p>
-                  <div className="settings-lang-grid" role="radiogroup" aria-label={t('settings.language.selectLanguage', 'Interface Language')}>
-                    {SUPPORTED_LANGUAGES.map((lang) => {
-                      const isActive = (activeLang || i18n.language || 'en') === lang.code;
-                      return (
-                        <button
-                          key={lang.code}
-                          type="button"
-                          role="radio"
-                          aria-checked={isActive}
-                          className={`settings-lang-card ${isActive ? 'active' : ''}`}
-                          onClick={() => handleLanguageChange(lang.code)}
-                        >
-                          <span className="settings-lang-native">{lang.nativeName}</span>
-                          <span className="settings-lang-english">{lang.name}</span>
-                          {isActive && <span className="settings-lang-check">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="settings-field-hint">
-                    {t('settings.language.languageHint', 'Changes apply immediately across the entire app.')}
-                  </p>
-                </div>
-
-                <div className="settings-fieldset settings-fieldset-danger">
-                  <h3 className="settings-section-title">{t('settings.session.title', 'Session')}</h3>
-                  <p className="settings-section-copy">
-                    {t('settings.session.logoutDesc', 'Sign out on this browser. Your encryption keys stay on this device for the next login.')}
-                  </p>
-                  <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
-                    {t('settings.session.logoutButton', 'Log out')}
-                  </button>
                 </div>
               </div>
 
-              {/* Right Column: About You, Appearance */}
-              <div className="settings-profile-col">
-                <div className="settings-fieldset">
-                  <h3 className="settings-section-title">{t('settings.profile.aboutYou', 'About you')}</h3>
-                  <div className="settings-field-row">
-                    <label className="settings-field">
-                      <span>{t('settings.profile.username', 'Username')}</span>
-                      <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} autoComplete="username" />
-                    </label>
-                    <label className="settings-field">
-                      <span>{t('settings.profile.displayName', 'Display name')}</span>
-                      <input
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        maxLength={60}
-                        placeholder="Shown to others"
-                      />
-                    </label>
+              {!user?.emailVerified && (
+                <div className="settings-verify-banner">
+                  <div>
+                    <strong>Confirm your email</strong>
+                    <p>Verify to unlock full account recovery and security alerts.</p>
                   </div>
-
-                  <label className="settings-field">
-                    <span>{t('settings.profile.bio', 'Bio')}</span>
-                    <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder={t('settings.profile.bioPlaceholder', 'A short line about you')} />
-                  </label>
-
-                  <div className="settings-field-row">
-                    <label className="settings-field">
-                      <span>{t('settings.profile.status', 'Status')}</span>
-                      <input
-                        value={statusText}
-                        onChange={(e) => setStatusText(e.target.value)}
-                        maxLength={100}
-                        placeholder={t('settings.profile.statusPlaceholder', 'e.g. Busy studying, In a meeting')}
-                      />
-                      <p className="settings-section-copy">
-                        {t('settings.profile.statusHint', 'A custom status shown on your profile. Separate from your online state.')}
-                        {statusText.trim() ? (
-                          <>
-                            {' '}
-                            <button
-                              type="button"
-                              className="settings-link-btn"
-                              onClick={() => setStatusText('')}
-                            >
-                              {t('settings.profile.clearStatus', 'Clear status')}
-                            </button>
-                          </>
-                        ) : null}
-                      </p>
-                    </label>
-                    <label className="settings-field">
-                      <span>{t('settings.profile.phone', 'Phone')}</span>
-                      <input
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        maxLength={32}
-                        placeholder="+1 555 0100"
-                        inputMode="tel"
-                      />
-                      <p className="settings-section-copy">
-                        {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
-                      </p>
-                    </label>
-                  </div>
-
-                  <div className="settings-field-row">
-                    <label className="settings-field">
-                      <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
-                      <input
-                        type="date"
-                        value={dateOfBirth}
-                        max={new Date().toISOString().slice(0, 10)}
-                        onChange={(e) => setDateOfBirth(e.target.value)}
-                      />
-                      <p className="settings-section-copy">
-                        {t(
-                          'settings.profile.dateOfBirthHint',
-                          'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
-                        )}
-                      </p>
-                    </label>
-                    <label className="settings-field">
-                      <span>{t('settings.profile.timezone', 'Timezone')}</span>
-                      <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                        {timezoneOptions.map((tz) => (
-                          <option key={tz} value={tz}>
-                            {tz.replace(/_/g, ' ')}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="settings-section-copy">
-                        {t(
-                          'settings.profile.timezoneHint',
-                          'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
-                        )}
-                      </p>
-                    </label>
-                  </div>
-
-                  <div className="settings-transliterations">
-                    <div className="settings-subhead">
-                      <Languages size={17} strokeWidth={2} className="settings-subhead-icon" />
-                      <span>
-                        {t('settings.transliteration.title', 'Script Names & Transliteration')}
-                      </span>
-                    </div>
-                    <p className="settings-section-copy">
-                      {t('settings.transliteration.hint', 'When users switch their app to non-Latin scripts, your name appears in their native alphabet. You can customize your name spelling for each script below:')}
-                    </p>
-                    
-                    <div className="settings-transliteration-grid">
-                      <label className="settings-field">
-                        <span>Urdu · اردو</span>
-                        <input
-                          dir="rtl"
-                          value={transliteratedNames.ur || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ur: e.target.value }))}
-                          placeholder="زہرا"
-                          maxLength={60}
-                        />
-                      </label>
-                      <label className="settings-field">
-                        <span>Arabic · العربية</span>
-                        <input
-                          dir="rtl"
-                          value={transliteratedNames.ar || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ar: e.target.value }))}
-                          placeholder="زهراء"
-                          maxLength={60}
-                        />
-                      </label>
-                      <label className="settings-field">
-                        <span>Persian · فارسی</span>
-                        <input
-                          dir="rtl"
-                          value={transliteratedNames.fa || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, fa: e.target.value }))}
-                          placeholder="زهرا"
-                          maxLength={60}
-                        />
-                      </label>
-                      <label className="settings-field">
-                        <span>Hindi · हिन्दी</span>
-                        <input
-                          dir="ltr"
-                          value={transliteratedNames.hi || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, hi: e.target.value }))}
-                          placeholder="ज़हरा"
-                          maxLength={60}
-                        />
-                      </label>
-                      <label className="settings-field">
-                        <span>Chinese · 简体中文</span>
-                        <input
-                          dir="ltr"
-                          value={transliteratedNames.zh || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, zh: e.target.value }))}
-                          placeholder="扎赫拉"
-                          maxLength={60}
-                        />
-                      </label>
-                      <label className="settings-field">
-                        <span>Russian · Русский</span>
-                        <input
-                          dir="ltr"
-                          value={transliteratedNames.ru || ''}
-                          onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ru: e.target.value }))}
-                          placeholder="Захра"
-                          maxLength={60}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
-                    {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
+                  <button type="button" className="settings-btn text" disabled={busy} onClick={resendVerification}>
+                    {t('settings.profile.resendVerifyEmail', 'Resend link')}
                   </button>
                 </div>
+              )}
 
-                <div className="settings-fieldset settings-appearance">
-                  <h3 className="settings-section-title">{t('settings.appearance.title', 'Appearance')}</h3>
+              {/* Language Selector Fieldset */}
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">{t('settings.language.title', 'Language & Region')}</h3>
+                <p className="settings-section-copy">{t('settings.language.subtitle', 'Choose your interface language')}</p>
+                <div className="settings-lang-grid" role="radiogroup" aria-label={t('settings.language.selectLanguage', 'Interface Language')}>
+                  {SUPPORTED_LANGUAGES.map((lang) => {
+                    const isActive = (activeLang || i18n.language || 'en') === lang.code;
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        role="radio"
+                        aria-checked={isActive}
+                        className={`settings-lang-card ${isActive ? 'active' : ''}`}
+                        onClick={() => handleLanguageChange(lang.code)}
+                      >
+                        <span className="settings-lang-native">{lang.nativeName}</span>
+                        <span className="settings-lang-english">{lang.name}</span>
+                        {isActive && <span className="settings-lang-check">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="settings-field-hint">
+                  {t('settings.language.languageHint', 'Changes apply immediately across the entire app.')}
+                </p>
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">{t('settings.profile.aboutYou', 'About you')}</h3>
+                <div className="settings-field-row">
+                  <label className="settings-field">
+                    <span>{t('settings.profile.username', 'Username')}</span>
+                    <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} autoComplete="username" />
+                  </label>
+                  <label className="settings-field">
+                    <span>{t('settings.profile.displayName', 'Display name')}</span>
+                    <input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      maxLength={60}
+                      placeholder="Shown to others"
+                    />
+                  </label>
+                </div>
+
+                <label className="settings-field">
+                  <span>{t('settings.profile.bio', 'Bio')}</span>
+                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder={t('settings.profile.bioPlaceholder', 'A short line about you')} />
+                </label>
+
+                <div className="settings-field-row">
+                  <label className="settings-field">
+                    <span>{t('settings.profile.status', 'Status')}</span>
+                    <input
+                      value={statusText}
+                      onChange={(e) => setStatusText(e.target.value)}
+                      maxLength={100}
+                      placeholder={t('settings.profile.statusPlaceholder', 'e.g. Busy studying, In a meeting')}
+                    />
+                    <p className="settings-section-copy">
+                      {t('settings.profile.statusHint', 'A custom status shown on your profile. Separate from your online state.')}
+                      {statusText.trim() ? (
+                        <>
+                          {' '}
+                          <button
+                            type="button"
+                            className="settings-link-btn"
+                            onClick={() => setStatusText('')}
+                          >
+                            {t('settings.profile.clearStatus', 'Clear status')}
+                          </button>
+                        </>
+                      ) : null}
+                    </p>
+                  </label>
+                  <label className="settings-field">
+                    <span>{t('settings.profile.phone', 'Phone')}</span>
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      maxLength={32}
+                      placeholder="+1 555 0100"
+                      inputMode="tel"
+                    />
+                    <p className="settings-section-copy">
+                      {t('settings.profile.phoneHint', 'Friends can find you by this number. Never shown on your public profile.')}
+                    </p>
+                  </label>
+                </div>
+
+                <div className="settings-field-row">
+                  <label className="settings-field">
+                    <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
+                    <input
+                      type="date"
+                      value={dateOfBirth}
+                      max={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                    />
+                    <p className="settings-section-copy">
+                      {t(
+                        'settings.profile.dateOfBirthHint',
+                        'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
+                      )}
+                    </p>
+                  </label>
+                  <label className="settings-field">
+                    <span>{t('settings.profile.timezone', 'Timezone')}</span>
+                    <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                      {timezoneOptions.map((tz) => (
+                        <option key={tz} value={tz}>
+                          {tz.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-section-copy">
+                      {t(
+                        'settings.profile.timezoneHint',
+                        'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
+                      )}
+                    </p>
+                  </label>
+                </div>
+
+                <div className="settings-transliterations">
+                  <div className="settings-subhead">
+                    <Languages size={17} strokeWidth={2} className="settings-subhead-icon" />
+                    <span>
+                      {t('settings.transliteration.title', 'Script Names & Transliteration')}
+                    </span>
+                  </div>
                   <p className="settings-section-copy">
-                    {t('settings.appearance.currentLook', 'Current look')}: <strong>{THEME_LABELS[theme] || theme}</strong>
+                    {t('settings.transliteration.hint', 'When users switch their app to non-Latin scripts, your name appears in their native alphabet. You can customize your name spelling for each script below:')}
                   </p>
+                  
+                  <div className="settings-transliteration-grid">
+                    <label className="settings-field">
+                      <span>Urdu · اردو</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.ur || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ur: e.target.value }))}
+                        placeholder="زہرا"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Arabic · العربية</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.ar || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ar: e.target.value }))}
+                        placeholder="زهراء"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Persian · فارسی</span>
+                      <input
+                        dir="rtl"
+                        value={transliteratedNames.fa || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, fa: e.target.value }))}
+                        placeholder="زهرا"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Hindi · हिन्दी</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.hi || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, hi: e.target.value }))}
+                        placeholder="ज़हरा"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Chinese · 简体中文</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.zh || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, zh: e.target.value }))}
+                        placeholder="扎赫拉"
+                        maxLength={60}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Russian · Русский</span>
+                      <input
+                        dir="ltr"
+                        value={transliteratedNames.ru || ''}
+                        onChange={(e) => setTransliteratedNames(prev => ({ ...prev, ru: e.target.value }))}
+                        placeholder="Захра"
+                        maxLength={60}
+                      />
+                    </label>
+                  </div>
+                </div>
 
-                  <div className="settings-skin-card settings-skin-card--mode">
+                <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
+                  {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
+                </button>
+              </div>
+
+              <div className="settings-fieldset settings-appearance">
+                <h3 className="settings-section-title">{t('settings.appearance.title', 'Appearance')}</h3>
+                <p className="settings-section-copy">
+                  {t('settings.appearance.currentLook', 'Current look')}: <strong>{THEME_LABELS[theme] || theme}</strong>
+                </p>
+
+                <div className="settings-skin-card settings-skin-card--mode">
+                  <header className="settings-skin-card-head">
+                    <div>
+                      <h4 className="settings-skin-card-title">{t('settings.appearance.displayMode', 'Display mode')}</h4>
+                      <p className="settings-skin-card-hint">{t('settings.appearance.modeHint', 'Everyday light, dark, or eyecare')}</p>
+                    </div>
+                  </header>
+                  <div className="settings-skin-card-body settings-skin-card-body--mode">
+                    <ThemeSwitcher />
+                  </div>
+                </div>
+
+                <div className="settings-skin-split">
+                  <div className="settings-skin-card settings-skin-card--themes">
                     <header className="settings-skin-card-head">
                       <div>
-                        <h4 className="settings-skin-card-title">{t('settings.appearance.displayMode', 'Display mode')}</h4>
-                        <p className="settings-skin-card-hint">{t('settings.appearance.modeHint', 'Everyday light, dark, or eyecare')}</p>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.dreamyThemes', 'Dreamy themes')}</h4>
+                        <p className="settings-skin-card-hint">
+                          {FUN_THEMES.includes(theme)
+                            ? `${THEME_LABELS[theme] || theme} is active`
+                            : t('settings.appearance.pickDecorativeSkin', 'Pick a decorative skin')}
+                        </p>
                       </div>
+                      <span className="settings-skin-badge" aria-hidden="true">FX</span>
                     </header>
-                    <div className="settings-skin-card-body settings-skin-card-body--mode">
-                      <ThemeSwitcher />
+                    <div className="settings-skin-card-body">
+                      <FunThemeSwitcher />
                     </div>
                   </div>
 
-                  <div className="settings-skin-split">
-                    <div className="settings-skin-card settings-skin-card--themes">
-                      <header className="settings-skin-card-head">
-                        <div>
-                          <h4 className="settings-skin-card-title">{t('settings.appearance.dreamyThemes', 'Dreamy themes')}</h4>
-                          <p className="settings-skin-card-hint">
-                            {FUN_THEMES.includes(theme)
-                              ? `${THEME_LABELS[theme] || theme} is active`
-                              : t('settings.appearance.pickDecorativeSkin', 'Pick a decorative skin')}
-                          </p>
-                        </div>
-                        <span className="settings-skin-badge" aria-hidden="true">FX</span>
-                      </header>
-                      <div className="settings-skin-card-body">
-                        <FunThemeSwitcher />
+                  <div className="settings-skin-card settings-skin-card--icons">
+                    <header className="settings-skin-card-head">
+                      <div>
+                        <h4 className="settings-skin-card-title">{t('settings.appearance.appIcon', 'App icon')}</h4>
+                        <p className="settings-skin-card-hint">{t('settings.appearance.appIconHint', 'Browser tab & shortcut color')}</p>
                       </div>
-                    </div>
-
-                    <div className="settings-skin-card settings-skin-card--icons">
-                      <header className="settings-skin-card-head">
-                        <div>
-                          <h4 className="settings-skin-card-title">{t('settings.appearance.appIcon', 'App icon')}</h4>
-                          <p className="settings-skin-card-hint">{t('settings.appearance.appIconHint', 'Browser tab & shortcut color')}</p>
-                        </div>
-                        <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
-                      </header>
-                      <div className="settings-skin-card-body">
-                        <div className="settings-icon-grid" role="list">
-                          {APP_ICONS.map((icon) => (
-                            <button
-                              key={icon.id}
-                              type="button"
-                              className={`settings-icon-pick ${appIcon === icon.id ? 'active' : ''}`}
-                              onClick={() => setAppIcon(icon.id)}
-                              aria-pressed={appIcon === icon.id}
-                              aria-label={icon.label}
-                              title={icon.label}
-                            >
-                              <span
-                                className="settings-icon-ring"
-                                style={{ background: icon.swatch }}
-                                aria-hidden="true"
-                              />
-                              <img src={icon.file} alt="" />
-                              {appIcon === icon.id ? <span className="settings-icon-check">✓</span> : null}
-                              <span className="settings-icon-name">{icon.label}</span>
-                            </button>
-                          ))}
-                        </div>
+                      <span className="settings-skin-badge settings-skin-badge--soft" aria-hidden="true">Icon</span>
+                    </header>
+                    <div className="settings-skin-card-body">
+                      <div className="settings-icon-grid" role="list">
+                        {APP_ICONS.map((icon) => (
+                          <button
+                            key={icon.id}
+                            type="button"
+                            className={`settings-icon-pick ${appIcon === icon.id ? 'active' : ''}`}
+                            onClick={() => setAppIcon(icon.id)}
+                            aria-pressed={appIcon === icon.id}
+                            aria-label={icon.label}
+                            title={icon.label}
+                          >
+                            <span
+                              className="settings-icon-ring"
+                              style={{ background: icon.swatch }}
+                              aria-hidden="true"
+                            />
+                            <img src={icon.file} alt="" />
+                            {appIcon === icon.id ? <span className="settings-icon-check">✓</span> : null}
+                            <span className="settings-icon-name">{icon.label}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="settings-fieldset settings-fieldset-danger">
+                <h3 className="settings-section-title">{t('settings.session.title', 'Session')}</h3>
+                <p className="settings-section-copy">
+                  {t('settings.session.logoutDesc', 'Sign out on this browser. Your encryption keys stay on this device for the next login.')}
+                </p>
+                <button type="button" className="settings-btn ghost" onClick={() => onLogout?.()}>
+                  {t('settings.session.logoutButton', 'Log out')}
+                </button>
               </div>
             </section>
           )}
