@@ -1538,6 +1538,13 @@ export default function Chat() {
         }
       }
 
+      // Always acknowledge delivery as soon as the client receives the message
+      // over the socket, regardless of whether this conversation is currently open.
+      if (String(raw.from) !== String(user.id)) {
+        const socket = getSocket();
+        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
+      }
+
       // Only mutate the open thread for the active conversation.
       if (!isCurrent) return;
 
@@ -1600,7 +1607,6 @@ export default function Chat() {
 
       if (String(raw.from) !== String(user.id)) {
         const socket = getSocket();
-        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
 
         const rawGroupId =
           raw.group && typeof raw.group === "object"
