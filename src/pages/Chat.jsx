@@ -42,6 +42,7 @@ import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
+import ClearChatModal from "../components/ClearChatModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
@@ -122,6 +123,7 @@ import {
   unhideChat,
 } from "../utils/hiddenChats.js";
 import {
+  clearAllStarred,
   deleteMessageForMe,
   getDeletedForMeIds,
   getPinnedIds,
@@ -286,6 +288,8 @@ export default function Chat() {
   );
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [clearChatOpen, setClearChatOpen] = useState(false);
+  const [clearChatBusy, setClearChatBusy] = useState(false);
   const [activityTick, setActivityTick] = useState(0);
   const [friendCandidates, setFriendCandidates] = useState([]);
   const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
@@ -3671,48 +3675,57 @@ export default function Chat() {
       setConfirmBusy(false);
     }
   }
-
   function handleClearChat() {
     if (!selected) return;
-    setConfirmDialog({
-      type: "clear-chat",
-      selectionType: selected.type,
-      selectionId: selected.id,
-      title: "Clear this chat?",
-      message:
-        "Previous messages will be removed from this chat for you and can’t be easily undone. The conversation stays in your list, and you can still send and receive new messages.",
-      confirmLabel: "Clear chat",
-      danger: true,
-    });
+    setClearChatOpen(true);
   }
 
-  async function executeClearChat(dialog) {
-    const type = dialog?.selectionType;
-    const id = dialog?.selectionId;
-    if (!type || !id) {
-      setConfirmDialog(null);
-      return;
-    }
+  async function executeClearChatScoped(scopes) {
+    if (!selected) return;
+    const type = selected.type;
+    const id = selected.id;
+    const clearingStarred = scopes.includes("starred");
+    const serverScopes = scopes.filter((s) => s !== "starred");
+
     try {
-      setConfirmBusy(true);
-      const payload = type === "group" ? { groupId: id } : { peerId: id };
-      const { data } = await client.post("/users/me/clear-chat", payload);
-      // Server confirmed — persist the updated watermarks to the session, then
-      // (and only then) empty the visible thread. No optimistic clear: if the
-      // request had failed, the existing messages stay intact. Guard on the
-      // still-open conversation so a fast switch doesn't blank a different chat.
-      if (data?.data) updateSessionUser(data.data);
+      setClearChatBusy(true);
+
+      if (serverScopes.length) {
+        const payload =
+          type === "group"
+            ? { groupId: id, scopes: serverScopes }
+            : { peerId: id, scopes: serverScopes };
+        const { data } = await client.post("/users/me/clear-chat", payload);
+        // Server confirmed — persist the updated watermarks to the session.
+        // No optimistic clear: if the request had failed, existing messages
+        // stay intact.
+        if (data?.data) updateSessionUser(data.data);
+      }
+
+      if (clearingStarred) {
+        setStarredIds(clearAllStarred(user.id));
+      }
+
       const current = selectedRef.current;
       if (current && current.type === type && String(current.id) === String(id)) {
-        setMessages([]);
+        // Re-fetch rather than blanking outright — a scoped clear (e.g. just
+        // photos) should still leave the remaining messages visible.
+        setLoadingMessages(true);
+        const endpoint = type === "group" ? `/groups/${id}/messages` : `/messages/${id}`;
+        try {
+          const res = await client.get(endpoint, { params: { limit: 80, markRead: 0 } });
+          setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
+        } finally {
+          setLoadingMessages(false);
+        }
       }
+
       showToast("Chat cleared", "success");
-      setConfirmDialog(null);
+      setClearChatOpen(false);
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to clear chat", "error");
-      setConfirmDialog(null);
     } finally {
-      setConfirmBusy(false);
+      setClearChatBusy(false);
     }
   }
   async function handleUnblockUser(peerId) {
@@ -5160,10 +5173,6 @@ export default function Chat() {
     }
     if (confirmDialog.type === "delete") {
       await executeDeleteMessage(confirmDialog.messageId);
-      return;
-    }
-    if (confirmDialog.type === "clear-chat") {
-      await executeClearChat(confirmDialog);
       return;
     }
     if (confirmDialog.type === "regenerate-keys") {
@@ -6768,6 +6777,16 @@ export default function Chat() {
         busy={confirmBusy}
         onCancel={closeConfirmDialog}
         onConfirm={handleConfirmDialog}
+      />
+
+      <ClearChatModal
+        open={clearChatOpen && Boolean(selected)}
+        busy={clearChatBusy}
+        hasStarredInChat={
+          selected ? getStarredEntries(user.id).some((e) => e.conversationKey === selected.key) : false
+        }
+        onCancel={() => !clearChatBusy && setClearChatOpen(false)}
+        onConfirm={executeClearChatScoped}
       />
 
       <CallOverlay
