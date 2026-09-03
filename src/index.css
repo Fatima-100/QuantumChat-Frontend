@@ -418,7 +418,8 @@
   --accent-cyan: #22d3ee;
   --accent-link: #22d3ee;
   --accent-link-hover: #67e8f9;
-  --read-receipt: #06b6d4;
+  --read-receipt: #93c5fd;
+  --read-receipt-mine: #93c5fd;
   --accent-muted: rgba(20, 184, 166, 0.16);
   --accent-solid: #14b8a6;
   --accent-gradient: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
@@ -9051,14 +9052,14 @@ body.theme-eyecare .drag-drop-overlay,
 
 .read-receipt.sent { color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 42%, transparent); }
 .read-receipt.delivered { color: color-mix(in srgb, var(--bubble-mine-fg, #fff) 65%, transparent); }
-.read-receipt.read { color: var(--read-receipt, var(--accent-secondary, #06b6d4)); }
+.read-receipt.read { color: var(--read-receipt, #93c5fd); }
 
 .message-bubble.theirs .read-receipt.sent { color: var(--text-muted); }
 .message-bubble.theirs .read-receipt.delivered { color: var(--text-secondary); }
-.message-bubble.theirs .read-receipt.read { color: var(--read-receipt, var(--accent-secondary, #06b6d4)); }
+.message-bubble.theirs .read-receipt.read { color: var(--read-receipt, #93c5fd); }
 
 .message-bubble.mine .read-receipt.read {
-  color: var(--read-receipt-mine, #083344);
+  color: var(--read-receipt-mine, #93c5fd);
 }
 
 /* ================================================================
@@ -10220,7 +10221,7 @@ button.message-reply-preview:hover {
 }
 
 .message-info-member-status.read {
-  color: var(--read-receipt, var(--accent-secondary, #06b6d4));
+  color: var(--read-receipt, #93c5fd);
 }
 
 .message-info-member-status.delivered {
@@ -10236,7 +10237,7 @@ button.message-reply-preview:hover {
 }
 
 .message-info-check-icon.read {
-  color: var(--read-receipt, var(--accent-secondary, #06b6d4));
+  color: var(--read-receipt, #93c5fd);
 }
 
 .message-info-check-icon.delivered {
@@ -10278,7 +10279,7 @@ button.message-reply-preview:hover {
 
 .message-info-status-icon.done {
   background: var(--accent-muted, rgba(20, 184, 166, 0.16));
-  color: var(--read-receipt, var(--accent-secondary, #06b6d4));
+  color: var(--read-receipt, #93c5fd);
 }
 
 .message-info-status-icon.pending {
