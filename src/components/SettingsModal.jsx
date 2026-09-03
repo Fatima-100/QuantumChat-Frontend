@@ -1031,7 +1031,7 @@ useEffect(() => {
                     );
                   })}
                 </div>
-                <p className="settings-section-copy" style={{ marginTop: '0.6rem', fontSize: '0.78rem' }}>
+                <p className="settings-field-hint">
                   {t('settings.language.languageHint', 'Changes apply immediately across the entire app.')}
                 </p>
               </div>
@@ -1070,16 +1070,8 @@ useEffect(() => {
                         {' '}
                         <button
                           type="button"
+                          className="settings-link-btn"
                           onClick={() => setStatusText('')}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            font: 'inherit',
-                            color: 'inherit',
-                            textDecoration: 'underline',
-                            cursor: 'pointer',
-                          }}
                         >
                           {t('settings.profile.clearStatus', 'Clear status')}
                         </button>
@@ -1132,20 +1124,20 @@ useEffect(() => {
                   </p>
                 </label>
 
-                <div className="settings-transliterations" style={{ marginTop: '1.25rem', marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    <Languages size={17} strokeWidth={2} style={{ color: 'var(--accent, #6366f1)' }} />
-                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary, #fff)' }}>
+                <div className="settings-transliterations">
+                  <div className="settings-subhead">
+                    <Languages size={17} strokeWidth={2} className="settings-subhead-icon" />
+                    <span>
                       {t('settings.transliteration.title', 'Script Names & Transliteration')}
                     </span>
                   </div>
-                  <p className="settings-section-copy" style={{ marginBottom: '0.9rem', fontSize: '0.82rem' }}>
+                  <p className="settings-section-copy">
                     {t('settings.transliteration.hint', 'When users switch their app to non-Latin scripts, your name appears in their native alphabet. You can customize your name spelling for each script below:')}
                   </p>
                   
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Urdu · اردو</span>
+                  <div className="settings-transliteration-grid">
+                    <label className="settings-field">
+                      <span>Urdu · اردو</span>
                       <input
                         dir="rtl"
                         value={transliteratedNames.ur || ''}
@@ -1154,8 +1146,8 @@ useEffect(() => {
                         maxLength={60}
                       />
                     </label>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Arabic · العربية</span>
+                    <label className="settings-field">
+                      <span>Arabic · العربية</span>
                       <input
                         dir="rtl"
                         value={transliteratedNames.ar || ''}
@@ -1164,8 +1156,8 @@ useEffect(() => {
                         maxLength={60}
                       />
                     </label>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Persian · فارسی</span>
+                    <label className="settings-field">
+                      <span>Persian · فارسی</span>
                       <input
                         dir="rtl"
                         value={transliteratedNames.fa || ''}
@@ -1174,8 +1166,8 @@ useEffect(() => {
                         maxLength={60}
                       />
                     </label>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Hindi · हिन्दी</span>
+                    <label className="settings-field">
+                      <span>Hindi · हिन्दी</span>
                       <input
                         dir="ltr"
                         value={transliteratedNames.hi || ''}
@@ -1184,8 +1176,8 @@ useEffect(() => {
                         maxLength={60}
                       />
                     </label>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Chinese · 简体中文</span>
+                    <label className="settings-field">
+                      <span>Chinese · 简体中文</span>
                       <input
                         dir="ltr"
                         value={transliteratedNames.zh || ''}
@@ -1194,8 +1186,8 @@ useEffect(() => {
                         maxLength={60}
                       />
                     </label>
-                    <label className="settings-field" style={{ margin: 0 }}>
-                      <span style={{ fontSize: '0.8rem' }}>Russian · Русский</span>
+                    <label className="settings-field">
+                      <span>Russian · Русский</span>
                       <input
                         dir="ltr"
                         value={transliteratedNames.ru || ''}

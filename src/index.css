@@ -1731,22 +1731,22 @@ input:focus-visible,
 .settings-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
   font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .settings-badge-ok {
-  background: color-mix(in srgb, #167668 16%, transparent);
-  color: #167668;
+  background: color-mix(in srgb, var(--success, #22c55e) 16%, transparent);
+  color: var(--success, #22c55e);
 }
 
 .settings-badge-warn {
-  background: color-mix(in srgb, #c45c26 16%, transparent);
-  color: #c45c26;
+  background: color-mix(in srgb, var(--warning-border, #f59e0b) 16%, transparent);
+  color: var(--warning-border, #f59e0b);
 }
 
 .settings-photo-actions {
@@ -1761,10 +1761,10 @@ input:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, #c45c26 28%, transparent);
-  background: color-mix(in srgb, #c45c26 10%, var(--bg-input));
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warning-border, #f59e0b) 32%, transparent);
+  background: color-mix(in srgb, var(--warning-border, #f59e0b) 8%, var(--bg-elevated));
 }
 
 .settings-verify-banner strong {
@@ -1783,17 +1783,84 @@ input:focus-visible,
 .settings-fieldset {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 14px;
+  padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-input) 80%, transparent);
+  background: var(--bg-elevated);
   width: 100%;
   box-sizing: border-box;
 }
 
 .settings-fieldset-danger {
-  border-color: color-mix(in srgb, var(--danger, #ef4444) 22%, var(--border-subtle));
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger, #ef4444) 4%, var(--bg-elevated));
+}
+
+.settings-subdivider {
+  height: 1px;
+  background: var(--border-glass, rgba(255, 255, 255, 0.07));
+  border: none;
+  margin: 4px 0;
+  width: 100%;
+}
+
+.settings-subhead {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-subhead-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.settings-field-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.settings-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.settings-link-btn:hover {
+  color: var(--accent-hover);
+}
+
+.settings-transliterations {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.settings-transliteration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.settings-transliteration-grid .settings-field {
+  margin: 0;
+}
+
+.settings-transliteration-grid .settings-field > span {
+  font-size: 0.8rem;
 }
 
 .settings-appearance {
@@ -1819,7 +1886,7 @@ input:focus-visible,
   gap: 12px;
   min-width: 0;
   padding: 14px;
-  border-radius: 18px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-glass);
   background:
     linear-gradient(160deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%),
@@ -15368,22 +15435,22 @@ html.qc-screenshot-protection .user-profile-modal {
 /* Language selector UI cards in SettingsModal */
 .settings-lang-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-  gap: 0.6rem;
-  margin-top: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .settings-lang-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 0.75rem 0.9rem;
-  border-radius: 10px;
-  background: var(--bg-surface, #1e293b);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
-  color: var(--text-primary, #f1f5f9);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
   position: relative;
   text-align: left;
 }
@@ -15394,38 +15461,37 @@ html.qc-screenshot-protection .user-profile-modal {
 }
 
 .settings-lang-card:hover {
-  background: var(--bg-elevated, #334155);
-  border-color: var(--accent, #3b82f6);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-surface));
+  border-color: var(--accent);
 }
 
 .settings-lang-card.active {
-  background: var(--bg-elevated, #334155);
-  border-color: var(--accent, #3b82f6);
-  box-shadow: 0 0 0 1.5px var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .settings-lang-native {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 600;
-  color: var(--text-primary, #ffffff);
-  margin-bottom: 0.15rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
 }
 
 .settings-lang-english {
   font-size: 0.75rem;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .settings-lang-check {
   position: absolute;
-  top: 0.5rem;
-  right: 0.6rem;
+  top: 8px;
+  right: 10px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
-  background: var(--accent, #3b82f6);
-  color: #fff;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--text-inverse);
   font-size: 0.7rem;
   font-weight: 700;
   display: flex;
@@ -15435,7 +15501,7 @@ html.qc-screenshot-protection .user-profile-modal {
 
 [dir="rtl"] .settings-lang-check {
   right: auto;
-  left: 0.6rem;
+  left: 10px;
 }
 
 
