@@ -1098,39 +1098,38 @@ useEffect(() => {
                   </label>
                 </div>
 
-                <div className="settings-field-row">
-                  <label className="settings-field">
-                    <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
-                    <input
-                      type="date"
-                      value={dateOfBirth}
-                      max={new Date().toISOString().slice(0, 10)}
-                      onChange={(e) => setDateOfBirth(e.target.value)}
-                    />
-                    <p className="settings-section-copy">
-                      {t(
-                        'settings.profile.dateOfBirthHint',
-                        'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
-                      )}
-                    </p>
-                  </label>
-                  <label className="settings-field">
-                    <span>{t('settings.profile.timezone', 'Timezone')}</span>
-                    <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                      {timezoneOptions.map((tz) => (
-                        <option key={tz} value={tz}>
-                          {tz.replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="settings-section-copy">
-                      {t(
-                        'settings.profile.timezoneHint',
-                        'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
-                      )}
-                    </p>
-                  </label>
-                </div>
+                <label className="settings-field">
+                  <span>{t('settings.profile.dateOfBirth', 'Date of birth')}</span>
+                  <input
+                    type="date"
+                    value={dateOfBirth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                  />
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.dateOfBirthHint',
+                      'Optional. Your friends get a reminder on your birthday — the date itself is never shown on your profile.',
+                    )}
+                  </p>
+                </label>
+
+                <label className="settings-field">
+                  <span>{t('settings.profile.timezone', 'Timezone')}</span>
+                  <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                    {timezoneOptions.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="settings-section-copy">
+                    {t(
+                      'settings.profile.timezoneHint',
+                      'Used to time your birthday reminder to your actual local midnight. Change it anytime — for example after traveling.',
+                    )}
+                  </p>
+                </label>
 
                 <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
                   {busy ? t('common.saving', 'Saving…') : t('settings.profile.saveProfile', 'Save profile')}
