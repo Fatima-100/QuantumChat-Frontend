@@ -15243,6 +15243,58 @@ html.qc-screenshot-protection .user-profile-modal {
   text-align: right;
   white-space: nowrap;
 }
+/* ================================================================
+   Resizable sidebar divider
+   ================================================================ */
+.qc-resize-handle {
+  position: relative;
+  flex: 0 0 6px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 25;
+}
+
+.qc-resize-handle-grip {
+  width: 2px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  transition: background var(--transition-fast), height var(--transition-fast), width var(--transition-fast);
+}
+
+.qc-resize-handle:hover .qc-resize-handle-grip,
+.qc-resize-handle:focus-visible .qc-resize-handle-grip,
+.qc-resize-handle.is-dragging .qc-resize-handle-grip {
+  background: var(--accent);
+  height: 64px;
+  width: 3px;
+}
+
+.qc-resize-handle:focus-visible {
+  outline: none;
+}
+
+.qc-resize-handle:focus-visible .qc-resize-handle-grip {
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+/* Widen the hit target without visually widening the divider */
+.qc-resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -6px;
+}
+
+/* Mobile: sidebar becomes a full-screen overlay — resizing doesn't apply */
+@media (max-width: 768px) {
+  .qc-resize-handle {
+    display: none;
+  }
+}
 
 [dir="rtl"] .conv-row-dropdown {
   text-align: right;
@@ -15631,4 +15683,56 @@ html.qc-screenshot-protection .user-profile-modal {
   font-size: 13px;
   cursor: pointer;
   padding: 0;
+}
+.clear-chat-dialog {
+  text-align: left;
+}
+
+.clear-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.clear-chat-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.clear-chat-option:hover {
+  background: var(--accent-muted);
+}
+
+.clear-chat-option input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.clear-chat-option-all {
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  margin-bottom: 2px;
+  padding-bottom: 10px;
+}
+
+.clear-chat-starred-warning {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
