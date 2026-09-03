@@ -1,5 +1,6 @@
 import { Eye, Mic, Paperclip, Send, Smile, Square, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import client from '../api/client.js';
 import { getSocket } from '../api/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -1158,7 +1159,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, []);
 
-  return (
+  return createPortal(
     <div className="story-viewer-overlay" onClick={onClose}>
       <div className="story-viewer" onClick={(e) => e.stopPropagation()}>
         <div className="story-viewer-top">
@@ -1479,7 +1480,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         }}
         onConfirm={confirmDeleteStory}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }
 
