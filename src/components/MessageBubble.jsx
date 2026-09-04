@@ -144,6 +144,8 @@ function MessageBubble({
   onJumpToReply,
   onImagePreview,
   onImageReady,
+  onVideoPreview,
+  onVideoReady,
   onOpenStory,
   onVotePoll,
   onBurnViewOnce,
@@ -568,12 +570,14 @@ function MessageBubble({
             )}
            {(message.viewOnce && message.viewOnceOpenedAt) ||
   (message.attachment && structured.type !== 'file' && !isStoryReply) ? (
-              <AttachmentBubble
+               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
                 resolveSecretKey={keyResolver}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onVideoPreview={onVideoPreview}
+                onVideoReady={onVideoReady}
                 viewOnce={Boolean(message.viewOnce)}
                 viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
                 viewOnceMediaKind={message.viewOnceMediaKind}
@@ -619,6 +623,8 @@ function MessageBubble({
                 isMine={isMine}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onVideoPreview={onVideoPreview}
+                onVideoReady={onVideoReady}
                 onBurnViewOnce={
                   onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
                 }
