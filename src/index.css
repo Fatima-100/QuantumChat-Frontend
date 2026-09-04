@@ -8838,28 +8838,35 @@ input:focus-visible,
 .story-viewer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 130;
-  background: rgba(0, 0, 0, 0.82);
+  z-index: 9999;
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
 }
 .story-viewer {
-  width: min(420px, 100%);
-  background: var(--bg-surface);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border-subtle);
+  width: 100%;
+  height: 100%;
+  background: #000;
+  border-radius: 0;
+  border: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  position: relative;
 }
 .story-viewer-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 14px 4px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+  color: #fff;
 }
 .story-viewer-user {
   display: flex;
@@ -8867,44 +8874,66 @@ input:focus-visible,
   gap: 8px;
   font-weight: 600;
 }
-.story-viewer-progress { display: flex; gap: 4px; }
+.story-viewer-progress {
+  display: flex;
+  gap: 4px;
+  position: absolute;
+  top: 4px;
+  left: 14px;
+  right: 14px;
+  z-index: 4;
+}
 .story-viewer-progress span {
   flex: 1;
   height: 3px;
   border-radius: 999px;
-  background: var(--border-subtle);
+  background: rgba(255, 255, 255, 0.35);
 }
-.story-viewer-progress span.on { background: var(--accent); }
+.story-viewer-progress span.on { background: #fff; }
 .story-viewer-media {
-  min-height: 280px;
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #000;
-  border-radius: var(--radius-md);
+  border-radius: 0;
   overflow: hidden;
+  position: relative;
 }
 .story-viewer-media img,
 .story-viewer-media video {
-  max-width: 100%;
-  max-height: 60vh;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   display: block;
 }
 .story-caption {
   margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  background: linear-gradient(to top, rgba(0,0,0,0.5), transparent);
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
 }
 .story-viewer-actions {
   display: flex;
   justify-content: flex-end;
+  padding: 6px 14px;
+  color: #fff;
 }
 .story-reply-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 4px 0;
+  padding: 8px 14px;
+  background: rgba(0,0,0,0.4);
 }
 
 .story-reply-input-wrap {
@@ -16411,6 +16440,58 @@ html.qc-screenshot-protection .user-profile-modal {
   text-align: right;
   white-space: nowrap;
 }
+/* ================================================================
+   Resizable sidebar divider
+   ================================================================ */
+.qc-resize-handle {
+  position: relative;
+  flex: 0 0 6px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 25;
+}
+
+.qc-resize-handle-grip {
+  width: 2px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  transition: background var(--transition-fast), height var(--transition-fast), width var(--transition-fast);
+}
+
+.qc-resize-handle:hover .qc-resize-handle-grip,
+.qc-resize-handle:focus-visible .qc-resize-handle-grip,
+.qc-resize-handle.is-dragging .qc-resize-handle-grip {
+  background: var(--accent);
+  height: 64px;
+  width: 3px;
+}
+
+.qc-resize-handle:focus-visible {
+  outline: none;
+}
+
+.qc-resize-handle:focus-visible .qc-resize-handle-grip {
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+/* Widen the hit target without visually widening the divider */
+.qc-resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -6px;
+}
+
+/* Mobile: sidebar becomes a full-screen overlay — resizing doesn't apply */
+@media (max-width: 768px) {
+  .qc-resize-handle {
+    display: none;
+  }
+}
 
 [dir="rtl"] .conv-row-dropdown {
   text-align: right;
@@ -16652,8 +16733,22 @@ html.qc-screenshot-protection .user-profile-modal {
 
 .story-viewer-user-meta {
   font-size: 11px;
-  opacity: 0.7;
+  opacity: 0.85;
   font-weight: 400;
+  color: rgba(255,255,255,0.85);
+}
+.story-viewer-top button {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .story-viewer-media {
   cursor: pointer;
@@ -16764,4 +16859,89 @@ html.qc-screenshot-protection .user-profile-modal {
 .story-reply-send.ready {
   background: var(--accent, #14b8a6);
   color: #fff;
+}
+.member-picker-item.blocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.member-picker-item.blocked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+.member-picker-blocked-tag {
+  font-size: 11px;
+  color: #b45309;
+  font-weight: 600;
+}
+.create-group-blocked-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(180, 83, 9, 0.1);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.create-group-blocked-note-link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.clear-chat-dialog {
+  text-align: left;
+}
+
+.clear-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+}
+
+.clear-chat-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.clear-chat-option:hover {
+  background: var(--accent-muted);
+}
+
+.clear-chat-option input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.clear-chat-option-all {
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  margin-bottom: 2px;
+  padding-bottom: 10px;
+}
+
+.clear-chat-starred-warning {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted);
 }

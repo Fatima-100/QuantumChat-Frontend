@@ -57,6 +57,10 @@ export function isDeletedForMe(userId, messageId) {
 }
 
 
+export function clearAllStarred(userId) {
+  writeStarredEntries(userId, []);
+  return [];
+}
 
 export function toggleStarredMessage(userId, message, conversation) {
   const id = String(message?.id || message?._id || message);

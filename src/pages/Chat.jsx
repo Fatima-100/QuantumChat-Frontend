@@ -42,6 +42,7 @@ import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
 import ChatThemeModal from '../components/ChatThemeModal.jsx';
+import ClearChatModal from "../components/ClearChatModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
@@ -122,6 +123,7 @@ import {
   unhideChat,
 } from "../utils/hiddenChats.js";
 import {
+  clearAllStarred,
   deleteMessageForMe,
   getDeletedForMeIds,
   getPinnedIds,
@@ -286,6 +288,8 @@ export default function Chat() {
   );
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [clearChatOpen, setClearChatOpen] = useState(false);
+  const [clearChatBusy, setClearChatBusy] = useState(false);
   const [activityTick, setActivityTick] = useState(0);
   const [friendCandidates, setFriendCandidates] = useState([]);
   const [friendCandidatesLoading, setFriendCandidatesLoading] = useState(false);
@@ -515,6 +519,29 @@ export default function Chat() {
   messagesRef.current = messages;
   usersRef.current = users;
   groupsRef.current = groups;
+
+  function stopTyping({ emit = true } = {}) {
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = null;
+    const target = presenceTypingRef.current;
+    presenceTypingRef.current = { to: null, groupId: null };
+    if (!emit || (!target.to && !target.groupId)) return;
+    const socket = getSocket();
+    if (!socket?.connected) return;
+    socket.emit(
+      "typing:stop",
+      target.to ? { to: target.to } : { groupId: target.groupId },
+    );
+  }
+
+  function syncTypingPrivacy() {
+    const socket = getSocket();
+    if (socket?.connected) {
+      socket.emit("privacy:typing-indicator", {
+        enabled: userRef.current?.privacy?.typingIndicator !== false,
+      });
+    }
+  }
 
   const resolveActivityActor = useCallback((actorId) => {
     if (actorId == null) return {};
@@ -1895,7 +1922,7 @@ export default function Chat() {
       );
     }
 
-    function handleMentionNew(payload = {}) {
+     function handleMentionNew(payload = {}) {
       const message = payload?.message || payload;
       const from = message.from || message.senderId || payload.from;
       const messageId = message.id || message._id || message.messageId || payload.messageId;
@@ -1911,11 +1938,52 @@ export default function Chat() {
           conversationKey: groupId ? `group:${groupId}` : undefined,
         });
       }
-      const username =
-        String(from) === String(user.id)
-          ? user.username
-          : users.find((u) => String(u.id) === String(from))?.username;
-      showToast(`${username || "Someone"} mentioned you`);
+
+      const isSelf = String(from) === String(user.id);
+      const username = isSelf
+        ? user.username
+        : users.find((u) => String(u.id) === String(from))?.username;
+      const groupName = groupId
+        ? groups.find((g) => String(g.id) === String(groupId))?.name
+        : null;
+
+      const convKey = groupId ? conversationKeyForGroup(groupId) : null;
+      const muted = convKey ? isChatMuted(user.id, convKey) : false;
+      const current = selectedRef.current;
+      const isCurrent =
+        groupId && current?.type === "group" && String(current.id) === String(groupId);
+
+      // Mentions always alert unless the chat itself is muted — a mention
+      // is a direct call-out, so it shouldn't be silently downgraded to a
+      // toast the way a routine group message can be.
+      if (isSelf || muted) {
+        showToast(`${username || "Someone"} mentioned you`);
+        return;
+      }
+
+      playNotificationSound(notifSettings);
+      showNotificationPopup(
+        {
+          title: groupName || "Group mention",
+          body: `${username || "Someone"} mentioned you`,
+          tag: groupId ? `group:${groupId}` : undefined,
+          data: {
+            url: groupId ? `/chat/g/${groupId}` : undefined,
+            kind: "group",
+          },
+        },
+        notifSettings,
+        () => {
+          if (groupId) {
+            handleSelectConversation({ key: convKey, type: "group", id: groupId });
+          }
+          if (messageId) handleSearchResult(messageId);
+        },
+      );
+
+      if (!isCurrent) {
+        showToast(`${username || "Someone"} mentioned you in ${groupName || "a group"}`);
+      }
     }
 
     function handleTypingStart({ from, groupId } = {}) {
@@ -2136,11 +2204,14 @@ export default function Chat() {
     // Auth may connect the socket before Chat mounts, so the initial
     // presence:snapshot is easy to miss. Re-request whenever listeners attach
     // and again after every reconnect.
-    function requestPresence() {
-      if (socket.connected) socket.emit("presence:request");
-    }
-    socket.on("connect", requestPresence);
-    requestPresence();
+  function requestPresence() {
+  if (socket.connected) {
+    socket.emit("presence:request");
+    syncTypingPrivacy();
+  }
+  }
+  socket.on("connect", requestPresence);
+  requestPresence();
 
     return () => {
       socket.off("message:new", handleIncoming);
@@ -2164,9 +2235,12 @@ export default function Chat() {
       socket.off("friend:removed", handleFriendRemoved);
       socket.off("chat:cleared", handleChatCleared);
       socket.off("user:status", handleUserStatus);
-      socket.off("connect", requestPresence);
-      clearTimeout(typingPeerTimeoutRef.current);
-    };
+  socket.off("connect", requestPresence);
+  stopTyping({ emit: false });
+  clearTimeout(typingPeerTimeoutRef.current);
+  setPeerTyping(false);
+  setGroupTypingUsers([]);
+  };
   }, [
     hasLocalKeyring,
     user,
@@ -3078,9 +3152,13 @@ export default function Chat() {
   }, [params.peerId, params.groupId, conversations, isSettingsRoute, selfPeer, user.id]);
 
   function applyConversationSelection(c, { syncUrl = true } = {}) {
-    if (!c) {
-      setSelected(null);
-      setMessages([]);
+  stopTyping();
+  clearTimeout(typingPeerTimeoutRef.current);
+  setPeerTyping(false);
+  setGroupTypingUsers([]);
+  if (!c) {
+  setSelected(null);
+  setMessages([]);
       if (syncUrl && !isSettingsRoute) navigate("/chat");
       return;
     }
@@ -3616,48 +3694,57 @@ export default function Chat() {
       setConfirmBusy(false);
     }
   }
-
   function handleClearChat() {
     if (!selected) return;
-    setConfirmDialog({
-      type: "clear-chat",
-      selectionType: selected.type,
-      selectionId: selected.id,
-      title: "Clear this chat?",
-      message:
-        "Previous messages will be removed from this chat for you and can’t be easily undone. The conversation stays in your list, and you can still send and receive new messages.",
-      confirmLabel: "Clear chat",
-      danger: true,
-    });
+    setClearChatOpen(true);
   }
 
-  async function executeClearChat(dialog) {
-    const type = dialog?.selectionType;
-    const id = dialog?.selectionId;
-    if (!type || !id) {
-      setConfirmDialog(null);
-      return;
-    }
+  async function executeClearChatScoped(scopes) {
+    if (!selected) return;
+    const type = selected.type;
+    const id = selected.id;
+    const clearingStarred = scopes.includes("starred");
+    const serverScopes = scopes.filter((s) => s !== "starred");
+
     try {
-      setConfirmBusy(true);
-      const payload = type === "group" ? { groupId: id } : { peerId: id };
-      const { data } = await client.post("/users/me/clear-chat", payload);
-      // Server confirmed — persist the updated watermarks to the session, then
-      // (and only then) empty the visible thread. No optimistic clear: if the
-      // request had failed, the existing messages stay intact. Guard on the
-      // still-open conversation so a fast switch doesn't blank a different chat.
-      if (data?.data) updateSessionUser(data.data);
+      setClearChatBusy(true);
+
+      if (serverScopes.length) {
+        const payload =
+          type === "group"
+            ? { groupId: id, scopes: serverScopes }
+            : { peerId: id, scopes: serverScopes };
+        const { data } = await client.post("/users/me/clear-chat", payload);
+        // Server confirmed — persist the updated watermarks to the session.
+        // No optimistic clear: if the request had failed, existing messages
+        // stay intact.
+        if (data?.data) updateSessionUser(data.data);
+      }
+
+      if (clearingStarred) {
+        setStarredIds(clearAllStarred(user.id));
+      }
+
       const current = selectedRef.current;
       if (current && current.type === type && String(current.id) === String(id)) {
-        setMessages([]);
+        // Re-fetch rather than blanking outright — a scoped clear (e.g. just
+        // photos) should still leave the remaining messages visible.
+        setLoadingMessages(true);
+        const endpoint = type === "group" ? `/groups/${id}/messages` : `/messages/${id}`;
+        try {
+          const res = await client.get(endpoint, { params: { limit: 80, markRead: 0 } });
+          setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
+        } finally {
+          setLoadingMessages(false);
+        }
       }
+
       showToast("Chat cleared", "success");
-      setConfirmDialog(null);
+      setClearChatOpen(false);
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to clear chat", "error");
-      setConfirmDialog(null);
     } finally {
-      setConfirmBusy(false);
+      setClearChatBusy(false);
     }
   }
   async function handleUnblockUser(peerId) {
@@ -3998,11 +4085,7 @@ export default function Chat() {
       return;
     }
 
-    const socket = getSocket();
-    if (socket && selected.type === "dm")
-      socket.emit("typing:stop", { to: selected.id });
-    clearTimeout(typingTimeoutRef.current);
-    presenceTypingRef.current = { to: null, groupId: null };
+  stopTyping();
 
     try {
       if (
@@ -4091,7 +4174,26 @@ export default function Chat() {
         const plaintext = asAnnouncement
           ? encodeAnnouncement(bodyText)
           : bodyText;
-        const mentionedUserIds = extractMentions(bodyText, group.members || []);
+               const allMentionedUserIds = extractMentions(bodyText, group.members || []);
+        const mentionedUserIds = allMentionedUserIds.filter((mid) => {
+          const member = (group.members || []).find((m) => String(memberId(m)) === String(mid));
+          return member ? !mentionBlockReason(member) : true;
+        });
+        if (mentionedUserIds.length < allMentionedUserIds.length) {
+          const blockedNames = allMentionedUserIds
+            .filter((mid) => !mentionedUserIds.includes(mid))
+            .map((mid) => {
+              const member = (group.members || []).find((m) => String(memberId(m)) === String(mid));
+              return member?.username;
+            })
+            .filter(Boolean);
+          if (blockedNames.length) {
+            showToast(
+              `${blockedNames.join(", ")} won't be notified — mentions are turned off for them`,
+              "info",
+            );
+          }
+        }
         const kind = asAnnouncement ? "announcement" : "text";
         const tempId = `tmp-${crypto.randomUUID()}`;
         const replySnapshot = replyTo;
@@ -5092,10 +5194,6 @@ export default function Chat() {
       await executeDeleteMessage(confirmDialog.messageId);
       return;
     }
-    if (confirmDialog.type === "clear-chat") {
-      await executeClearChat(confirmDialog);
-      return;
-    }
     if (confirmDialog.type === "regenerate-keys") {
       await handleGenerateKeys();
     }
@@ -5363,6 +5461,18 @@ export default function Chat() {
     return isGroupAdmin(activeGroup, user.id);
   }, [activeGroup, user.id]);
 
+  const iAmGroupAdmin = useMemo(
+    () => Boolean(activeGroup && isGroupAdmin(activeGroup, user.id)),
+    [activeGroup, user.id],
+  );
+
+  function mentionBlockReason(m) {
+    const policy = m.privacy?.groupMentions || "everyone";
+    if (policy === "nobody") return "mentions_off";
+    if (policy === "adminsOnly" && !iAmGroupAdmin) return "admins_only";
+    return null;
+  }
+
   const mentionSuggestions = useMemo(() => {
     if (!mentionOpen || !activeGroup) return [];
     const q = mentionQuery || "";
@@ -5374,7 +5484,8 @@ export default function Chat() {
         return !q || name.startsWith(q);
       })
       .slice(0, 6);
-  }, [mentionOpen, mentionQuery, activeGroup, user.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionOpen, mentionQuery, activeGroup, user.id, iAmGroupAdmin]);
 
   async function submitPollDraft(e) {
     e?.preventDefault?.();
@@ -6317,10 +6428,11 @@ export default function Chat() {
                         );
                       })
                     )}
-                    <TypingIndicator
-                      isTyping={(peerTyping && selected.type === "dm") || (selected.type === "group" && groupTypingUsers.length > 0)}
-                      typingUsers={selected.type === "group" ? groupTypingUsers : (peerTyping ? [{ id: resolveDmPeer(selected)?.id || selected.id, username: selected.title, hasAvatar: resolveDmPeer(selected)?.hasAvatar }] : [])}
-                    />
+  <TypingIndicator
+  isTyping={peerTyping && selected.type === "dm"}
+  username={selected.title}
+  usernames={selected.type === "group" ? groupTypingUsers : []}
+  />
                     <div ref={bottomRef} />
                   </motion.div>
                 </AnimatePresence>
@@ -6499,23 +6611,48 @@ export default function Chat() {
                           gap: 4,
                         }}
                       >
-                        {mentionSuggestions.map((m) => (
-                          <button
-                            key={memberId(m)}
-                            type="button"
-                            className="composer-context-close"
-                            style={{
-                              width: "100%",
-                              justifyContent: "flex-start",
-                              borderRadius: 8,
-                              padding: "6px 10px",
-                              fontSize: 13,
-                            }}
-                            onClick={() => insertMention(m.username)}
-                          >
-                            @{m.username}
-                          </button>
-                        ))}
+                        {mentionSuggestions.map((m) => {
+                          const reason = mentionBlockReason(m);
+                          const blocked = Boolean(reason);
+                          return (
+                            <button
+                              key={memberId(m)}
+                              type="button"
+                              className="composer-context-close"
+                              style={{
+                                width: "100%",
+                                justifyContent: "space-between",
+                                display: "flex",
+                                alignItems: "center",
+                                borderRadius: 8,
+                                padding: "6px 10px",
+                                fontSize: 13,
+                                opacity: blocked ? 0.55 : 1,
+                                cursor: blocked ? "not-allowed" : "pointer",
+                              }}
+                              disabled={blocked}
+                              onClick={() => {
+                                if (blocked) return;
+                                insertMention(m.username);
+                              }}
+                            >
+                              <span>@{m.username}</span>
+                              {blocked && (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "#b45309",
+                                  }}
+                                >
+                                  {reason === "mentions_off"
+                                    ? "Mentions off"
+                                    : "Admins only"}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     <div className="composer-tools-bar qc-composer-tools-slim">
@@ -6659,6 +6796,16 @@ export default function Chat() {
         busy={confirmBusy}
         onCancel={closeConfirmDialog}
         onConfirm={handleConfirmDialog}
+      />
+
+      <ClearChatModal
+        open={clearChatOpen && Boolean(selected)}
+        busy={clearChatBusy}
+        hasStarredInChat={
+          selected ? getStarredEntries(user.id).some((e) => e.conversationKey === selected.key) : false
+        }
+        onCancel={() => !clearChatBusy && setClearChatOpen(false)}
+        onConfirm={executeClearChatScoped}
       />
 
       <CallOverlay
