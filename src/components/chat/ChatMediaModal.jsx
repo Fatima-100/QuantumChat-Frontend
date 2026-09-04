@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { File as FileIcon, X } from 'lucide-react';
-
-export default function ChatMediaModal({ messages, onImageClick, onClose }) {
+import { attachmentIdOf } from '../../crypto/voiceCache.js';
+export default function ChatMediaModal({ messages, imageSrcMap, onImageClick, onClose }) {
   const mediaItems = useMemo(() => {
     return messages
-      .filter((m) => m.attachment)
+      .filter((m) => m.attachment && attachmentIdOf(m.attachment))
       .map((m) => ({
-        id: m.id || m._id,
+        id: attachmentIdOf(m.attachment),
         attachment: m.attachment,
         isImage: (m.attachment?.mimetype || '').startsWith('image/'),
       }))
@@ -36,18 +36,22 @@ export default function ChatMediaModal({ messages, onImageClick, onClose }) {
           <p className="empty-hint">No media shared in this chat yet.</p>
         ) : (
           <div className="chat-media-grid">
-            {mediaItems.map((item) =>
-              item.isImage ? (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="chat-media-thumb"
-                  onClick={() => onImageClick?.(item.id)}
-                  aria-label="Open image"
-                >
-                 src={imageSrcMap?.get(String(item.id))?.src}
-                </button>
-              ) : (
+           {mediaItems.map((item) =>
+  item.isImage ? (
+    <button
+      key={item.id}
+      type="button"
+      className="chat-media-thumb"
+      onClick={() => onImageClick?.(item.id)}
+      aria-label="Open image"
+    >
+      <img
+        src={imageSrcMap?.get(String(item.id))?.src}
+        alt={imageSrcMap?.get(String(item.id))?.alt || 'Shared image'}
+        loading="lazy"
+      />
+    </button>
+  ) : (
                 <div key={item.id} className="chat-media-file-chip">
                   <FileIcon size={16} strokeWidth={2} />
                   <span>{item.attachment.filename || 'File'}</span>
