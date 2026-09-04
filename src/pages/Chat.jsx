@@ -79,6 +79,7 @@ import {
   secretboxSeal,
   unsealMessage,
 } from "../crypto/keys.js";
+import { sealBytesAsync, secretboxSealAsync } from "../crypto/encryptFileAsync.js";
 import {
   findSecretKeyForPublicKey,
   getCurrentKeySet,
@@ -155,7 +156,10 @@ const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wall
 
 const MAX_VOICE_SECONDS = 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
-const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15 MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB — matches backend MAX_ATTACHMENT_SIZE
+// Ciphertext above this size uploads in sequential chunks instead of one
+// request body — must match backend CHUNK_SIZE in middleware/upload.js.
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -4368,6 +4372,37 @@ export default function Chat() {
     return undefined;
   }
 
+  // Large-file path: same durable result as putCiphertext, but sent as
+  // sequential small requests instead of one big body — Vercel's
+  // serverless functions reject an oversized single request body outright,
+  // which is what actually broke video uploads.
+  async function putCiphertextChunked(
+    cipherBytes,
+    { pendingUploadId, slot, signal, onProgress },
+  ) {
+    const total = cipherBytes.byteLength;
+    const totalChunks = Math.max(1, Math.ceil(total / CHUNK_SIZE));
+    let sent = 0;
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+      const start = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, total);
+      const chunkBlob = new Blob([cipherBytes.subarray(start, end)], {
+        type: "application/octet-stream",
+      });
+
+      await client.put(
+        `/attachments/pending/${pendingUploadId}/chunk?slot=${slot}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`,
+        chunkBlob,
+        { signal, headers: { "Content-Type": "application/octet-stream" } },
+      );
+
+      sent += end - start;
+      onProgress?.({ loaded: sent, total });
+    }
+    return undefined;
+  }
+
   async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false } = {}) {
     if (
       !file ||
@@ -4395,9 +4430,10 @@ export default function Chat() {
       if (selected.type === "group") {
         const fileBytes =
           plainBytes || new Uint8Array(await file.arrayBuffer());
-        const sealed = secretboxSeal(fileBytes);
+        const sealed = await secretboxSealAsync(fileBytes);
         const mimeType = file.type || "application/octet-stream";
         const cipherBlob = new Blob([sealed.cipherBytes], { type: mimeType });
+        const useChunked = sealed.cipherBytes.byteLength > CHUNK_SIZE;
 
         const initRes = await client.post(
           "/attachments/init",
@@ -4412,25 +4448,30 @@ export default function Chat() {
         );
         const { pendingUploadId } = initRes.data.data;
 
-        const recipientDirectUploadId = await putCiphertext(
-          cipherBlob,
-          file.name,
-          {
-            pendingUploadId,
-            slot: "recipient",
-            signal: controller.signal,
-            onProgress: (event) => {
-              if (!event.total) return;
-              const progress = Math.min(
-                100,
-                Math.round((event.loaded / event.total) * 100),
-              );
-              setUploads((prev) =>
-                prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
-              );
-            },
-          },
-        );
+        const onRecipientProgress = (event) => {
+          if (!event.total) return;
+          const progress = Math.min(
+            100,
+            Math.round((event.loaded / event.total) * 100),
+          );
+          setUploads((prev) =>
+            prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
+          );
+        };
+
+        const recipientDirectUploadId = useChunked
+          ? await putCiphertextChunked(sealed.cipherBytes, {
+              pendingUploadId,
+              slot: "recipient",
+              signal: controller.signal,
+              onProgress: onRecipientProgress,
+            })
+          : await putCiphertext(cipherBlob, file.name, {
+              pendingUploadId,
+              slot: "recipient",
+              signal: controller.signal,
+              onProgress: onRecipientProgress,
+            });
 
         const finalizeRes = await client.post(
           "/attachments/finalize",
@@ -4468,9 +4509,15 @@ export default function Chat() {
       }
       const recipientPublicKey = pickRandom(recipientKeys);
       const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
-      const forRecipientFile = sealBytes(fileBytes, recipientPublicKey);
-      const forSenderFile = sealBytes(fileBytes, myKey.publicKey);
+      // Safe to run concurrently: each call only transfers its OWN output
+      // buffer back (see cryptoWorker.js) — fileBytes itself is never
+      // transferred, so there's nothing shared to race on.
+      const [forRecipientFile, forSenderFile] = await Promise.all([
+        sealBytesAsync(fileBytes, recipientPublicKey),
+        sealBytesAsync(fileBytes, myKey.publicKey),
+      ]);
       const mimeType = file.type || "application/octet-stream";
+      const useChunked = forRecipientFile.cipherBytes.byteLength > CHUNK_SIZE;
       const recipientBlob = new Blob([forRecipientFile.cipherBytes], {
         type: mimeType,
       });
@@ -4509,30 +4556,55 @@ export default function Chat() {
           prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
         );
       };
-      const recipientDirectUploadId = await putCiphertext(
-        recipientBlob,
-        file.name,
-        {
-          pendingUploadId,
-          slot: "recipient",
-          signal: controller.signal,
-          onProgress: (event) => {
-            recipientLoaded = event.loaded || 0;
-            reportProgress();
-          },
-        },
-      );
-      const senderDirectUploadId = sender
-        ? await putCiphertext(senderBlob, file.name, {
-          pendingUploadId,
-          slot: "sender",
-          signal: controller.signal,
-          onProgress: (event) => {
-            senderLoaded = event.loaded || 0;
-            reportProgress();
-          },
-        })
-        : undefined;
+      const recipientUploadPromise = useChunked
+        ? putCiphertextChunked(forRecipientFile.cipherBytes, {
+            pendingUploadId,
+            slot: "recipient",
+            signal: controller.signal,
+            onProgress: (event) => {
+              recipientLoaded = event.loaded || 0;
+              reportProgress();
+            },
+          })
+        : putCiphertext(recipientBlob, file.name, {
+            pendingUploadId,
+            slot: "recipient",
+            signal: controller.signal,
+            onProgress: (event) => {
+              recipientLoaded = event.loaded || 0;
+              reportProgress();
+            },
+          });
+
+      const senderUploadPromise = sender
+        ? useChunked
+          ? putCiphertextChunked(forSenderFile.cipherBytes, {
+              pendingUploadId,
+              slot: "sender",
+              signal: controller.signal,
+              onProgress: (event) => {
+                senderLoaded = event.loaded || 0;
+                reportProgress();
+              },
+            })
+          : putCiphertext(senderBlob, file.name, {
+              pendingUploadId,
+              slot: "sender",
+              signal: controller.signal,
+              onProgress: (event) => {
+                senderLoaded = event.loaded || 0;
+                reportProgress();
+              },
+            })
+        : Promise.resolve(undefined);
+
+      // Recipient and sender ciphertext are independent objects server-side
+      // — concurrent upload roughly halves wall-clock time versus two full
+      // round trips back to back.
+      const [recipientDirectUploadId, senderDirectUploadId] = await Promise.all([
+        recipientUploadPromise,
+        senderUploadPromise,
+      ]);
 
       const finalizeRes = await client.post(
         "/attachments/finalize",
