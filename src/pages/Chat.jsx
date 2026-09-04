@@ -1565,6 +1565,13 @@ export default function Chat() {
         }
       }
 
+      // Always acknowledge delivery as soon as the client receives the message
+      // over the socket, regardless of whether this conversation is currently open.
+      if (String(raw.from) !== String(user.id)) {
+        const socket = getSocket();
+        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
+      }
+
       // Only mutate the open thread for the active conversation.
       if (!isCurrent) return;
 
@@ -1627,8 +1634,17 @@ export default function Chat() {
 
       if (String(raw.from) !== String(user.id)) {
         const socket = getSocket();
-        socket?.emit("message:delivered", { messageId: raw.id || raw._id });
-        if (selectedRef.current?.type === "group") {
+
+        const rawGroupId =
+          raw.group && typeof raw.group === "object"
+            ? raw.group.id || raw.group._id
+            : raw.group;
+
+        if (
+          selectedRef.current?.type === "group" &&
+          rawGroupId &&
+          String(selectedRef.current.id) === String(rawGroupId)
+        ) {
           socket?.emit("message:read", {
             messageId: raw.id || raw._id,
             groupId: selectedRef.current.id,
@@ -1636,7 +1652,10 @@ export default function Chat() {
           client
             .post(`/groups/${selectedRef.current.id}/messages/read`)
             .catch(() => { });
-        } else if (selectedRef.current?.type === "dm") {
+        } else if (
+          selectedRef.current?.type === "dm" &&
+          String(selectedRef.current.id) === String(raw.from)
+        ) {
           socket?.emit("message:read", { messageId: raw.id || raw._id });
           client
             .post(`/messages/${selectedRef.current.id}/read`)
