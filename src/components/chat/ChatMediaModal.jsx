@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
-import { File as FileIcon, Play, X } from 'lucide-react';
-import { attachmentIdOf } from '../../crypto/voiceCache.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { File as FileIcon, Lock, Play, X } from 'lucide-react';
+import client from '../../api/client.js';
+import { unsealBytes } from '../../crypto/keys.js';
+import { attachmentIdOf, pickAttachmentEnvelope } from '../../crypto/voiceCache.js';
 
 function classify(mimetype) {
   const mime = String(mimetype || '');
@@ -16,7 +18,177 @@ const TABS = [
   { key: 'file', label: 'Files' },
 ];
 
-export default function ChatMediaModal({ messages, imageSrcMap, onImageClick, onClose }) {
+function useInView(ref) {
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setInView(true);
+          observer.disconnect(); // only need to trigger once
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return inView;
+}
+
+/** Decrypts and shows a real thumbnail once scrolled into view. Caches the
+ * result into the shared src map so the lightbox/video player reuse it
+ * instead of decrypting twice. */
+function MediaThumb({ item, cachedEntry, resolveSecretKey, onReady, onClick }) {
+  const thumbRef = useRef(null);
+  const inView = useInView(thumbRef);
+  const [url, setUrl] = useState(cachedEntry?.src || null);
+  const [status, setStatus] = useState(cachedEntry?.src ? 'ready' : 'idle');
+
+  useEffect(() => {
+    if (url || !inView || item.isViewOnce) return;
+    const opened = pickAttachmentEnvelope(item.attachment, resolveSecretKey);
+    if (!opened) {
+      setStatus('error');
+      return;
+    }
+    let cancelled = false;
+    let revoked = null;
+
+    (async () => {
+      setStatus('loading');
+      try {
+        const res = await client.get(`/attachments/${item.id}/raw`, { responseType: 'arraybuffer' });
+        if (cancelled) return;
+        const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
+        if (!plainBytes) {
+          setStatus('error');
+          return;
+        }
+        const mime = item.attachment.mimetype || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg');
+        const objectUrl = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
+        revoked = objectUrl;
+        setUrl(objectUrl);
+        setStatus('ready');
+        onReady?.(item.id, objectUrl, item.attachment.filename);
+      } catch {
+        if (!cancelled) setStatus('error');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      // Don't revoke — the src map now owns this URL for reuse elsewhere.
+    };
+  }, [inView, url, item, resolveSecretKey, onReady]);
+
+  if (item.isViewOnce) {
+    return (
+      <div
+        ref={thumbRef}
+        className="chat-media-thumb"
+        style={thumbStyle}
+        title="View once — opens from the chat"
+      >
+        <Lock size={20} strokeWidth={2} />
+        <span style={labelStyle}>{item.attachment.filename || 'View once'}</span>
+      </div>
+    );
+  }
+
+  if (item.kind === 'image') {
+    return (
+      <button
+        ref={thumbRef}
+        type="button"
+        className="chat-media-thumb"
+        onClick={() => url && onClick?.(item.id)}
+        disabled={!url}
+        aria-label="Open image"
+        style={{ padding: 0, border: 'none', cursor: url ? 'pointer' : 'default' }}
+      >
+        {url ? (
+          <img src={url} alt={item.attachment.filename || 'Shared image'} loading="lazy" style={imgStyle} />
+        ) : (
+          <div style={{ ...thumbStyle, opacity: status === 'error' ? 0.5 : 0.7 }}>
+            {status === 'error' ? <FileIcon size={20} /> : <span className="skeleton" style={{ width: '100%', height: '100%', display: 'block' }} />}
+          </div>
+        )}
+      </button>
+    );
+  }
+
+  if (item.kind === 'video') {
+    return (
+      <button
+        ref={thumbRef}
+        type="button"
+        className="chat-media-thumb"
+        onClick={() => url && onClick?.(item.id)}
+        disabled={!url}
+        aria-label={`Play video ${item.attachment.filename || ''}`}
+        style={{ padding: 0, border: 'none', cursor: url ? 'pointer' : 'default', position: 'relative' }}
+      >
+        {url ? (
+          <>
+            <video src={url} muted playsInline preload="metadata" style={imgStyle} />
+            <Play size={22} strokeWidth={2} style={playOverlayStyle} />
+          </>
+        ) : (
+          <div style={{ ...thumbStyle, opacity: status === 'error' ? 0.5 : 0.7 }}>
+            {status === 'error' ? <FileIcon size={20} /> : <span className="skeleton" style={{ width: '100%', height: '100%', display: 'block' }} />}
+          </div>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div ref={thumbRef} className="chat-media-file-chip">
+      <FileIcon size={16} strokeWidth={2} />
+      <span>{item.attachment.filename || 'File'}</span>
+    </div>
+  );
+}
+
+const thumbStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 4,
+  width: '100%',
+  height: '100%',
+  background: 'var(--surface-2, #1a1a1a)',
+  color: 'var(--text-secondary, #ccc)',
+  padding: 8,
+  textAlign: 'center',
+};
+const labelStyle = { fontSize: 11, wordBreak: 'break-all', lineHeight: 1.3 };
+const imgStyle = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
+const playOverlayStyle = {
+  position: 'absolute',
+  top: '50%',
+  left: '50%',
+  transform: 'translate(-50%, -50%)',
+  color: '#fff',
+  filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.6))',
+  pointerEvents: 'none',
+};
+
+export default function ChatMediaModal({
+  messages,
+  imageSrcMap,
+  videoSrcMap,
+  resolveSecretKey,
+  onImageReady,
+  onVideoReady,
+  onImageClick,
+  onVideoClick,
+  onClose,
+}) {
   const [activeTab, setActiveTab] = useState('all');
 
   const mediaItems = useMemo(() => {
@@ -26,6 +198,7 @@ export default function ChatMediaModal({ messages, imageSrcMap, onImageClick, on
         id: attachmentIdOf(m.attachment),
         attachment: m.attachment,
         kind: classify(m.attachment?.mimetype),
+        isViewOnce: Boolean(m.viewOnce) && !m.viewOnceOpenedAt,
       }))
       .reverse();
   }, [messages]);
@@ -102,55 +275,24 @@ export default function ChatMediaModal({ messages, imageSrcMap, onImageClick, on
         ) : (
           <div className="chat-media-grid">
             {visibleItems.map((item) => {
-              if (item.kind === 'image') {
+              if (item.kind === 'file') {
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="chat-media-thumb"
-                    onClick={() => onImageClick?.(item.id)}
-                    aria-label="Open image"
-                  >
-                    <img
-                      src={imageSrcMap?.get(String(item.id))?.src}
-                      alt={imageSrcMap?.get(String(item.id))?.alt || 'Shared image'}
-                      loading="lazy"
-                    />
-                  </button>
-                );
-              }
-
-              if (item.kind === 'video') {
-                return (
-                  <div
-                    key={item.id}
-                    className="chat-media-thumb"
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      background: 'var(--surface-2, #1a1a1a)',
-                      color: 'var(--text-secondary, #ccc)',
-                      padding: 8,
-                      textAlign: 'center',
-                    }}
-                    title={item.attachment.filename || 'Video'}
-                  >
-                    <Play size={22} strokeWidth={2} />
-                    <span style={{ fontSize: 11, wordBreak: 'break-all', lineHeight: 1.3 }}>
-                      {item.attachment.filename || 'Video'}
-                    </span>
+                  <div key={item.id} className="chat-media-file-chip">
+                    <FileIcon size={16} strokeWidth={2} />
+                    <span>{item.attachment.filename || 'File'}</span>
                   </div>
                 );
               }
-
+              const map = item.kind === 'image' ? imageSrcMap : videoSrcMap;
               return (
-                <div key={item.id} className="chat-media-file-chip">
-                  <FileIcon size={16} strokeWidth={2} />
-                  <span>{item.attachment.filename || 'File'}</span>
-                </div>
+                <MediaThumb
+                  key={item.id}
+                  item={item}
+                  cachedEntry={map?.get(String(item.id))}
+                  resolveSecretKey={resolveSecretKey}
+                  onReady={item.kind === 'image' ? onImageReady : onVideoReady}
+                  onClick={item.kind === 'image' ? onImageClick : onVideoClick}
+                />
               );
             })}
           </div>

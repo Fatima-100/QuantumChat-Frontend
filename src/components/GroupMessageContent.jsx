@@ -273,6 +273,8 @@ export default function GroupMessageContent({
   isMine,
   onImagePreview,
   onImageReady,
+  onVideoPreview,
+  onVideoReady,
   onBurnViewOnce,
 }) {
   if (!payload || payload.type === 'text') {
@@ -404,6 +406,8 @@ export default function GroupMessageContent({
         resolveSecretKey={resolveSecretKey}
         onImagePreview={onImagePreview}
         onImageReady={onImageReady}
+        onVideoPreview={onVideoPreview}
+        onVideoReady={onVideoReady}
         viewOnce={Boolean(message.viewOnce)}
         viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
         viewOnceMediaKind={message.viewOnceMediaKind}

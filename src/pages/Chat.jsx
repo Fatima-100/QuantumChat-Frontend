@@ -80,6 +80,7 @@ import {
   unsealMessage,
 } from "../crypto/keys.js";
 import { sealBytesAsync, secretboxSealAsync } from "../crypto/encryptFileAsync.js";
+import { compressVideo } from "../crypto/videoCompressor.js";
 import {
   findSecretKeyForPublicKey,
   getCurrentKeySet,
@@ -331,6 +332,10 @@ export default function Chat() {
   const [disappearSeconds, setDisappearSeconds] = useState(0);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [mediaPreviewSending, setMediaPreviewSending] = useState(false);
+   const [mediaCompressing, setMediaCompressing] = useState(false);
+  const [mediaCompressProgress, setMediaCompressProgress] = useState(0);
+  const [mediaCompressPhase, setMediaCompressPhase] = useState('encoding');
+  const [videoPlayer, setVideoPlayer] = useState(null);
   const [allowForward, setAllowForward] = useState(true);
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
@@ -513,7 +518,8 @@ export default function Chat() {
   const recordStartedAtRef = useRef(0);
   const notifiedCallIdRef = useRef(null);
   const dragCountRef = useRef(0);
-  const imageSrcMapRef = useRef(new Map());
+   const imageSrcMapRef = useRef(new Map());
+  const videoSrcMapRef = useRef(new Map());
   const aiAbortRef = useRef(null);
   const usersRef = useRef([]);
   const groupsRef = useRef([]);
@@ -4376,15 +4382,20 @@ export default function Chat() {
   // sequential small requests instead of one big body — Vercel's
   // serverless functions reject an oversized single request body outright,
   // which is what actually broke video uploads.
-  async function putCiphertextChunked(
+    async function putCiphertextChunked(
     cipherBytes,
     { pendingUploadId, slot, signal, onProgress },
   ) {
     const total = cipherBytes.byteLength;
     const totalChunks = Math.max(1, Math.ceil(total / CHUNK_SIZE));
-    let sent = 0;
+    const CONCURRENCY = 4; // parallel round-trips per slot — chunks carry their own index, order doesn't matter server-side
+    const loadedByChunk = new Array(totalChunks).fill(0);
+    const report = () => {
+      const sent = loadedByChunk.reduce((a, b) => a + b, 0);
+      onProgress?.({ loaded: sent, total });
+    };
 
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    async function uploadChunk(chunkIndex) {
       const start = chunkIndex * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, total);
       const chunkBlob = new Blob([cipherBytes.subarray(start, end)], {
@@ -4397,12 +4408,24 @@ export default function Chat() {
         { signal, headers: { "Content-Type": "application/octet-stream" } },
       );
 
-      sent += end - start;
-      onProgress?.({ loaded: sent, total });
+      loadedByChunk[chunkIndex] = end - start;
+      report();
     }
+
+    let nextIndex = 0;
+    async function worker() {
+      while (nextIndex < totalChunks) {
+        const chunkIndex = nextIndex;
+        nextIndex += 1;
+        await uploadChunk(chunkIndex);
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, totalChunks) }, worker),
+    );
     return undefined;
   }
-
   async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false } = {}) {
     if (
       !file ||
@@ -4713,21 +4736,43 @@ export default function Chat() {
     }
 
     if (mediaFiles.length) {
-      setMediaPreview({ files: mediaFiles, index: 0, viewOnce: false });
+      setMediaPreview({ files: mediaFiles, index: 0, viewOnce: false, compress: false });
     }
   }
-
   async function handleMediaPreviewSend() {
-    if (!mediaPreview || mediaPreviewSending) return;
+    if (!mediaPreview || mediaPreviewSending || mediaCompressing) return;
     const file = mediaPreview.files[mediaPreview.index];
     if (!file) {
       setMediaPreview(null);
       return;
     }
 
+    let fileToSend = file;
+    if (mediaPreview.compress && String(file.type || "").startsWith("video/")) {
+      setMediaCompressing(true);
+      setMediaCompressProgress(0);
+      try {
+        fileToSend = await compressVideo(
+          file,
+          (progress) => setMediaCompressProgress(progress),
+          (phase) => setMediaCompressPhase(phase),
+        );
+      } catch (err) {
+        showToast(
+          err.message || "Compression failed — sending original video",
+          "error",
+        );
+        fileToSend = file;
+      } finally {
+        setMediaCompressing(false);
+        setMediaCompressProgress(0);
+        setMediaCompressPhase('encoding');
+      }
+    }
+
     setMediaPreviewSending(true);
     try {
-      await sendAttachmentFile(file, {
+      await sendAttachmentFile(fileToSend, {
         viewOnce: mediaPreview.viewOnce,
         quiet: mediaPreview.files.length > 1,
       });
@@ -4737,6 +4782,7 @@ export default function Chat() {
           files: mediaPreview.files,
           index: nextIndex,
           viewOnce: false,
+          compress: false,
         });
       } else {
         setMediaPreview(null);
@@ -4849,6 +4895,17 @@ export default function Chat() {
       items.findIndex((it) => it.id === String(id)),
     );
     setGallery({ items, index: index < 0 ? 0 : index });
+  }
+
+  function handleVideoReady(id, src, filename) {
+    if (!id || !src) return;
+    videoSrcMapRef.current.set(String(id), { src, alt: filename || "Video" });
+  }
+
+  function handleVideoPreview(id) {
+    const entry = videoSrcMapRef.current.get(String(id));
+    if (!entry) return;
+    setVideoPlayer({ src: entry.src, filename: entry.alt });
   }
 
   function clearRecordingResources({ keepChunks = false } = {}) {
@@ -6479,6 +6536,8 @@ export default function Chat() {
                               onJumpToReply={handleJumpToReply}
                               onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
+                              onVideoPreview={handleVideoPreview}
+                              onVideoReady={handleVideoReady}
                               onBurnViewOnce={handleBurnViewOnce}
                               onShowInfo={handleShowMessageInfo}
                               onShowEditHistory={handleShowEditHistory}
@@ -7097,9 +7156,17 @@ export default function Chat() {
         <ChatMediaModal
           messages={visibleMessages}
           imageSrcMap={imageSrcMapRef.current}
+          videoSrcMap={videoSrcMapRef.current}
+          resolveSecretKey={resolveMySecretKey}
+          onImageReady={handleImageReady}
+          onVideoReady={handleVideoReady}
           onImageClick={(id) => {
             setShowChatMedia(false);
             handleImagePreview(id);
+          }}
+          onVideoClick={(id) => {
+            setShowChatMedia(false);
+            handleVideoPreview(id);
           }}
           onClose={() => setShowChatMedia(false)}
         />
@@ -7411,6 +7478,32 @@ export default function Chat() {
         onClose={() => setGallery(null)}
       />
 
+      {videoPlayer && (
+        <div
+          className="lightbox-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setVideoPlayer(null)}
+        >
+          <button
+            type="button"
+            className="lightbox-close"
+            onClick={() => setVideoPlayer(null)}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+          <video
+            src={videoPlayer.src}
+            controls
+            autoPlay
+            playsInline
+            className="lightbox-image"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       <MediaSendPreview
         open={Boolean(mediaPreview?.files?.length)}
         file={mediaPreview?.files?.[mediaPreview.index]}
@@ -7422,9 +7515,18 @@ export default function Chat() {
             prev ? { ...prev, viewOnce: !prev.viewOnce } : prev,
           )
         }
+        compress={Boolean(mediaPreview?.compress)}
+        onToggleCompress={() =>
+          setMediaPreview((prev) =>
+            prev ? { ...prev, compress: !prev.compress } : prev,
+          )
+        }
+        compressing={mediaCompressing}
+        compressProgress={mediaCompressProgress}
+        compressPhase={mediaCompressPhase}
         onSend={handleMediaPreviewSend}
-        onClose={() => !mediaPreviewSending && setMediaPreview(null)}
-        sending={mediaPreviewSending}
+        onClose={() => !mediaPreviewSending && !mediaCompressing && setMediaPreview(null)}
+        sending={mediaPreviewSending || mediaCompressing}
       />
 
       <ComposerPlusSheet
