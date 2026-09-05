@@ -16013,6 +16013,31 @@ body.theme-dreamcloud {
   line-height: 1.5;
 }
 
+.toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast-action {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--accent, #60a5fa);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  text-decoration: underline;
+}
+
 .toast-close {
   position: absolute;
   top: 8px;
