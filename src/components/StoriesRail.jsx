@@ -172,6 +172,13 @@ function viewerCanSeeStory(story, currentUserId) {
   return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
 }
 
+/** Session cache of decrypted story object URLs — reopening a status is instant. */
+const storyMediaCache = new Map();
+
+function cacheKeyForStory(story) {
+  return `${story.id}:${story.sealed ? '1' : '0'}:${story.contentIv || ''}`;
+}
+
 function formatElapsed(dateStr) {
   if (!dateStr) return '';
   const diffMs = Date.now() - new Date(dateStr).getTime();
@@ -766,6 +773,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [blockedReason, setBlockedReason] = useState('');
+  const [loadPhase, setLoadPhase] = useState(''); // '', 'download', 'decrypt'
+  const [downloadPct, setDownloadPct] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const replyInputRef = useRef(null);
@@ -796,10 +805,12 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   useEffect(() => {
     const abortController = new AbortController();
     let objectUrl;
+    let usedCache = false;
 
-    // Reset state for the new story immediately
     setMediaUrl(null);
     setBlockedReason('');
+    setLoadPhase('');
+    setDownloadPct(null);
 
     if (!isOwn) {
       client.post(`/stories/${story.id}/view`).catch(() => {
@@ -808,7 +819,15 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     }
 
     (async () => {
-       if (story.sealed) {
+      const cacheKey = cacheKeyForStory(story);
+      const cached = storyMediaCache.get(cacheKey);
+      if (cached) {
+        usedCache = true;
+        setMediaUrl(cached);
+        return;
+      }
+
+      if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
 
@@ -817,13 +836,22 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           return;
         }
 
+        setLoadPhase('download');
         const res = await client.get(`/stories/${story.id}/media`, {
           responseType: 'arraybuffer',
-          signal: abortController.signal, // Kills the request on unmount
+          signal: abortController.signal,
+          timeout: 90_000,
+          onDownloadProgress: (evt) => {
+            if (!evt.total) return;
+            setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
+          },
         });
 
-        // Bail out before heavy decryption if the user already skipped
         if (abortController.signal.aborted) return;
+
+        setLoadPhase('decrypt');
+        setDownloadPct(100);
+        await new Promise((r) => requestAnimationFrame(() => r()));
 
         const cipherBytes = new Uint8Array(res.data);
         const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
@@ -833,26 +861,34 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         objectUrl = URL.createObjectURL(
           new Blob([plain], { type: story.mimetype || 'application/octet-stream' })
         );
+        storyMediaCache.set(cacheKey, objectUrl);
         setMediaUrl(objectUrl);
+        setLoadPhase('');
         return;
       }
 
-      // Non-sealed path
+      setLoadPhase('download');
       const res = await client.get(`/stories/${story.id}/media`, {
         responseType: 'blob',
         signal: abortController.signal,
+        timeout: 90_000,
+        onDownloadProgress: (evt) => {
+          if (!evt.total) return;
+          setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
+        },
       });
 
       if (abortController.signal.aborted) return;
 
       objectUrl = URL.createObjectURL(res.data);
+      storyMediaCache.set(cacheKey, objectUrl);
       setMediaUrl(objectUrl);
-
+      setLoadPhase('');
     })().catch((err) => {
-      // Axios >=0.22 throws 'CanceledError'. Native fetch throws 'AbortError'.
       if (err.name === 'CanceledError' || err.name === 'AbortError') return;
 
       setMediaUrl(null);
+      setLoadPhase('');
 
       if (story.sealed) {
         const status = err?.response?.status;
@@ -860,21 +896,28 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
           setBlockedReason('Story media is missing on the server');
+        } else if (err.code === 'ECONNABORTED') {
+          setBlockedReason('Status download timed out — try again');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
       } else {
-        // Fixes the silent failure for public stories
-        setBlockedReason('Failed to load story media');
+        setBlockedReason(
+          err.code === 'ECONNABORTED'
+            ? 'Status download timed out — try again'
+            : 'Failed to load story media'
+        );
       }
     });
 
     return () => {
-      abortController.abort(); // Triggers the cancellation across the board
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      abortController.abort();
+      // Keep session-cached URLs alive; only revoke uncached blobs.
+      if (objectUrl && !usedCache) {
+        const key = cacheKeyForStory(story);
+        if (storyMediaCache.get(key) !== objectUrl) URL.revokeObjectURL(objectUrl);
+      }
     };
-
-    // Only depend on primitives to prevent infinite re-render loops
   }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
 
   useEffect(() => {
@@ -1385,7 +1428,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           {!blockedReason && !mediaUrl && (
             <div className="story-media-loading" aria-live="polite">
               <div className="skeleton skeleton-line story-media-loading-bar" />
-              <p className="empty-hint">Decrypting…</p>
+              <p className="empty-hint">
+                {loadPhase === 'decrypt'
+                  ? 'Decrypting…'
+                  : downloadPct != null
+                    ? `Downloading… ${downloadPct}%`
+                    : 'Loading status…'}
+              </p>
             </div>
           )}
           {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
