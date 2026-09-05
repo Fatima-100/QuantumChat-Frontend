@@ -1,4 +1,4 @@
-import { Eye, Mic, Paperclip, Send, Smile, Square, X } from 'lucide-react';
+import { Eye, ImagePlus, Mic, Paperclip, Send, Smile, Square, Type, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
@@ -15,6 +15,7 @@ import {
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import TextStoryComposer from './TextStoryComposer.jsx';
 import UserAvatar from './UserAvatar.jsx';
 const MAX_STORY_SECONDS = 60;
 const TTL_PRESETS = [
@@ -205,7 +206,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [pendingFile, setPendingFile] = useState(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [textComposerOpen, setTextComposerOpen] = useState(false);
   const inputRef = useRef(null);
+  const addMenuRef = useRef(null);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -287,11 +291,31 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   };
 }, [currentUser?.id, currentUser?.friends, notifSettings]);
 
+  useEffect(() => {
+    if (!addMenuOpen) return undefined;
+    function onDocClick(e) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
+        setAddMenuOpen(false);
+      }
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setAddMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [addMenuOpen]);
+
   function handleFileSelected(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setAddMenuOpen(false);
+    setTextComposerOpen(false);
     setPendingFile(file);
     setPendingPreviewUrl(URL.createObjectURL(file));
   }
@@ -416,10 +440,17 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
     setPendingFile(null);
     setPendingPreviewUrl(null);
+    setTextComposerOpen(false);
   }
 
   async function confirmPostStory(ttlMs, allowReplies) {
     const file = pendingFile;
+    if (!file || uploading) return;
+    const ok = await uploadStory(file, ttlMs, allowReplies);
+    if (ok) closeComposer();
+  }
+
+  async function confirmPostTextStory(file, ttlMs, allowReplies) {
     if (!file || uploading) return;
     const ok = await uploadStory(file, ttlMs, allowReplies);
     if (ok) closeComposer();
@@ -443,22 +474,55 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       <p className="stories-privacy-note">
         Sealed stories use X5 envelopes so allowed contacts can decrypt; the server only stores ciphertext.
       </p>
-      <button
-        type="button"
-        className={`story-ring add${uploading ? ' uploading' : ''}`}
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        aria-label="Add story"
-      >
-        <UserAvatar
-          userId={currentUser?.id}
-          name={currentUser?.username}
-          hasAvatar={currentUser?.hasAvatar}
-          size="story"
-        />
-        <span className="story-add-badge">{uploading ? '…' : '+'}</span>
-        <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
-      </button>
+      <div className="story-add-wrap" ref={addMenuRef}>
+        <button
+          type="button"
+          className={`story-ring add${uploading ? ' uploading' : ''}`}
+          onClick={() => {
+            if (uploading) return;
+            setAddMenuOpen((v) => !v);
+          }}
+          disabled={uploading}
+          aria-label="Add story"
+          aria-expanded={addMenuOpen}
+          aria-haspopup="menu"
+        >
+          <UserAvatar
+            userId={currentUser?.id}
+            name={currentUser?.username}
+            hasAvatar={currentUser?.hasAvatar}
+            size="story"
+          />
+          <span className="story-add-badge">{uploading ? '…' : '+'}</span>
+          <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
+        </button>
+        {addMenuOpen && (
+          <div className="story-add-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAddMenuOpen(false);
+                inputRef.current?.click();
+              }}
+            >
+              <ImagePlus size={16} aria-hidden />
+              Photo, video or audio
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAddMenuOpen(false);
+                setTextComposerOpen(true);
+              }}
+            >
+              <Type size={16} aria-hidden />
+              Text status
+            </button>
+          </div>
+        )}
+      </div>
       <input
         ref={inputRef}
         type="file"
@@ -534,6 +598,14 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           onCancel={closeComposer}
           onConfirm={confirmPostStory}
           uploading={uploading}
+        />
+      )}
+      {textComposerOpen && !pendingFile && (
+        <TextStoryComposer
+          onCancel={() => setTextComposerOpen(false)}
+          onConfirm={confirmPostTextStory}
+          uploading={uploading}
+          onError={onError}
         />
       )}
     </div>
