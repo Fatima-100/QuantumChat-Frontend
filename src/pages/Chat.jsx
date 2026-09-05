@@ -238,6 +238,20 @@ function isSameDay(d1, d2) {
   );
 }
 
+/** Whether a message belongs to a Clear-chat scope bucket. */
+function messageMatchesClearScope(message, scope) {
+  if (scope === "all") return true;
+  const category = message?.mediaCategory;
+  const hasAttachment = Boolean(
+    message?.attachment &&
+      (typeof message.attachment === "object"
+        ? message.attachment.id || message.attachment._id
+        : message.attachment),
+  );
+  if (scope === "text") return !category && !hasAttachment;
+  return category === scope;
+}
+
 export default function Chat() {
   const { t, i18n } = useTranslation();
   const {
@@ -2144,10 +2158,9 @@ export default function Chat() {
     }
 
     function handleChatCleared(payload = {}) {
-      // Multi-device sync: another of this user's sessions cleared a chat. If
-      // we're viewing that same conversation, empty it here too. The backend
-      // already filters cleared messages out of fetch/sync, so nothing stale
-      // reappears on a later refresh.
+      // Multi-device sync: another of this user's sessions cleared a chat.
+      // Scoped clears (photos only, etc.) must NOT wipe the whole thread —
+      // only drop matching messages. Full "all" clears empty the view.
       const current = selectedRef.current;
       if (!current) return;
       const matchesGroup =
@@ -2158,9 +2171,27 @@ export default function Chat() {
         payload.peerId &&
         current.type === "dm" &&
         String(current.id) === String(payload.peerId);
-      if (matchesGroup || matchesDm) {
+      if (!matchesGroup && !matchesDm) return;
+
+      const scopes = Array.isArray(payload.scopes) && payload.scopes.length
+        ? payload.scopes.map(String)
+        : ["all"];
+      if (scopes.includes("all")) {
         setMessages([]);
+        return;
       }
+
+      const clearedAtMs = payload.clearedAt
+        ? new Date(payload.clearedAt).getTime()
+        : Date.now();
+
+      setMessages((prev) =>
+        prev.filter((m) => {
+          const createdMs = new Date(m.createdAt || 0).getTime();
+          if (createdMs > clearedAtMs) return true;
+          return !scopes.some((scope) => messageMatchesClearScope(m, scope));
+        }),
+      );
     }
 
     function handleUserStatus(payload = {}) {
@@ -3714,7 +3745,13 @@ export default function Chat() {
     const type = selected.type;
     const id = selected.id;
     const clearingStarred = scopes.includes("starred");
-    const serverScopes = scopes.filter((s) => s !== "starred");
+    const CONTENT_SCOPES = ["photo", "video", "voice", "document", "text"];
+    let serverScopes = scopes.filter((s) => s !== "starred");
+    // Selecting every content type is a full clear — use the single 'all'
+    // watermark so we don't leave five overlapping scoped entries.
+    if (CONTENT_SCOPES.every((k) => serverScopes.includes(k))) {
+      serverScopes = ["all"];
+    }
 
     try {
       setClearChatBusy(true);
@@ -3737,19 +3774,30 @@ export default function Chat() {
 
       const current = selectedRef.current;
       if (current && current.type === type && String(current.id) === String(id)) {
-        // Re-fetch rather than blanking outright — a scoped clear (e.g. just
-        // photos) should still leave the remaining messages visible.
-        setLoadingMessages(true);
-        const endpoint = type === "group" ? `/groups/${id}/messages` : `/messages/${id}`;
-        try {
-          const res = await client.get(endpoint, { params: { limit: 80, markRead: 0 } });
-          setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
-        } finally {
-          setLoadingMessages(false);
+        if (serverScopes.includes("all")) {
+          setMessages([]);
+        } else if (serverScopes.length) {
+          // Re-fetch rather than blanking outright — a scoped clear (e.g. just
+          // photos) should still leave the remaining messages visible.
+          setLoadingMessages(true);
+          const endpoint = type === "group" ? `/groups/${id}/messages` : `/messages/${id}`;
+          try {
+            const res = await client.get(endpoint, { params: { limit: 80, markRead: 0 } });
+            setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
+          } finally {
+            setLoadingMessages(false);
+          }
         }
       }
 
-      showToast("Chat cleared", "success");
+      const toastLabel = serverScopes.includes("all")
+        ? "Chat cleared"
+        : serverScopes.length
+          ? "Selected messages cleared"
+          : clearingStarred
+            ? "Starred messages cleared"
+            : "Chat cleared";
+      showToast(toastLabel, "success");
       setClearChatOpen(false);
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to clear chat", "error");
