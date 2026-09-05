@@ -3343,6 +3343,7 @@ input:focus-visible,
   transition: transform var(--transition-normal), background-color var(--transition-theme), border-color var(--transition-theme), box-shadow var(--transition-normal);
   z-index: 30;
   overflow: hidden;
+  position: relative;
 }
 
 .sidebar-header {
@@ -8826,6 +8827,17 @@ input:focus-visible,
   line-height: 16px;
   font-weight: 700;
   border: 2px solid var(--bg-surface);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.story-add-badge:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 .story-add-wrap {
@@ -8833,39 +8845,185 @@ input:focus-visible,
   flex-shrink: 0;
 }
 
-.story-add-menu {
+.story-ring.add.has-own .avatar {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+/* WhatsApp-style status create FABs (pencil + camera) */
+.status-fabs {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
   z-index: 40;
-  min-width: 200px;
-  padding: 6px;
-  border-radius: 12px;
-  background: #161822;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  right: 16px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.status-fab {
+  pointer-events: auto;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.status-fab:hover {
+  transform: scale(1.05);
+  filter: brightness(1.08);
+}
+
+.status-fab.text {
+  width: 48px;
+  height: 48px;
+  background: #233138;
+}
+
+.status-fab.camera {
+  width: 58px;
+  height: 58px;
+  background: var(--accent, #00a884);
+}
+
+/* Bottom sheet: choose status type */
+.status-create-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: storyOverlayFadeIn 160ms ease both;
+}
+
+.status-create-sheet {
+  width: min(420px, 100%);
+  background: #1c1e24;
+  border-radius: 18px 18px 0 0;
+  padding: 10px 16px 20px;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4);
+  animation: statusSheetUp 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes statusSheetUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.status-create-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 4px auto 14px;
+}
+
+.status-create-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #f4f5f7;
+}
+
+.status-create-subtitle {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.status-create-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-create-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f0f1f5;
+  cursor: pointer;
+  text-align: left;
+}
+
+.status-create-option:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.status-create-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.status-create-icon.media {
+  background: #128c7e;
+}
+
+.status-create-icon.audio {
+  background: #075e54;
+}
+
+.status-create-icon.text {
+  background: #34b7f1;
+}
+
+.status-create-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.story-add-menu button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.status-create-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.status-create-copy small {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.status-create-cancel {
+  margin-top: 14px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #f0f1f5;
-  font-size: 13px;
-  text-align: left;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8e9ef;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.story-add-menu button:hover {
-  background: rgba(255, 255, 255, 0.08);
+.status-create-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .text-story-overlay .text-story-composer {
