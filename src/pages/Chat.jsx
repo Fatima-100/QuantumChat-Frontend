@@ -131,6 +131,7 @@ import {
   getPinnedIds,
   getStarredEntries,
   getStarredIds,
+  restoreStarredEntries,
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
@@ -2194,6 +2195,35 @@ export default function Chat() {
       );
     }
 
+    function handleChatClearUndone(payload = {}) {
+      // Another of this user's sessions undid a clear — re-fetch if we're
+      // looking at that conversation so hidden messages come back.
+      const current = selectedRef.current;
+      if (!current) return;
+      const matchesGroup =
+        payload.groupId &&
+        current.type === "group" &&
+        String(current.id) === String(payload.groupId);
+      const matchesDm =
+        payload.peerId &&
+        current.type === "dm" &&
+        String(current.id) === String(payload.peerId);
+      if (!matchesGroup && !matchesDm) return;
+
+      const endpoint =
+        current.type === "group"
+          ? `/groups/${current.id}/messages`
+          : `/messages/${current.id}`;
+      setLoadingMessages(true);
+      client
+        .get(endpoint, { params: { limit: 80, markRead: 0 } })
+        .then((res) => {
+          setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
+        })
+        .catch(() => {})
+        .finally(() => setLoadingMessages(false));
+    }
+
     function handleUserStatus(payload = {}) {
       const { userId: statusUserId } = payload;
       if (!statusUserId) return;
@@ -2240,6 +2270,7 @@ export default function Chat() {
     socket.on("friend:request:accepted", handleFriendRequestAccepted);
     socket.on("friend:removed", handleFriendRemoved);
     socket.on("chat:cleared", handleChatCleared);
+    socket.on("chat:clear-undone", handleChatClearUndone);
     socket.on("user:status", handleUserStatus);
 
     // Auth may connect the socket before Chat mounts, so the initial
@@ -2275,6 +2306,7 @@ export default function Chat() {
       socket.off("friend:request:accepted", handleFriendRequestAccepted);
       socket.off("friend:removed", handleFriendRemoved);
       socket.off("chat:cleared", handleChatCleared);
+      socket.off("chat:clear-undone", handleChatClearUndone);
       socket.off("user:status", handleUserStatus);
   socket.off("connect", requestPresence);
   stopTyping({ emit: false });
@@ -3744,6 +3776,7 @@ export default function Chat() {
     if (!selected) return;
     const type = selected.type;
     const id = selected.id;
+    const conversationKey = selected.key;
     const clearingStarred = scopes.includes("starred");
     const CONTENT_SCOPES = ["photo", "video", "voice", "document", "text"];
     let serverScopes = scopes.filter((s) => s !== "starred");
@@ -3752,6 +3785,24 @@ export default function Chat() {
     if (CONTENT_SCOPES.every((k) => serverScopes.includes(k))) {
       serverScopes = ["all"];
     }
+
+    // Snapshot for Undo (toast stays up ~8s).
+    const previousClearedEntries = (user.clearedConversations || [])
+      .filter((c) => c && c.conversationKey === conversationKey)
+      .map((c) => ({
+        conversationKey: c.conversationKey,
+        scope: c.scope || "all",
+        clearedAt: c.clearedAt,
+      }));
+    const previousMessages =
+      selectedRef.current &&
+      selectedRef.current.type === type &&
+      String(selectedRef.current.id) === String(id)
+        ? messages
+        : null;
+    const previousStarredEntries = clearingStarred
+      ? getStarredEntries(user.id)
+      : null;
 
     try {
       setClearChatBusy(true);
@@ -3797,12 +3848,72 @@ export default function Chat() {
           : clearingStarred
             ? "Starred messages cleared"
             : "Chat cleared";
-      showToast(toastLabel, "success");
+
+      let undoUsed = false;
+      showToast(toastLabel, "success", 8000, {
+        actionLabel: "Undo",
+        onAction: () => {
+          if (undoUsed) return;
+          undoUsed = true;
+          void undoClearChat({
+            type,
+            id,
+            previousClearedEntries,
+            previousMessages,
+            previousStarredEntries,
+            hadServerClear: serverScopes.length > 0,
+          });
+        },
+      });
       setClearChatOpen(false);
     } catch (err) {
       showToast(err.response?.data?.error || "Failed to clear chat", "error");
     } finally {
       setClearChatBusy(false);
+    }
+  }
+
+  async function undoClearChat({
+    type,
+    id,
+    previousClearedEntries,
+    previousMessages,
+    previousStarredEntries,
+    hadServerClear,
+  }) {
+    try {
+      if (hadServerClear) {
+        const payload =
+          type === "group"
+            ? { groupId: id, restoreEntries: previousClearedEntries }
+            : { peerId: id, restoreEntries: previousClearedEntries };
+        const { data } = await client.post("/users/me/clear-chat/undo", payload);
+        if (data?.data) updateSessionUser(data.data);
+      }
+
+      if (previousStarredEntries) {
+        setStarredIds(restoreStarredEntries(user.id, previousStarredEntries));
+      }
+
+      const current = selectedRef.current;
+      if (current && current.type === type && String(current.id) === String(id)) {
+        if (Array.isArray(previousMessages)) {
+          setMessages(previousMessages);
+        } else {
+          setLoadingMessages(true);
+          const endpoint = type === "group" ? `/groups/${id}/messages` : `/messages/${id}`;
+          try {
+            const res = await client.get(endpoint, { params: { limit: 80, markRead: 0 } });
+            setMessages((res.data.data || []).map((raw) => decorateRef.current(raw)));
+          } finally {
+            setLoadingMessages(false);
+          }
+        }
+      }
+
+      showToast("Clear undone", "success", 2500);
+    } catch (err) {
+      showToast(err.response?.data?.error || "Could not undo clear", "error");
     }
   }
   async function handleUnblockUser(peerId) {
