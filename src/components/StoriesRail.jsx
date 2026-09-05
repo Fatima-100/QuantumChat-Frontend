@@ -1,4 +1,4 @@
-import { Eye, ImagePlus, Mic, Paperclip, Send, Smile, Square, Type, X } from 'lucide-react';
+import { Camera, Eye, ImagePlus, Mic, Paperclip, Pencil, Send, Smile, Square, Type, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
@@ -206,10 +206,11 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [pendingFile, setPendingFile] = useState(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [textComposerOpen, setTextComposerOpen] = useState(false);
-  const inputRef = useRef(null);
-  const addMenuRef = useRef(null);
+  const [fabHost, setFabHost] = useState(null);
+  const mediaInputRef = useRef(null);
+  const audioInputRef = useRef(null);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -292,32 +293,47 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 }, [currentUser?.id, currentUser?.friends, notifSettings]);
 
   useEffect(() => {
-    if (!addMenuOpen) return undefined;
-    function onDocClick(e) {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
-        setAddMenuOpen(false);
-      }
-    }
+    setFabHost(document.querySelector('.qc-conversation-pane'));
+  }, []);
+
+  const ownGroup = useMemo(
+    () => grouped.find((g) => String(g.user?.id) === String(currentUser?.id)) || null,
+    [grouped, currentUser?.id]
+  );
+
+  useEffect(() => {
+    if (!createSheetOpen) return undefined;
     function onKey(e) {
-      if (e.key === 'Escape') setAddMenuOpen(false);
+      if (e.key === 'Escape') setCreateSheetOpen(false);
     }
-    document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [addMenuOpen]);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [createSheetOpen]);
 
   function handleFileSelected(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
-    setAddMenuOpen(false);
+    setCreateSheetOpen(false);
     setTextComposerOpen(false);
     setPendingFile(file);
     setPendingPreviewUrl(URL.createObjectURL(file));
+  }
+
+  function openCreateSheet() {
+    if (uploading) return;
+    setCreateSheetOpen(true);
+  }
+
+  function openOwnStoriesOrCreate() {
+    if (uploading) return;
+    if (ownGroup?.items?.length) {
+      setUnavailable(false);
+      setViewer({ group: ownGroup, index: 0 });
+      return;
+    }
+    openCreateSheet();
   }
 
 
@@ -474,18 +490,14 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       <p className="stories-privacy-note">
         Sealed stories use X5 envelopes so allowed contacts can decrypt; the server only stores ciphertext.
       </p>
-      <div className="story-add-wrap" ref={addMenuRef}>
+
+      <div className="story-add-wrap">
         <button
           type="button"
-          className={`story-ring add${uploading ? ' uploading' : ''}`}
-          onClick={() => {
-            if (uploading) return;
-            setAddMenuOpen((v) => !v);
-          }}
+          className={`story-ring add${uploading ? ' uploading' : ''}${ownGroup?.items?.length ? ' has-own' : ''}`}
+          onClick={openOwnStoriesOrCreate}
           disabled={uploading}
-          aria-label="Add story"
-          aria-expanded={addMenuOpen}
-          aria-haspopup="menu"
+          aria-label={ownGroup?.items?.length ? 'View your status' : 'Add status'}
         >
           <UserAvatar
             userId={currentUser?.id}
@@ -493,40 +505,30 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
             hasAvatar={currentUser?.hasAvatar}
             size="story"
           />
-          <span className="story-add-badge">{uploading ? '…' : '+'}</span>
-          <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
+          <span className="story-ring-label">{uploading ? 'Uploading…' : 'My status'}</span>
         </button>
-        {addMenuOpen && (
-          <div className="story-add-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setAddMenuOpen(false);
-                inputRef.current?.click();
-              }}
-            >
-              <ImagePlus size={16} aria-hidden />
-              Photo, video or audio
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setAddMenuOpen(false);
-                setTextComposerOpen(true);
-              }}
-            >
-              <Type size={16} aria-hidden />
-              Text status
-            </button>
-          </div>
-        )}
+        <button
+          type="button"
+          className="story-add-badge"
+          disabled={uploading}
+          aria-label="Add status"
+          onClick={openCreateSheet}
+        >
+          {uploading ? '…' : '+'}
+        </button>
       </div>
+
       <input
-        ref={inputRef}
+        ref={mediaInputRef}
         type="file"
-        accept="image/*,video/*,audio/*"
+        accept="image/*,video/*"
+        hidden
+        onChange={handleFileSelected}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
         hidden
         onChange={handleFileSelected}
       />
@@ -541,7 +543,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
       {!storiesLoading &&
         grouped
-          .filter((g) => String(g.user?.id) !== String(currentUser?.id) || g.items.length > 0)
+          .filter((g) => String(g.user?.id) !== String(currentUser?.id))
           .map((g) => {
             const hasSealed = g.items.some((s) => s.sealed);
             return (
@@ -608,6 +610,115 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           onError={onError}
         />
       )}
+
+      {createSheetOpen &&
+        createPortal(
+          <div
+            className="status-create-overlay"
+            onClick={() => setCreateSheetOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="status-create-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Add status"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="status-create-handle" aria-hidden />
+              <h2 className="status-create-title">Add status</h2>
+              <p className="status-create-subtitle">Share a photo, video, voice note, or text</p>
+              <div className="status-create-options">
+                <button
+                  type="button"
+                  className="status-create-option"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    mediaInputRef.current?.click();
+                  }}
+                >
+                  <span className="status-create-icon media">
+                    <ImagePlus size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Photo &amp; video</strong>
+                    <small>Upload from your gallery</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="status-create-option"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    audioInputRef.current?.click();
+                  }}
+                >
+                  <span className="status-create-icon audio">
+                    <Mic size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Voice note</strong>
+                    <small>Share an audio status</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="status-create-option"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    setTextComposerOpen(true);
+                  }}
+                >
+                  <span className="status-create-icon text">
+                    <Type size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Text status</strong>
+                    <small>Type with colors and fonts</small>
+                  </span>
+                </button>
+              </div>
+              <button
+                type="button"
+                className="status-create-cancel"
+                onClick={() => setCreateSheetOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {!uploading &&
+        !pendingFile &&
+        !textComposerOpen &&
+        !createSheetOpen &&
+        !viewer &&
+        fabHost &&
+        createPortal(
+          <div className="status-fabs" aria-label="Create status">
+            <button
+              type="button"
+              className="status-fab text"
+              title="Text status"
+              aria-label="Text status"
+              onClick={() => setTextComposerOpen(true)}
+            >
+              <Pencil size={20} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="status-fab camera"
+              title="Add status"
+              aria-label="Add photo, video, or other status"
+              onClick={openCreateSheet}
+            >
+              <Camera size={24} aria-hidden />
+            </button>
+          </div>,
+          fabHost
+        )}
     </div>
   );
 });
