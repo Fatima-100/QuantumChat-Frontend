@@ -122,15 +122,16 @@ function wrapLines(ctx, text, maxWidth) {
   return lines.length ? lines : [''];
 }
 
-/** Render styled text status to a PNG File (posts as a sealed image story). */
+/** Render styled text status to a compressed JPEG (posts as a sealed image story). */
 export async function renderTextStoryToFile(text, { backgroundId, fontId, align }) {
   const bg = BACKGROUNDS.find((b) => b.id === backgroundId) || BACKGROUNDS[0];
   const font = FONTS.find((f) => f.id === fontId) || FONTS[0];
   const textAlign = ['left', 'center', 'right'].includes(align) ? align : 'center';
 
-  const W = 1080;
-  const H = 1920;
-  const padX = 96;
+  // 720×1280 JPEG keeps sealed download/decrypt snappy vs a full-bleed PNG.
+  const W = 720;
+  const H = 1280;
+  const padX = 56;
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -138,14 +139,14 @@ export async function renderTextStoryToFile(text, { backgroundId, fontId, align 
   paintFill(ctx, bg.fill, W, H);
 
   const raw = String(text || '').trim().slice(0, MAX_CHARS);
-  let fontSize = raw.length > 220 ? 52 : raw.length > 120 ? 64 : raw.length > 60 ? 78 : 96;
+  let fontSize = raw.length > 220 ? 36 : raw.length > 120 ? 44 : raw.length > 60 ? 54 : 64;
   ctx.fillStyle = '#ffffff';
   ctx.textBaseline = 'middle';
   ctx.font = `${font.weight} ${fontSize}px ${font.family}`;
 
   let lines = wrapLines(ctx, raw, W - padX * 2);
-  while (lines.length * fontSize * 1.25 > H * 0.72 && fontSize > 36) {
-    fontSize -= 4;
+  while (lines.length * fontSize * 1.25 > H * 0.72 && fontSize > 28) {
+    fontSize -= 2;
     ctx.font = `${font.weight} ${fontSize}px ${font.family}`;
     lines = wrapLines(ctx, raw, W - padX * 2);
   }
@@ -162,9 +163,13 @@ export async function renderTextStoryToFile(text, { backgroundId, fontId, align 
   }
 
   const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not render text status'))), 'image/png');
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('Could not render text status'))),
+      'image/jpeg',
+      0.82
+    );
   });
-  return new File([blob], `text-status-${Date.now()}.png`, { type: 'image/png' });
+  return new File([blob], `text-status-${Date.now()}.jpg`, { type: 'image/jpeg' });
 }
 
 export default function TextStoryComposer({ onCancel, onConfirm, uploading, onError }) {
